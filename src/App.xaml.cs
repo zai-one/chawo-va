@@ -608,6 +608,14 @@ public partial class PisarApp : Application
                 }
                 text = await Task.Run(() => _recognizer!.TranscribeCancelable(samples, Recorder.SampleRate, () => !_abandonTake));
                 if (_abandonTake) { overlay?.HideNow(); Log.Write("recognize cancelled"); return; }
+                // Dictionary on the finished recognition only, before the Brain sees the phrase. Not the live draft.
+                if (text.Length > 0)
+                {
+                    var replaced = WordReplace.Apply(text, _settings.EffectiveWordReplacementRules);
+                    if (!string.Equals(replaced, text, StringComparison.Ordinal))
+                        Log.Write($"word replace before brain: {text.Length} -> {replaced.Length} chars");
+                    text = replaced;
+                }
                 string? selected = _selectionAtPress != null && text.Length > 0 ? await _selectionAtPress : null;
                 _selectionAtPress = null;
                 if (selected != null)
@@ -651,15 +659,6 @@ public partial class PisarApp : Application
             }
             else if (text.Length > 0)
                 Log.Write($"insert as is: simple={_settings.SimpleSyntax} selection={editedSelection} command={brainCommand}");
-
-            // After the final phrase exists, including a Brain answer. Not the live draft.
-            if (text.Length > 0 && _settings.WordReplacements)
-            {
-                var replaced = WordReplace.Apply(text, _settings.EffectiveWordReplacementRules);
-                if (!string.Equals(replaced, text, StringComparison.Ordinal))
-                    Log.Write($"word replace: {text.Length} -> {replaced.Length} chars");
-                text = replaced;
-            }
 
             if (_abandonTake)
             {

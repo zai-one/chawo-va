@@ -72,9 +72,7 @@ public sealed class Settings
     public string BrainInstruction { get; set; } = "";
     /// <summary>A single dictated sentence goes in lowercase and without the closing period, like a chat reply.</summary>
     public bool SimpleSyntax { get; set; }
-    /// <summary>After recognition, replace a few spoken spellings (цпу -> CPU). On by default. Not applied to the live draft.</summary>
-    public bool WordReplacements { get; set; } = true;
-    /// <summary>One "heard -> written" rule per line. Empty uses <see cref="WordReplace.DefaultRules"/>.</summary>
+    /// <summary>One "heard -> written" rule per line. Empty uses <see cref="WordReplace.DefaultRules"/>. "#" means the user cleared the dictionary. Applied after recognition, before the Brain, not to the live draft.</summary>
     public string WordReplacementRules { get; set; } = "";
 
     /// <summary>Read-only migration from 1.0.3, where the server Brain had a single on/off switch and cleaned every take.</summary>
@@ -139,14 +137,19 @@ public sealed class Settings
     public string EffectiveCleanupPrompt => CleanupPrompt.Trim().Length == 0 || SpeechCleanup.IsDefaultPrompt(CleanupPrompt)
         ? SpeechCleanup.DefaultPrompt : CleanupPrompt;
 
-    /// <summary>Blank rules mean the built-in IT list, so an old settings file still gets them. "#" means the user cleared the list.</summary>
+    /// <summary>Blank rules mean the built-in list, so an old settings file still gets them. "#" means the user cleared the dictionary.</summary>
     public string EffectiveWordReplacementRules =>
         string.IsNullOrWhiteSpace(WordReplacementRules) ? WordReplace.DefaultRules : WordReplacementRules;
 
-    public string WordReplacementRulesForEditor =>
-        string.IsNullOrWhiteSpace(WordReplacementRules) ? WordReplace.DefaultRules
-        : WordReplacementRules.Trim() == "#" ? ""
-        : WordReplacementRules;
+    public WordReplace.Pair[] DictionaryRows =>
+        string.IsNullOrWhiteSpace(WordReplacementRules) ? WordReplace.Parse(WordReplace.DefaultRules)
+        : WordReplace.Parse(WordReplacementRules);
+
+    public void SaveDictionary(IReadOnlyList<WordReplace.Pair> rows)
+    {
+        var kept = rows.Where(r => r.From.Trim().Length > 0 || r.To.Trim().Length > 0).ToArray();
+        WordReplacementRules = kept.Length == 0 ? "#" : WordReplace.Format(kept);
+    }
 
     /// <summary>Where the user dragged the overlay to (screen pixels, window top-left); null means "follow the caret".</summary>
     public int? OverlayX { get; set; }

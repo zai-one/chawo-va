@@ -30,7 +30,7 @@ public partial class SettingsWindow : Window
     /// <summary>Last open section, kept while Pisar runs.</summary>
     private static int _lastPage;
 
-    public enum Page { Dictation, Speech, Brain, Network }
+    public enum Page { Dictation, Speech, Dictionary, Brain, Network }
 
     public SettingsWindow(Settings settings, Action apply, Action unpin, Func<BrainSource, Task> selectBrain,
         Func<Task>? downloadSpeech = null, Action? speechChanged = null, Func<string>? speechStatus = null,
@@ -62,7 +62,7 @@ public partial class SettingsWindow : Window
         if (Nav.SelectedIndex < 0) { Nav.SelectedIndex = _lastPage; return; }
         _lastPage = Nav.SelectedIndex;
         if (_lastPage > (int)Page.Network) _lastPage = 0;
-        UIElement[] pages = { DictationPage, SpeechPage, BrainPage, NetworkPage };
+        UIElement[] pages = { DictationPage, SpeechPage, DictionaryPage, BrainPage, NetworkPage };
         for (int i = 0; i < pages.Length; i++)
             pages[i].Visibility = i == _lastPage ? Visibility.Visible : Visibility.Collapsed;
         if (_lastPage == (int)Page.Brain && _settings.Brain == BrainSource.Server) ServerPanel.FocusKey();
@@ -75,6 +75,7 @@ public partial class SettingsWindow : Window
         Title = L.T($"Гига Писарь {PisarApp.Version}", $"Giga Pisar {PisarApp.Version}");
         NavDictation.Text = L.T("Диктовка", "Dictation");
         NavSpeech.Text = L.T("Распознавание", "Speech");
+        NavDictionary.Text = L.T("Словарь", "Dictionary");
         NavBrain.Text = L.T("Мозг", "Brain");
         NavNetwork.Text = L.T("Сеть", "Network");
         Heading.Text = L.T("Диктовка", "Dictation");
@@ -136,10 +137,6 @@ public partial class SettingsWindow : Window
                                      "After copying, restore the previous clipboard and keep the phrase in Win+V");
         RestoreClipBox.IsChecked = _settings.RestoreClipboardAfterCopy;
         RestoreClipBox.Visibility = _settings.CopyPhraseToClipboard ? Visibility.Visible : Visibility.Collapsed;
-        ReplaceBox.Content = L.T("Писать «цпу» как CPU", "Write «цпу» as CPU");
-        ReplaceBox.IsChecked = _settings.WordReplacements;
-        ReplaceBox.ToolTip = L.T("Готовую фразу чуть правит список: цпу и сипиу становятся CPU, гпу — GPU. Черновик на плашке не трогается.",
-                                 "The finished phrase is adjusted: цпу becomes CPU. The live draft is left alone.");
         AutostartBox.Content = L.T("Запускать при входе в Windows", "Start when I sign in to Windows");
         TrayHint.Text = L.T("Крестик прячет окно. Выход — пункт «Выход» в трее.",
                             "The close button hides the window. Quit is in the tray menu.");
@@ -180,6 +177,14 @@ public partial class SettingsWindow : Window
             ?? L.T("Модель не скачана. Нажмите «Скачать» в её строке.",
                    "The model is not downloaded. Press Download on its row.");
         FillSpeechModelRows();
+        DictionaryHeading.Text = L.T("Словарь", "Dictionary");
+        DictionaryIntro.Text = L.T("Готовая фраза после распознавания и до мозга. Черновик на плашке не меняется. Пустая строка не считается.",
+                                   "The finished phrase, after recognition and before the Brain. The live draft is left alone. An empty row does nothing.");
+        HeardHeader.Text = L.T("Как слышно", "Heard");
+        WrittenHeader.Text = L.T("Как писать", "Written");
+        AddDictionaryButton.Content = L.T("Добавить", "Add");
+        FillDictionaryRows();
+
 
         NetworkHeading.Text = L.T("Сеть", "Network");
         NetworkIntro.Text = L.T("Порт для других компьютеров. Пока кнопку не нажать, слушает только этот ПК.",
@@ -218,8 +223,8 @@ public partial class SettingsWindow : Window
                                   "A .gguf file page or a resolve link. Downloaded only by the button below.");
         InstructionLabel.Text = L.T("Как переписывать", "How to rewrite");
         InstructionBox.Text = _settings.BrainInstruction;
-        InstructionHint.Text = L.T("Пусто: короче и суше, без повторов и чужого фона. Написали своё: выполняется только этот текст.",
-                                   "Empty: shorter and plainer, no repeats or off-topic background. Your text: only that is followed.");
+        InstructionHint.Text = L.T("Пусто: убрать повторы, слова-паразиты и чужой разговор. Смысл не сокращать и слова не добавлять. Написали своё: выполняется только этот текст.",
+                                   "Empty: drop repeats, filler, and someone else's conversation. Do not cut the meaning or add words. Your text: only that is followed.");
         BrainDeviceLabel.Text = L.T("Где считает", "Where it runs");
         BrainDeviceHint.Text = L.T("Процессор уже в программе. Видеокарта качает сборку Vulkan отдельно, в архив программы она не входит.",
                                    "The processor engine is the normal one. The video card downloads a Vulkan build; it is not inside the app.");
@@ -349,12 +354,6 @@ public partial class SettingsWindow : Window
         UnpinButton.IsEnabled = false;
     }
 
-    private void Replace_Click(object sender, RoutedEventArgs e)
-    {
-        _settings.WordReplacements = ReplaceBox.IsChecked == true;
-        _apply();
-    }
-
     /// <summary>Shows only what the chosen Brain needs: the server fields, the delete button, the every-take option.</summary>
     private void UpdateBrainTexts()
     {
@@ -448,6 +447,76 @@ public partial class SettingsWindow : Window
         var id = (string)item.Tag;
         if (id == _settings.MicrophoneId) return;
         _settings.MicrophoneId = id;
+        _apply();
+    }
+
+    private readonly List<(TextBox Heard, TextBox Written)> _dictRows = new();
+
+    private void FillDictionaryRows()
+    {
+        DictionaryRows.Children.Clear();
+        _dictRows.Clear();
+        foreach (var pair in _settings.DictionaryRows)
+            AddDictionaryRow(pair.From, pair.To, focus: false);
+    }
+
+    private void AddDictionaryRow(string from, string to, bool focus)
+    {
+        var grid = new Grid { Margin = new Thickness(0, 4, 0, 0) };
+        grid.ColumnDefinitions.Add(new ColumnDefinition());
+        grid.ColumnDefinitions.Add(new ColumnDefinition());
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(110) });
+        var heard = new TextBox { Text = from, Padding = new Thickness(7, 5, 7, 5), Margin = new Thickness(0, 0, 8, 0), VerticalContentAlignment = VerticalAlignment.Center };
+        var written = new TextBox { Text = to, Padding = new Thickness(7, 5, 7, 5), Margin = new Thickness(0, 0, 8, 0), VerticalContentAlignment = VerticalAlignment.Center };
+        Grid.SetColumn(written, 1);
+        var delete = new Button
+        {
+            Content = L.T("Удалить", "Delete"),
+            Padding = new Thickness(10, 4, 10, 4),
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        Grid.SetColumn(delete, 2);
+        delete.Click += DeleteDictionary_Click;
+        heard.TextChanged += DictionaryField_Changed;
+        written.TextChanged += DictionaryField_Changed;
+        grid.Children.Add(heard);
+        grid.Children.Add(written);
+        grid.Children.Add(delete);
+        DictionaryRows.Children.Add(grid);
+        _dictRows.Add((heard, written));
+        if (focus) heard.Focus();
+    }
+
+    private void AddDictionary_Click(object sender, RoutedEventArgs e) => AddDictionaryRow("", "", focus: true);
+
+    private void DeleteDictionary_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button button || button.Parent is not Grid grid) return;
+        int at = DictionaryRows.Children.IndexOf(grid);
+        if (at < 0 || at >= _dictRows.Count) return;
+        DictionaryRows.Children.RemoveAt(at);
+        _dictRows.RemoveAt(at);
+        PersistDictionary();
+    }
+
+    private void DictionaryField_Changed(object sender, TextChangedEventArgs e)
+    {
+        if (_loading) return;
+        PersistDictionary();
+    }
+
+    private void PersistDictionary()
+    {
+        var rows = _dictRows
+            .Select(r => new WordReplace.Pair(r.Heard.Text.Trim(), r.Written.Text.Trim()))
+            .Where(r => r.From.Length > 0 || r.To.Length > 0)
+            .ToArray();
+        var next = rows.Length == 0 ? "#" : WordReplace.Format(rows);
+        var current = string.IsNullOrWhiteSpace(_settings.WordReplacementRules)
+            ? WordReplace.DefaultRules
+            : _settings.WordReplacementRules;
+        if (next.Trim() == current.Trim()) return;
+        _settings.SaveDictionary(rows);
         _apply();
     }
 
