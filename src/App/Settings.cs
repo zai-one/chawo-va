@@ -19,8 +19,11 @@ public sealed class Settings
     public int HotkeyVk { get; set; } = 0xA3;
     public InsertMode InsertMode { get; set; } = InsertMode.Paste;
     public bool ShowOverlay { get; set; } = true;
-    /// <summary>After the final phrase is ready, also put it on the clipboard. On by default.</summary>
-    public bool CopyPhraseToClipboard { get; set; } = true;
+    /// <summary>
+    /// After the final phrase is ready, also put it on the clipboard.
+    /// Off unless the settings file says true. A missing key is false, not the old implicit on.
+    /// </summary>
+    public bool CopyPhraseToClipboard { get; set; } = false;
     /// <summary>
     /// After that copy, put the previous clipboard back, but only when the phrase stays in
     /// Windows clipboard history (Win+V). On by default. If history is off or the phrase would
@@ -185,6 +188,12 @@ public sealed class Settings
                 }
                 if (s._plainKeyOnDisk) s.Save();   // the plain-text key from 1.0.3 leaves the disk at once, encrypted
                 s.CheckUpdates = false;
+                // The only switch was removed from the window. Do not keep the PC awake with no way to turn it off.
+                if (s.KeepAwakeWhileListening)
+                {
+                    s.KeepAwakeWhileListening = false;
+                    s.Save();
+                }
                 return s;
             }
         }

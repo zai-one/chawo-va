@@ -188,12 +188,31 @@ public static class SpeechCleanup
         }
         await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
         using var document = await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken);
-        var cleaned = document.RootElement.GetProperty("choices")[0].GetProperty("message").GetProperty("content").GetString();
+        var message = document.RootElement.GetProperty("choices")[0].GetProperty("message");
+        var cleaned = message.TryGetProperty("content", out var contentEl) && contentEl.ValueKind == JsonValueKind.String
+            ? contentEl.GetString() : null;
+        // Thinking must not replace the answer. If the visible text is only a think block, take what follows the close tag.
+        // An unclosed think block is not inserted: that is the thought, not the phrase.
+        cleaned = AnswerAfterThink(cleaned);
+        if (string.IsNullOrWhiteSpace(cleaned) && message.TryGetProperty("reasoning_content", out var reasonEl) && reasonEl.ValueKind == JsonValueKind.String)
+        {
+            var reason = reasonEl.GetString() ?? "";
+            if (reason.Contains("</think>", StringComparison.OrdinalIgnoreCase))
+                cleaned = AnswerAfterThink(reason);
+        }
         if (cleaned == null) throw new InvalidDataException("Cleanup server returned no text");
-        // A model that still thought aloud: keep only the answer.
-        int think = cleaned.IndexOf("</think>", StringComparison.Ordinal);
-        if (think >= 0) cleaned = cleaned[(think + "</think>".Length)..];
         return cleaned.Trim();
+    }
+
+    /// <summary>Text after the last closed think tag. Null when the string is an unclosed thought.</summary>
+    private static string? AnswerAfterThink(string? text)
+    {
+        if (string.IsNullOrWhiteSpace(text)) return text;
+        int close = text.LastIndexOf("</think>", StringComparison.OrdinalIgnoreCase);
+        if (close >= 0) return text[(close + "</think>".Length)..];
+        int open = text.IndexOf("<think>", StringComparison.OrdinalIgnoreCase);
+        if (open >= 0) return null;
+        return text;
     }
 
     /// <summary>The error text an OpenAI-style server puts in {"error":{"message":…}} (or {"message":…}).</summary>

@@ -19,12 +19,15 @@ public enum BrainSource { Off, Local, Server }
 
 public static partial class Brain
 {
-    /// <summary>
-    /// Appended only when the local instruction box is empty. The GGUF is not changed.
-    /// Recognition already wrote the room into the text; this asks the brain to drop lines that are not the user.
-    /// </summary>
-    private const string DefaultLocalBackground =
-        "Оставь фразу пользователя. Убери очевидные чужие строки другой темы: песню, которая играла рядом, и реплики другого человека. Не добавляй ничего от себя.";
+    /// <summary>Used only when rewrite is on and the instruction box is empty. Not added on top of the user's text.</summary>
+    private const string LocalDefaultRewrite =
+        "Rewrite the dictated phrase so it is shorter and plainer. Remove duplicates, filler, and background that is a different topic. Keep the user's meaning. Do not polish, add a song, or add sentences. Return only the finished text.";
+
+    private const string LocalCommand =
+        "Edit the dictated text. Follow the user's command. Keep the meaning. Do not add anything else. The command is not part of the text. Return only the finished text.";
+
+    private const string LocalSelection =
+        "Edit the selected text. Follow the user's command and change only what it asks. Keep the meaning. Return only the finished text.";
 
     /// <summary>Same wording as the macOS app, so both edit text alike.</summary>
     private const string CommandPrompt =
@@ -128,22 +131,23 @@ public static partial class Brain
     public static async Task<string> TransformAsync(Settings s, string body, string? command,
         Action<string> status, CancellationToken ct, bool selection = false)
     {
-        string prompt = command == null ? s.EffectiveCleanupPrompt
-            : (selection ? SelectionPrompt : CommandPrompt) + "\n\nКоманда пользователя к тексту: " + command + ".";
-        // Local only. Xiaomi and the other cloud brains keep the prompt above, instruction or not.
-        // Empty instruction box: usual rules, plus drop a song or another person. A filled box is used as written.
+        // Local prompts are English so the small model answers faster.
+        // Rewrite uses either the user's instruction or the short default, never both.
+        string prompt;
+        var instruction = s.BrainInstruction.Trim();
         if (s.Brain == BrainSource.Local)
         {
-            var instruction = s.BrainInstruction.Trim();
-            if (instruction.Length == 0)
-                prompt += "\n\n" + DefaultLocalBackground;
+            if (command != null)
+                prompt = (selection ? LocalSelection : LocalCommand) + "\n\nThe user's command: " + command;
+            else if (instruction.Length > 0)
+                prompt = "Follow this instruction:\n" + instruction + "\nReturn only the finished text, with no quotes and no commentary.";
             else
-            {
-                prompt = command == null
-                    ? instruction
-                    : instruction + "\n\nКоманда пользователя к тексту: " + command + ". Верни только готовый текст, без кавычек и без рассуждений.";
-            }
+                prompt = LocalDefaultRewrite;
         }
+        else if (command == null)
+            prompt = instruction.Length > 0 ? instruction : s.EffectiveCleanupPrompt;
+        else
+            prompt = (selection ? SelectionPrompt : CommandPrompt) + "\n\nКоманда пользователя к тексту: " + command + ".";
         string action = ActionLabel(command);
 
         if (s.Brain == BrainSource.Local)
@@ -156,7 +160,8 @@ public static partial class Brain
             {
                 ["temperature"] = 0.3,
                 ["max_tokens"] = 1024,
-                // Belt and braces with llama-server --reasoning off. Qwen3.5 thinks unless this is false.
+                // Qwen3.5 still thinks if this is missing from the request, even when the server was started with a flag.
+                ["enable_thinking"] = false,
                 ["chat_template_kwargs"] = new Dictionary<string, object> { ["enable_thinking"] = false },
             };
             var local = StripThink(await SpeechCleanup.CleanAsync(body, LocalBrain.EndpointUrl, LocalBrain.ApiKey, "local", prompt, ct,

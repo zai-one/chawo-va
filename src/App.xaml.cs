@@ -194,7 +194,7 @@ public partial class PisarApp : Application
                 CleanupModel = "deepseek-flash",
             };
             var sw = new SettingsWindow(s, () => { }, () => { }, _ => Task.CompletedTask);
-            sw.ShowPage(kind switch { "brain" or "server" => SettingsWindow.Page.Brain, "about" => SettingsWindow.Page.About, "edit" => SettingsWindow.Page.Edit, _ => SettingsWindow.Page.Dictation });
+            sw.ShowPage(kind switch { "brain" or "server" or "edit" => SettingsWindow.Page.Brain, "speech" => SettingsWindow.Page.Speech, "network" => SettingsWindow.Page.Network, _ => SettingsWindow.Page.Dictation });
             Window w = sw;
             w.WindowStartupLocation = WindowStartupLocation.CenterScreen;
             w.Topmost = true;
@@ -822,78 +822,8 @@ public partial class PisarApp : Application
     private Forms.ContextMenuStrip BuildMenu()
     {
         var menu = new Forms.ContextMenuStrip();
-        var title = new Forms.ToolStripMenuItem(L.T($"Гига Писарь {Version}", $"Giga Pisar {Version}")) { Enabled = false };
-        var hint = new Forms.ToolStripMenuItem("") { Enabled = false };
-        menu.Items.Add(title);
-        menu.Items.Add(hint);
-        menu.Items.Add(new Forms.ToolStripSeparator());
         menu.Items.Add(L.T("Открыть окно", "Open window"), null, (_, _) => ShowSettings());
-        var stopItem = new Forms.ToolStripMenuItem(L.T("Стоп", "Stop"));
-        stopItem.Click += (_, _) => RequestStop();
-        menu.Items.Add(stopItem);
-        menu.Items.Add(L.T("Свернуть в трей", "Hide to tray"), null, (_, _) => _settingsWindow?.Hide());
-        menu.Items.Add(L.T("Настройки…", "Settings…"), null, (_, _) => ShowSettings());
-        // Always visible, so it is clear whether text leaves the computer.
-        var brain = new Forms.ToolStripMenuItem("");
-        var brainOff = new Forms.ToolStripMenuItem(L.T("Выключен", "Off"));
-        var brainLocal = new Forms.ToolStripMenuItem("");
-        var brainServer = new Forms.ToolStripMenuItem("");
-        brainOff.Click += (_, _) => _ = SelectBrainAsync(BrainSource.Off);
-        brainLocal.Click += (_, _) => _ = SelectBrainAsync(BrainSource.Local);
-        brainServer.Click += (_, _) => _ = SelectBrainAsync(BrainSource.Server);
-        brain.DropDownItems.Add(brainOff);
-        if (LocalBrain.Offered || _settings.Brain == BrainSource.Local) brain.DropDownItems.Add(brainLocal);
-        brain.DropDownItems.Add(brainServer);
-        menu.Items.Add(brain);
-        var editSel = new Forms.ToolStripMenuItem(L.T("Правка выделенного голосом", "Edit selection by voice")) { CheckOnClick = true };
-        editSel.Click += (_, _) => { _settings.BrainOnSelection = editSel.Checked; ApplySettings(); _settingsWindow?.Localize(); };
-        menu.Items.Add(editSel);
-        var autostart = new Forms.ToolStripMenuItem(L.T("Запускать при входе в Windows", "Start when I sign in")) { CheckOnClick = true };
-        autostart.Click += (_, _) => Autostart.Set(autostart.Checked);
-        menu.Items.Add(autostart);
-
-        var language = new Forms.ToolStripMenuItem(L.T("Язык", "Language"));
-        foreach (var (choice, name) in new[] { (UiLanguage.Auto, L.T("Как в системе", "Same as system")), (UiLanguage.Russian, "Русский"), (UiLanguage.English, "English") })
-        {
-            var item = new Forms.ToolStripMenuItem(name) { Checked = _settings.Language == choice };
-            item.Click += (_, _) => { _settings.Language = choice; ApplySettings(); };
-            language.DropDownItems.Add(item);
-        }
-        menu.Items.Add(language);
-
-        menu.Items.Add(new Forms.ToolStripSeparator());
-        menu.Items.Add(L.T("Скачать модель распознавания…", "Download the speech model…"), null, (_, _) => _ = DownloadSpeechAsync(manualStart: false));
-        menu.Items.Add(L.T("Сайт проекта", "Project website"), null, (_, _) => Open(SiteUrl));
-        menu.Items.Add(L.T("Исходный код", "Source code"), null, (_, _) => Open(RepoUrl));
-        menu.Items.Add(L.T("Проверить обновления", "Check for updates"), null, (_, _) => _ = CheckForUpdatesAsync(silent: false));
-        menu.Items.Add(new Forms.ToolStripSeparator());
         menu.Items.Add(L.T("Выход", "Quit"), null, (_, _) => Quit());
-        menu.Opening += (_, _) =>
-        {
-            autostart.Checked = Autostart.IsEnabled();
-            stopItem.Enabled = _phase is DictatePhase.Listening or DictatePhase.Recognizing;
-            string host = SpeechCleanup.HostOf(_settings.CleanupEndpointUrl);
-            brain.Text = _settings.Brain switch
-            {
-                BrainSource.Local => L.T("Мозг: на компьютере", "Brain: on this computer"),
-                BrainSource.Server => L.T($"Мозг: в облаке ({host})", $"Brain: in the cloud ({host})"),
-                _ => L.T("Мозг: выключен", "Brain: off"),
-            };
-            editSel.Checked = _settings.BrainOnSelection;
-            editSel.Enabled = BrainUsable;
-            brainOff.Checked = _settings.Brain == BrainSource.Off;
-            brainLocal.Checked = _settings.Brain == BrainSource.Local;
-            brainServer.Checked = _settings.Brain == BrainSource.Server;
-            brainLocal.Text = LocalBrain.IsReady(_settings)
-                ? L.T($"На компьютере ({LocalBrain.Title(_settings)})", $"On this computer ({LocalBrain.Title(_settings)})")
-                : L.T("На компьютере", "On this computer");
-            brainServer.Text = Brain.ServerConfigured(_settings)
-                ? L.T($"В облаке ({host})", $"In the cloud ({host})")
-                : L.T("В облаке…", "In the cloud…");
-            hint.Text = _recognizer == null ? L.T("Модель не скачана", "Speech model is not downloaded")
-                : L.T($"Зажмите {Settings.HotkeyTitle(_settings.HotkeyVk)} и говорите ({_recognizer.DeviceActual})",
-                      $"Hold {Settings.HotkeyTitle(_settings.HotkeyVk)} and speak ({_recognizer.DeviceActual})");
-        };
         return menu;
     }
 
@@ -1178,7 +1108,7 @@ public partial class PisarApp : Application
         {
             _settingsWindow = new SettingsWindow(_settings, ApplySettings, () => { _overlay?.Unpin(); _settings.OverlayX = null; _settings.OverlayY = null; _settings.Save(); }, SelectBrainAsync,
                 () => DownloadSpeechAsync(manualStart: false), () => _ = ReloadSpeechAsync(), SpeechStatusText,
-                HermesStatusText, ToggleLanAsync, ApplyKeepAwake,
+                HermesStatusText, ToggleLanAsync,
                 () => _ = CheckForUpdatesAsync(silent: false), RequestStop, DeleteSpeechModelAsync);
             SetPhase(_phase);
             _settingsWindow.Closed += (_, _) => _settingsWindow = null;

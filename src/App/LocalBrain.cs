@@ -514,9 +514,12 @@ public static class LocalBrain
             RedirectStandardOutput = true,
             RedirectStandardError = true,
         };
-        // b10701: --jinja uses the GGUF chat template, --reasoning off stops Qwen3.5 from thinking into the answer.
+        // b10701. --reasoning off alone does not stop Qwen3.5: the template still opens a think block.
+        // --reasoning-budget 0 and enable_thinking false close it. The same false is sent on every request.
         foreach (var a in new[] { "-m", modelPath, "--host", "127.0.0.1", "--port", _port.ToString(), "--api-key", _apiKey,
-                                  "-c", ContextTokens.ToString(), "--no-webui", "--jinja", "--reasoning", "off" })
+                                  "-c", ContextTokens.ToString(), "--no-webui", "--jinja",
+                                  "--reasoning", "off", "--reasoning-budget", "0",
+                                  "--chat-template-kwargs", "{\"enable_thinking\":false}" })
             psi.ArgumentList.Add(a);
         // Vulkan build of the same b10701. 99 layers puts a 4B Q3 file on the card. CPU build ignores nothing here: the flag is GPU-only.
         if (device == BrainDeviceKind.Gpu)
@@ -549,7 +552,7 @@ public static class LocalBrain
         _server = p;
         _loadedPath = modelPath;
         _loadedDevice = device;
-        Log.Write($"brain starting: {Path.GetFileName(modelPath)}, engine {EngineTag}/{device}, reasoning off");
+        Log.Write($"brain starting: {Path.GetFileName(modelPath)}, engine {EngineTag}/{device}, reasoning off, budget 0");
         return p;
     }
 
