@@ -17,6 +17,8 @@ using System.Security.Cryptography;
 
 namespace GigaPisar.App;
 
+public enum LocalBrainKind { Qwen3, Qwen35, Custom }
+
 public static class LocalBrain
 {
     /// <summary>
@@ -32,13 +34,23 @@ public static class LocalBrain
     public const string ModelTitle = "Qwen3 4B";
     public const string ModelFile = "Qwen3-4B-Instruct-2507-Q3_K_M.gguf";
     /// <summary>Our GitHub mirror first (fast from Russia, where Hugging Face is slow or blocked), then the original.</summary>
-    private static readonly string[] ModelUrls =
+    private static readonly string[] Qwen3Urls =
     {
         "https://github.com/moznoazachem/giga-pisar-win/releases/download/brain-models/Qwen3-4B-Instruct-2507-Q3_K_M.gguf",
         "https://huggingface.co/unsloth/Qwen3-4B-Instruct-2507-GGUF/resolve/main/Qwen3-4B-Instruct-2507-Q3_K_M.gguf",
     };
-    private const string ModelSha256 = "9c6e0763577125a994a9bea0bbd7a737ac4498b8a6a4e0f788727553af1806c9";
-    public const long ModelBytes = 2_075_618_400;
+    private const string Qwen3Sha256 = "9c6e0763577125a994a9bea0bbd7a737ac4498b8a6a4e0f788727553af1806c9";
+    public const long Qwen3Bytes = 2_075_618_400;
+
+    /// <summary>Qwen3.5 thinks unless llama-server is told not to. Same role as Qwen3 4B, newer weights.</summary>
+    public const string Qwen35File = "Qwen3.5-4B-Q3_K_M.gguf";
+    public const long Qwen35Bytes = 2_293_388_448;
+    private const string Qwen35Sha256 = "d6981ab4d77ba712b48ef69d69042d75b5e39b9dce5fb5a5b054fd08e06afb95";
+    private const string Qwen35Url = "https://huggingface.co/unsloth/Qwen3.5-4B-GGUF/resolve/main/Qwen3.5-4B-Q3_K_M.gguf";
+
+    /// <summary>A pasted GGUF larger than this is refused. It is never executed as a program.</summary>
+    private const long MaxCustomBytes = 16L << 30;
+
 
     /// <summary>Below this much RAM the Brain would crowd everything else out; we say so before downloading.</summary>
     public const ulong RecommendedRamBytes = 8UL << 30;
@@ -50,16 +62,118 @@ public static class LocalBrain
     public static string Dir => Path.Combine(Settings.LocalDataDir, "brain");
     private static string EngineDir => Path.Combine(Dir, "engine-" + EngineTag);
     private static string ServerExe => Path.Combine(EngineDir, "llama-server.exe");
-    public static string ModelPath => Path.Combine(Dir, ModelFile);
     public static string LogPath => Path.Combine(Settings.LocalDataDir, "brain.log");
 
-    public static bool Downloaded =>
-        File.Exists(ServerExe) && File.Exists(ModelPath) && new FileInfo(ModelPath).Length == ModelBytes;
+    public static string Title(Settings s) => s.BrainModel switch
+    {
+        LocalBrainKind.Qwen35 => "Qwen3.5 4B",
+        LocalBrainKind.Custom => L.T("Своя модель", "Custom model"),
+        _ => ModelTitle,
+    };
+
+    public static string ChoiceLabel(LocalBrainKind kind) => kind switch
+    {
+        LocalBrainKind.Qwen3 => L.T("Qwen3 4B, 2,1 ГБ", "Qwen3 4B, 2.1 GB"),
+        LocalBrainKind.Qwen35 => L.T("Qwen3.5 4B, 2,3 ГБ", "Qwen3.5 4B, 2.3 GB"),
+        _ => L.T("Своя ссылка Hugging Face", "Own Hugging Face link"),
+    };
+
+    /// <summary>
+    /// Turns a Hugging Face file page into a resolve URL. Rejects anything that is not https
+    /// on huggingface.co / hf.co and does not name a .gguf. The file is only downloaded later, on the button.
+    /// </summary>
+    public static bool TryParseCustomUrl(string? raw, out string url, out string fileName, out string error)
+    {
+        url = "";
+        fileName = "";
+        error = "Нужна ссылка Hugging Face на файл .gguf.";
+        var text = (raw ?? "").Trim();
+        if (!Uri.TryCreate(text, UriKind.Absolute, out var uri)) return false;
+        if (!string.Equals(uri.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase)) return false;
+        var host = uri.IdnHost.ToLowerInvariant();
+        if (host is not ("huggingface.co" or "www.huggingface.co" or "hf.co" or "www.hf.co")) return false;
+        var path = uri.AbsolutePath;
+        const string blob = "/blob/";
+        int at = path.IndexOf(blob, StringComparison.OrdinalIgnoreCase);
+        if (at >= 0)
+            path = string.Concat(path.AsSpan(0, at), "/resolve/", path.AsSpan(at + blob.Length));
+        if (path.IndexOf("/resolve/", StringComparison.OrdinalIgnoreCase) < 0) return false;
+        var leaf = path.Split('/', StringSplitOptions.RemoveEmptyEntries).LastOrDefault() ?? "";
+        if (!leaf.EndsWith(".gguf", StringComparison.OrdinalIgnoreCase)) return false;
+        fileName = SafeGgufName(leaf);
+        if (fileName.Length == 0) return false;
+        var b = new UriBuilder(uri) { Path = path, Query = "", Fragment = "" };
+        url = b.Uri.AbsoluteUri;
+        error = "";
+        return true;
+    }
+
+    private static string SafeGgufName(string leaf)
+    {
+        var chars = new char[leaf.Length];
+        for (int i = 0; i < leaf.Length; i++)
+        {
+            char c = leaf[i];
+            chars[i] = c is (>= 'a' and <= 'z') or (>= 'A' and <= 'Z') or (>= '0' and <= '9') or '.' or '-' or '_' ? c : '_';
+        }
+        var name = new string(chars);
+        while (name.Contains("..", StringComparison.Ordinal)) name = name.Replace("..", "_", StringComparison.Ordinal);
+        if (!name.EndsWith(".gguf", StringComparison.OrdinalIgnoreCase) || name.Length < 6) return "";
+        if (name.Length > 160) name = name[^160..];
+        if (name.StartsWith('.')) name = "m" + name;
+        return name;
+    }
+
+    public static string ModelPath(Settings s)
+    {
+        if (s.BrainModel == LocalBrainKind.Custom)
+        {
+            if (!TryParseCustomUrl(s.BrainCustomUrl, out _, out var name, out _))
+                return Path.Combine(Dir, "custom.gguf");
+            return Path.Combine(Dir, name);
+        }
+        return Path.Combine(Dir, s.BrainModel == LocalBrainKind.Qwen35 ? Qwen35File : ModelFile);
+    }
+
+    public static long WeightBytes(Settings s) => s.BrainModel switch
+    {
+        LocalBrainKind.Qwen35 => Qwen35Bytes,
+        LocalBrainKind.Custom => File.Exists(ModelPath(s)) ? new FileInfo(ModelPath(s)).Length : Qwen35Bytes,
+        _ => Qwen3Bytes,
+    };
+
+    private static bool HasGgufMagic(string path)
+    {
+        try
+        {
+            Span<byte> magic = stackalloc byte[4];
+            using var stream = File.OpenRead(path);
+            return stream.Read(magic) == 4 && magic[0] == (byte)'G' && magic[1] == (byte)'G' && magic[2] == (byte)'U' && magic[3] == (byte)'F';
+        }
+        catch { return false; }
+    }
+
+    /// <summary>Engine plus the selected GGUF, checked by size (built-in) or by the GGUF header (custom).</summary>
+    public static bool IsReady(Settings s)
+    {
+        var path = ModelPath(s);
+        if (!File.Exists(ServerExe) || !File.Exists(path)) return false;
+        long len = new FileInfo(path).Length;
+        return s.BrainModel switch
+        {
+            LocalBrainKind.Qwen3 => len == Qwen3Bytes,
+            LocalBrainKind.Qwen35 => len == Qwen35Bytes,
+            _ => len > 1024 && len <= MaxCustomBytes && HasGgufMagic(path),
+        };
+    }
+
+    public static bool HasAnything() =>
+        Directory.Exists(Dir) && (File.Exists(ServerExe) || Directory.EnumerateFiles(Dir, "*.gguf").Any());
 
     // ── memory ───────────────────────────────────────────────────
 
-    /// <summary>Model file plus context and llama.cpp overhead.</summary>
-    public static ulong MemoryNeeded => (ulong)ModelBytes + (600UL << 20);
+    /// <summary>Selected model file plus context and llama.cpp overhead.</summary>
+    public static ulong MemoryNeeded(Settings s) => (ulong)WeightBytes(s) + (600UL << 20);
 
     public static (ulong total, ulong available) Memory()
     {
@@ -71,12 +185,39 @@ public static class LocalBrain
 
     // ── download ─────────────────────────────────────────────────
 
-    /// <summary>Fetches the engine and the model (resuming a partial model), verifies both, unpacks the engine.</summary>
-    public static async Task DownloadAsync(IProgress<ModelDownloader.Progress> progress, CancellationToken ct)
+    /// <summary>Fetches the engine and the selected GGUF. Nothing here runs until the download button calls it.</summary>
+    public static async Task DownloadAsync(Settings s, IProgress<ModelDownloader.Progress> progress, CancellationToken ct)
     {
+        string[] urls;
+        string? sha;
+        long bytes;
+        string dest = ModelPath(s);
+        if (s.BrainModel == LocalBrainKind.Custom)
+        {
+            if (!TryParseCustomUrl(s.BrainCustomUrl, out var customUrl, out _, out var error))
+                throw new ModelDownloadException(DownloadFailure.Rejected, error);
+            urls = [customUrl];
+            sha = null;
+            bytes = 0;
+        }
+        else if (s.BrainModel == LocalBrainKind.Qwen35)
+        {
+            urls = [Qwen35Url];
+            sha = Qwen35Sha256;
+            bytes = Qwen35Bytes;
+        }
+        else
+        {
+            urls = Qwen3Urls;
+            sha = Qwen3Sha256;
+            bytes = Qwen3Bytes;
+        }
+
+        Stop();
         Directory.CreateDirectory(Dir);
-        long need = ModelBytes + (200L << 20);
-        if (File.Exists(ModelPath + ".part")) need -= new FileInfo(ModelPath + ".part").Length;
+        long need = (bytes > 0 ? bytes : 3L << 30) + (200L << 20);
+        var part = dest + ".part";
+        if (File.Exists(part)) need -= new FileInfo(part).Length;
         var free = new DriveInfo(Path.GetPathRoot(Dir)!).AvailableFreeSpace;
         if (free < need)
             throw new ModelDownloadException(DownloadFailure.NoSpace, $"only {free >> 20} MB free, need {need >> 20}");
@@ -105,36 +246,43 @@ public static class LocalBrain
                 File.Delete(zip);
             }
 
-            if (!(File.Exists(ModelPath) && new FileInfo(ModelPath).Length == ModelBytes))
+            bool have = File.Exists(dest) && (bytes > 0 ? new FileInfo(dest).Length == bytes : HasGgufMagic(dest) && new FileInfo(dest).Length > 1024);
+            if (!have)
             {
-                var part = ModelPath + ".part";
                 for (int i = 0; ; i++)
                 {
                     try
                     {
-                        await FetchAsync(http, ModelUrls[i], part, ModelBytes, progress, ct);
+                        await FetchAsync(http, urls[i], part, bytes, progress, ct);
                         progress.Report(new ModelDownloader.Progress(0, 0, "verify"));
-                        try { await Task.Run(() => Verify(part, ModelSha256, "model"), ct); }
-                        catch (InvalidDataException) { File.Delete(part); throw; }   // a bad file must not be resumed
+                        try
+                        {
+                            await Task.Run(() =>
+                            {
+                                if (sha != null) Verify(part, sha, "model");
+                                else if (!HasGgufMagic(part))
+                                    throw new ModelDownloadException(DownloadFailure.Rejected, "Это не файл GGUF. Он не запускается как программа.");
+                            }, ct);
+                        }
+                        catch (InvalidDataException) { File.Delete(part); throw; }
+                        catch (ModelDownloadException) { try { File.Delete(part); } catch { } throw; }
                         break;
                     }
-                    catch (Exception e) when (i + 1 < ModelUrls.Length && !ct.IsCancellationRequested
+                    catch (Exception e) when (i + 1 < urls.Length && !ct.IsCancellationRequested
                                               && e is HttpRequestException or ModelDownloadException or OperationCanceledException
                                                    or IOException or InvalidDataException)
                     {
-                        // Same bytes everywhere (checked by SHA-256), so the next source continues the same .part.
                         Log.Write($"brain model source {i} failed: {e.GetType().Name}: {e.Message}; trying the next one");
                     }
                 }
-                File.Move(part, ModelPath, overwrite: true);
+                File.Move(part, dest, overwrite: true);
             }
             progress.Report(new ModelDownloader.Progress(1, 1, "done"));
         }
         catch (ModelDownloadException) { throw; }
-        catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }   // the user pressed Cancel
+        catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
         catch (OperationCanceledException e)
         {
-            // Our own idle timeout: the connection stalled. That is a network failure with Retry, not a cancel.
             throw new ModelDownloadException(DownloadFailure.Network, "download stalled", e);
         }
         catch (IOException e) when (e.HResult == unchecked((int)0x80070070))
@@ -155,8 +303,9 @@ public static class LocalBrain
     private static async Task FetchAsync(HttpClient http, string url, string path, long expected,
         IProgress<ModelDownloader.Progress>? progress, CancellationToken ct)
     {
+        long cap = expected > 0 ? expected : MaxCustomBytes;
         long have = File.Exists(path) ? new FileInfo(path).Length : 0;
-        if (have > expected) { File.Delete(path); have = 0; }
+        if (have > cap) { File.Delete(path); have = 0; }
 
         using var idle = CancellationTokenSource.CreateLinkedTokenSource(ct);
         idle.CancelAfter(DownloadIdleTimeout);
@@ -168,7 +317,7 @@ public static class LocalBrain
         if (have > 0 && response.StatusCode != HttpStatusCode.PartialContent) have = 0;               // server ignored Range
 
         long total = response.Content.Headers.ContentLength is long len ? have + len : expected;
-        if (total > expected) throw new InvalidDataException($"{Path.GetFileName(path)} is larger than expected: {total}");
+        if (total > cap) throw new InvalidDataException($"{Path.GetFileName(path)} is larger than expected: {total}");
 
         await using var net = await response.Content.ReadAsStreamAsync(idle.Token);
         await using var file = new FileStream(path, have > 0 ? FileMode.Append : FileMode.Create, FileAccess.Write);
@@ -181,15 +330,17 @@ public static class LocalBrain
             idle.CancelAfter(DownloadIdleTimeout);
             await file.WriteAsync(buffer.AsMemory(0, n), ct);
             received += n;
-            if (received > expected) throw new InvalidDataException("download larger than expected");
+            if (received > cap) throw new InvalidDataException("download larger than expected");
             if (progress != null && (DateTime.UtcNow - lastReport).TotalMilliseconds > 100)
             {
                 progress.Report(new ModelDownloader.Progress(received, total, "download"));
                 lastReport = DateTime.UtcNow;
             }
         }
-        if (received != total)
+        if (total > 0 && received != total)
             throw new ModelDownloadException(DownloadFailure.Network, $"incomplete download: {received} of {total}");
+        if (expected == 0 && received < 1024)
+            throw new ModelDownloadException(DownloadFailure.Network, "download too small to be a GGUF");
     }
 
     private static void Verify(string path, string sha256, string what)
@@ -220,13 +371,15 @@ public static class LocalBrain
     public static string ApiKey => _apiKey;
 
     /// <summary>Starts the server if needed and waits until it answers /health. Reports elapsed seconds while starting.</summary>
-    public static async Task EnsureStartedAsync(Action<int>? startingTick, CancellationToken ct)
+    public static async Task EnsureStartedAsync(Settings s, Action<int>? startingTick, CancellationToken ct)
     {
+        var model = ModelPath(s);
         Process server;
         lock (Gate)
         {
-            // Alive is not the same as ready: a server that is still loading gets the health wait below too.
-            server = _server is { HasExited: false } alive ? alive : StartProcess();
+            // A server left on the previous file is not the one we want. Alive is not the same as ready.
+            bool same = _server is { HasExited: false } && string.Equals(_loadedPath, model, StringComparison.OrdinalIgnoreCase);
+            server = same ? _server! : StartProcess(model);
         }
 
         using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(2) };
@@ -258,7 +411,9 @@ public static class LocalBrain
         TouchIdle();
     }
 
-    private static Process StartProcess()
+    private static string? _loadedPath;
+
+    private static Process StartProcess(string modelPath)
     {
         Stop();
         _port = FreePort();
@@ -271,8 +426,9 @@ public static class LocalBrain
             RedirectStandardOutput = true,
             RedirectStandardError = true,
         };
-        foreach (var a in new[] { "-m", ModelPath, "--host", "127.0.0.1", "--port", _port.ToString(), "--api-key", _apiKey,
-                                  "-c", ContextTokens.ToString(), "--no-webui" })
+        // b10701: --jinja uses the GGUF chat template, --reasoning off stops Qwen3.5 from thinking into the answer.
+        foreach (var a in new[] { "-m", modelPath, "--host", "127.0.0.1", "--port", _port.ToString(), "--api-key", _apiKey,
+                                  "-c", ContextTokens.ToString(), "--no-webui", "--jinja", "--reasoning", "off" })
             psi.ArgumentList.Add(a);
 
         // Shared read/write so a writer left from a previous run can never block this one.
@@ -297,7 +453,8 @@ public static class LocalBrain
         p.BeginErrorReadLine();
         AttachToJob(p);
         _server = p;
-        Log.Write($"brain starting: {ModelFile}, engine {EngineTag}");
+        _loadedPath = modelPath;
+        Log.Write($"brain starting: {Path.GetFileName(modelPath)}, engine {EngineTag}, reasoning off");
         return p;
     }
 
@@ -366,6 +523,7 @@ public static class LocalBrain
             catch { }
             _server?.Dispose();
             _server = null;
+            _loadedPath = null;
             CloseLog();
         }
     }

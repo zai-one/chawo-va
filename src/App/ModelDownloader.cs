@@ -13,7 +13,7 @@ using GigaPisar.Core;
 
 namespace GigaPisar.App;
 
-public enum DownloadFailure { Network, NoSpace, Corrupt }
+public enum DownloadFailure { Network, NoSpace, Corrupt, Rejected }
 
 public sealed class ModelDownloadException(DownloadFailure kind, string message, Exception? inner = null) : Exception(message, inner)
 {

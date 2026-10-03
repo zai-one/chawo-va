@@ -54,6 +54,15 @@ public sealed class Settings
     public bool BrainEveryTake { get; set; }
     /// <summary>With text selected at the key press, the take is a command on the selection. On by default, as on macOS.</summary>
     public bool BrainOnSelection { get; set; } = true;
+    /// <summary>Which GGUF the local brain runs. Nothing is downloaded until the Brain tab button.</summary>
+    public LocalBrainKind BrainModel { get; set; } = LocalBrainKind.Qwen3;
+    /// <summary>Hugging Face link to a .gguf. Used only when <see cref="BrainModel"/> is Custom.</summary>
+    public string BrainCustomUrl { get; set; } = "";
+    /// <summary>
+    /// Extra system prompt for the local brain only. Empty means the built-in editing rules.
+    /// Cloud brains, including Xiaomi, do not receive this, so an empty or filled box cannot change them.
+    /// </summary>
+    public string BrainInstruction { get; set; } = "";
     /// <summary>A single dictated sentence goes in lowercase and without the closing period, like a chat reply.</summary>
     public bool SimpleSyntax { get; set; }
     /// <summary>After recognition, replace a few spoken spellings (цпу -> CPU). On by default. Not applied to the live draft.</summary>

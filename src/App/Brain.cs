@@ -99,6 +99,15 @@ public static partial class Brain
     }
 
     /// <summary>A sane answer is about as long as the text; anything far longer is not a cleanup and is not typed in.</summary>
+    /// <summary>Qwen thinking must not be typed into the document. The server is also started with reasoning off.</summary>
+    private static string StripThink(string text)
+    {
+        var t = System.Text.RegularExpressions.Regex.Replace(text, "(?is)<think>.*?</think>", "");
+        int i = t.LastIndexOf("</think>", StringComparison.OrdinalIgnoreCase);
+        if (i >= 0) t = t[(i + "</think>".Length)..];
+        return t.Trim();
+    }
+
     private static void CheckLength(string answer, string body)
     {
         if (answer.Length > Math.Max(4000, body.Length * 4))
@@ -114,23 +123,36 @@ public static partial class Brain
     {
         string prompt = command == null ? s.EffectiveCleanupPrompt
             : (selection ? SelectionPrompt : CommandPrompt) + "\n\nКоманда пользователя к тексту: " + command + ".";
+        // Local only. Xiaomi and the other cloud brains keep the prompt above, instruction or not.
+        if (s.Brain == BrainSource.Local)
+        {
+            var instruction = s.BrainInstruction.Trim();
+            if (instruction.Length > 0)
+            {
+                prompt = command == null
+                    ? instruction
+                    : instruction + "\n\nКоманда пользователя к тексту: " + command + ". Верни только готовый текст, без кавычек и без рассуждений.";
+            }
+        }
         string action = ActionLabel(command);
 
         if (s.Brain == BrainSource.Local)
         {
-            if (!LocalBrain.Downloaded) throw new BrainException(L.T("модель Мозга не скачана", "the Brain model is not downloaded"));
+            if (!LocalBrain.IsReady(s)) throw new BrainException(L.T("модель Мозга не скачана", "the Brain model is not downloaded"));
             if (!LocalBrain.Running) status(L.T("Запускаю нейронку…", "Starting the Brain…"));
-            await LocalBrain.EnsureStartedAsync(sec => status(L.T($"Запускаю нейронку… {sec} с", $"Starting the Brain… {sec}s")), ct);
+            await LocalBrain.EnsureStartedAsync(s, sec => status(L.T($"Запускаю нейронку… {sec} с", $"Starting the Brain… {sec}s")), ct);
             status(action);
             var extra = new Dictionary<string, object>
             {
                 ["temperature"] = 0.3,
                 ["max_tokens"] = 1024,
-                // Qwen3 can think aloud in a <think> block; for editing text that is only slow.
+                // Belt and braces with llama-server --reasoning off. Qwen3.5 thinks unless this is false.
                 ["chat_template_kwargs"] = new Dictionary<string, object> { ["enable_thinking"] = false },
             };
-            var local = await SpeechCleanup.CleanAsync(body, LocalBrain.EndpointUrl, LocalBrain.ApiKey, "local", prompt, ct,
-                extra, TimeSpan.FromSeconds(120));
+            var local = StripThink(await SpeechCleanup.CleanAsync(body, LocalBrain.EndpointUrl, LocalBrain.ApiKey, "local", prompt, ct,
+                extra, TimeSpan.FromSeconds(120)));
+            if (local.Length == 0)
+                throw new BrainException(L.T("нейросеть вернула пустой ответ", "the model returned an empty answer"));
             CheckLength(local, body);
             if (command == null && LooksLikeRefusal(local, body))
                 throw new BrainException(L.T("нейросеть ответила не по делу", "the model answered off the point"));

@@ -69,7 +69,7 @@ public partial class PisarApp : Application
     /// <summary>The Brain can work right now: chosen, and set up (downloaded or configured).</summary>
     private bool BrainUsable => _settings.Brain switch
     {
-        BrainSource.Local => LocalBrain.Downloaded,
+        BrainSource.Local => LocalBrain.IsReady(_settings),
         BrainSource.Server => Brain.ServerConfigured(_settings),
         _ => false,
     };
@@ -231,8 +231,9 @@ public partial class PisarApp : Application
                     File.AppendAllText(outPath, $"[{sw.Elapsed.TotalSeconds:F0}s] {p.Stage} {pct}%\n");
                 }
             });
-            LocalBrain.DownloadAsync(progress, CancellationToken.None).GetAwaiter().GetResult();
-            File.AppendAllText(outPath, $"OK in {sw.Elapsed.TotalSeconds:F0}s, downloaded={LocalBrain.Downloaded}\n");
+            var settings = Settings.Load();
+            LocalBrain.DownloadAsync(settings, progress, CancellationToken.None).GetAwaiter().GetResult();
+            File.AppendAllText(outPath, $"OK in {sw.Elapsed.TotalSeconds:F0}s, downloaded={LocalBrain.IsReady(settings)}\n");
             return 0;
         }
         catch (Exception e)
@@ -741,7 +742,7 @@ public partial class PisarApp : Application
     {
         if (_settings.Brain != BrainSource.Local || LocalBrain.Running) return true;
         var (_, free) = LocalBrain.Memory();
-        ulong need = LocalBrain.MemoryNeeded;
+        ulong need = LocalBrain.MemoryNeeded(_settings);
         if (free == 0 || free >= need) return true;
         var answer = System.Windows.MessageBox.Show(
             L.T($"Свободно {LocalBrain.Gb(free)} ГБ памяти, а Мозгу нужно около {LocalBrain.Gb(need)} ГБ. Он всё равно запустится, но Windows начнёт выгружать другие программы на диск, и ждать можно несколько минут. Закройте тяжёлые программы и попробуйте снова, или запускайте так.",
@@ -750,7 +751,7 @@ public partial class PisarApp : Application
         return answer == System.Windows.MessageBoxResult.Yes;
     }
 
-    /// <summary>Switches the Brain; for the local one, downloads engine and model first (asking before 2 GB).</summary>
+    /// <summary>Switches where the Brain runs. The local model is not downloaded here.</summary>
     public async Task SelectBrainAsync(BrainSource source)
     {
         if (source == BrainSource.Server && !Brain.ServerConfigured(_settings))
@@ -764,35 +765,22 @@ public partial class PisarApp : Application
             _settingsWindow?.Localize();
             return;
         }
-        if (source == BrainSource.Local && !LocalBrain.Downloaded)
-        {
-            var (total, _) = LocalBrain.Memory();
-            string ram = total > 0 && total < LocalBrain.RecommendedRamBytes
-                ? L.T($"\n\nВ этом компьютере {LocalBrain.Gb(total)} ГБ памяти, а Мозгу комфортно от 8 ГБ. Работать будет, но медленно и тесно.",
-                      $"\n\nThis computer has {LocalBrain.Gb(total)} GB of memory; the Brain is comfortable from 8 GB. It will work, but slowly and tightly.")
-                : "";
-            var ok = System.Windows.MessageBox.Show(
-                L.T($"Мозг на компьютере: нейросеть {LocalBrain.ModelTitle} и движок llama.cpp, около 2 ГБ. Скачиваются один раз, потом всё работает без интернета.\n\nПока Мозг работает, он занимает около 2,5 ГБ памяти и сам выгружается через 15 минут без дела. Правка фразы на обычном ноутбуке занимает от нескольких секунд до десяти.{ram}\n\nСкачать?",
-                    $"The Brain on this computer: the {LocalBrain.ModelTitle} model and the llama.cpp engine, about 2 GB. Downloaded once, then everything works offline.\n\nWhile working it takes about 2.5 GB of memory and unloads itself after 15 idle minutes. Editing a phrase takes a few seconds up to ten on an ordinary laptop.{ram}\n\nDownload?"),
-                L.T("Мозг на компьютере", "Brain on this computer"), System.Windows.MessageBoxButton.YesNo, System.Windows.MessageBoxImage.Question);
-            if (ok != System.Windows.MessageBoxResult.Yes) return;
-            var window = new DownloadWindow(
-                L.T("Скачиваю Мозг", "Downloading the Brain"),
-                L.T($"Нейросеть {LocalBrain.ModelTitle} и движок llama.cpp, около 2 ГБ. Если связь оборвётся, скачивание продолжится с того же места.",
-                    $"The {LocalBrain.ModelTitle} model and the llama.cpp engine, about 2 GB. If the connection drops, the download resumes where it stopped."),
-                LocalBrain.DownloadAsync,
-                L.T("2,5 ГБ", "2.5 GB"));
-            if (!await window.RunAsync()) return;
-        }
         if (source != BrainSource.Local) LocalBrain.Stop();
         _settings.Brain = source;
         ApplySettings();
+        // Choosing "on this computer" must not download. The Brain tab button does that.
+        if (source == BrainSource.Local && !LocalBrain.IsReady(_settings))
+        {
+            ShowSettings();
+            _settingsWindow?.ShowPage(SettingsWindow.Page.Brain);
+        }
         _settingsWindow?.Localize();
-        if (source != BrainSource.Off)
+        if (source != BrainSource.Off && (source != BrainSource.Local || LocalBrain.IsReady(_settings)))
             _tray?.ShowBalloonTip(6000, L.T("Мозг включён", "Brain is on"),
                 L.T("Скажите в конце фразы: «Писарь, исправь», «Писарь, сократи» или «Писарь, переведи на английский».",
                     "End a phrase with \"Pisar, fix it\", \"Pisar, make it shorter\" or \"Pisar, translate into English\" (in Russian)."),
                 Forms.ToolTipIcon.None);
+        await Task.CompletedTask;
     }
 
     /// <summary>Short feedback for the user: on the overlay when it is enabled, otherwise as a balloon.</summary>
@@ -896,9 +884,9 @@ public partial class PisarApp : Application
             brainOff.Checked = _settings.Brain == BrainSource.Off;
             brainLocal.Checked = _settings.Brain == BrainSource.Local;
             brainServer.Checked = _settings.Brain == BrainSource.Server;
-            brainLocal.Text = LocalBrain.Downloaded
-                ? L.T($"На компьютере ({LocalBrain.ModelTitle})", $"On this computer ({LocalBrain.ModelTitle})")
-                : L.T("На компьютере (скачать 2 ГБ)…", "On this computer (download 2 GB)…");
+            brainLocal.Text = LocalBrain.IsReady(_settings)
+                ? L.T($"На компьютере ({LocalBrain.Title(_settings)})", $"On this computer ({LocalBrain.Title(_settings)})")
+                : L.T("На компьютере", "On this computer");
             brainServer.Text = Brain.ServerConfigured(_settings)
                 ? L.T($"В облаке ({host})", $"In the cloud ({host})")
                 : L.T("В облаке…", "In the cloud…");

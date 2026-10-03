@@ -115,6 +115,7 @@ public partial class DownloadWindow : Window
                                                $"Not enough disk space: about {_spaceNeeded} is needed. Free some space and retry."),
                 DownloadFailure.Corrupt => L.T("Скачанный архив повреждён или подменён. Попробуйте ещё раз позже.",
                                                "The downloaded archive is damaged or does not match. Try again later."),
+                DownloadFailure.Rejected => e.Message,
                 _ => L.T("Не получилось скачать. Проверьте интернет и попробуйте ещё раз.",
                          "Download failed. Check your connection and try again."),
             };

@@ -229,15 +229,30 @@ public partial class SettingsWindow : Window
         if (LocalBrain.Offered || _settings.Brain == BrainSource.Local)
             BrainBox.Items.Add(new ComboBoxItem
             {
-                Content = LocalBrain.Downloaded ? L.T($"На компьютере ({LocalBrain.ModelTitle})", $"On this computer ({LocalBrain.ModelTitle})")
-                                                : L.T("На компьютере (скачать 2 ГБ)", "On this computer (download 2 GB)"),
+                Content = LocalBrain.IsReady(_settings)
+                    ? L.T($"На компьютере ({LocalBrain.Title(_settings)})", $"On this computer ({LocalBrain.Title(_settings)})")
+                    : L.T("На компьютере", "On this computer"),
                 Tag = BrainSource.Local,
             });
         BrainBox.Items.Add(new ComboBoxItem { Content = L.T("В облаке", "In the cloud"), Tag = BrainSource.Server });
         foreach (ComboBoxItem it in BrainBox.Items)
             if ((BrainSource)it.Tag == _settings.Brain) BrainBox.SelectedItem = it;
         ServerPanel.Bind(_settings, _apply);
-        DeleteBrainButton.Content = L.T("Удалить модель с компьютера (2 ГБ)", "Delete the model from this computer (2 GB)");
+        BrainModelLabel.Text = L.T("Модель на компьютере", "Model on this computer");
+        BrainModelBox.Items.Clear();
+        foreach (var kind in new[] { LocalBrainKind.Qwen3, LocalBrainKind.Qwen35, LocalBrainKind.Custom })
+            BrainModelBox.Items.Add(new ComboBoxItem { Content = LocalBrain.ChoiceLabel(kind), Tag = kind });
+        foreach (ComboBoxItem it in BrainModelBox.Items)
+            if ((LocalBrainKind)it.Tag == _settings.BrainModel) BrainModelBox.SelectedItem = it;
+        BrainUrlLabel.Text = L.T("Ссылка Hugging Face", "Hugging Face link");
+        BrainUrlBox.Text = _settings.BrainCustomUrl;
+        BrainUrlBox.ToolTip = L.T("Страница файла .gguf или прямая ссылка resolve. Скачивается только по кнопке ниже.",
+                                  "A .gguf file page or a resolve link. Downloaded only by the button below.");
+        InstructionLabel.Text = L.T("Инструкция мозгу", "Instruction for the brain");
+        InstructionBox.Text = _settings.BrainInstruction;
+        InstructionHint.Text = L.T("Пусто по умолчанию: тогда правила прежние. Если написать, локальный мозг берёт это как системную инструкцию. Сюда можно правило перевода. Облако и Xiaomi это поле не читают.",
+                                   "Empty by default, so the old rules stay. If you write here, the local brain uses it as the system prompt. A translation rule can live here. The cloud and Xiaomi do not read this box.");
+        DeleteBrainButton.Content = L.T("Удалить модели мозга с компьютера", "Delete the brain models from this computer");
         EditHeading.Text = L.T("Правка выделенного", "Edit selection");
         EditIntro.Text = L.T("Выделите текст в любой программе, зажмите клавишу диктовки и скажите, что с ним сделать. Результат встанет на место выделенного, а Ctrl+Z вернёт как было.",
                              "Select text in any app, hold the dictation key and say what to do with it. The result replaces the selection; Ctrl+Z brings the original back.");
@@ -474,10 +489,33 @@ public partial class SettingsWindow : Window
         };
         BrainStatus.Visibility = BrainStatus.Text.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
         ServerPanel.Visibility = b == BrainSource.Server ? Visibility.Visible : Visibility.Collapsed;
-        DeleteBrainButton.Visibility = LocalBrain.Downloaded && b != BrainSource.Local ? Visibility.Visible : Visibility.Collapsed;
+        DeleteBrainButton.Visibility = LocalBrain.HasAnything() ? Visibility.Visible : Visibility.Collapsed;
+        bool local = b == BrainSource.Local;
+        var localVis = local ? Visibility.Visible : Visibility.Collapsed;
+        BrainModelLabel.Visibility = localVis;
+        BrainModelBox.Visibility = localVis;
+        BrainFileStatus.Visibility = localVis;
+        BrainDownloadButton.Visibility = localVis;
+        bool custom = local && _settings.BrainModel == LocalBrainKind.Custom;
+        var urlVis = custom ? Visibility.Visible : Visibility.Collapsed;
+        BrainUrlLabel.Visibility = urlVis;
+        BrainUrlBox.Visibility = urlVis;
+        bool readyLocal = LocalBrain.IsReady(_settings);
+        string fileStatus;
+        if (!local)
+            fileStatus = "";
+        else if (_settings.BrainModel == LocalBrainKind.Custom && !LocalBrain.TryParseCustomUrl(_settings.BrainCustomUrl, out _, out _, out var urlError))
+            fileStatus = urlError;
+        else if (readyLocal)
+            fileStatus = L.T("Уже на диске: ", "Already on disk: ") + LocalBrain.ModelPath(_settings);
+        else
+            fileStatus = L.T("Файла ещё нет. Нажмите кнопку, сама модель не скачивается.", "Not on disk yet. Press the button. It does not download by itself.");
+        BrainFileStatus.Text = fileStatus;
+        BrainDownloadButton.Content = readyLocal
+            ? L.T("Уже на диске, не скачивать", "Already on disk, do not download")
+            : L.T("Скачать модель мозга", "Download the brain model");
         var every = b == BrainSource.Off ? Visibility.Collapsed : Visibility.Visible;
-        // Editing a selection is done by the Brain: say which one, or that it has to be turned on first.
-        bool ready = b switch { BrainSource.Local => LocalBrain.Downloaded, BrainSource.Server => Brain.ServerConfigured(_settings), _ => false };
+        bool ready = b switch { BrainSource.Local => readyLocal, BrainSource.Server => Brain.ServerConfigured(_settings), _ => false };
         string host = SpeechCleanup.HostOf(_settings.CleanupEndpointUrl);
         EditBrainLine.Text = !ready
             ? L.T("Текст переписывает нейросеть, поэтому для правки нужен Мозг. Сейчас он не настроен.",
@@ -523,6 +561,79 @@ public partial class SettingsWindow : Window
         _settings.BrainEveryTake = EveryTakeBox.IsChecked == true;
         _apply();
         UpdateBrainTexts();
+    }
+
+    private void BrainModel_Changed(object sender, SelectionChangedEventArgs e)
+    {
+        if (_loading || BrainModelBox.SelectedItem is not ComboBoxItem item) return;
+        var kind = (LocalBrainKind)item.Tag;
+        if (kind == _settings.BrainModel) return;
+        _settings.BrainModel = kind;
+        LocalBrain.Stop();
+        _apply();
+        UpdateBrainTexts();
+    }
+
+    private void BrainUrl_LostFocus(object sender, RoutedEventArgs e)
+    {
+        if (_loading) return;
+        var text = BrainUrlBox.Text.Trim();
+        if (text == _settings.BrainCustomUrl) return;
+        _settings.BrainCustomUrl = text;
+        if (_settings.BrainModel == LocalBrainKind.Custom) LocalBrain.Stop();
+        _apply();
+        UpdateBrainTexts();
+    }
+
+    private void Instruction_LostFocus(object sender, RoutedEventArgs e)
+    {
+        if (_loading) return;
+        var text = InstructionBox.Text.Replace("\r\n", "\n").Replace('\r', '\n').Trim();
+        if (text == _settings.BrainInstruction.Trim()) return;
+        _settings.BrainInstruction = text;
+        _apply();
+    }
+
+    private async void BrainDownload_Click(object sender, RoutedEventArgs e)
+    {
+        SaveBrainUrl();
+        if (_settings.BrainModel == LocalBrainKind.Custom &&
+            !LocalBrain.TryParseCustomUrl(_settings.BrainCustomUrl, out _, out _, out var error))
+        {
+            System.Windows.MessageBox.Show(error, L.T("Мозг", "Brain"), MessageBoxButton.OK, MessageBoxImage.Information);
+            UpdateBrainTexts();
+            return;
+        }
+        if (LocalBrain.IsReady(_settings))
+        {
+            System.Windows.MessageBox.Show(
+                L.T($"Эта модель уже на диске.\n\n{LocalBrain.ModelPath(_settings)}",
+                    $"This model is already on disk.\n\n{LocalBrain.ModelPath(_settings)}"),
+                L.T("Мозг", "Brain"), MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+        var gb = LocalBrain.Gb(LocalBrain.MemoryNeeded(_settings));
+        var window = new DownloadWindow(
+            L.T("Скачиваю Мозг", "Downloading the Brain"),
+            L.T($"Нейросеть {LocalBrain.Title(_settings)} и движок llama.cpp. Если связь оборвётся, скачивание продолжится с того же места. Файл не запускается как программа.",
+                $"The {LocalBrain.Title(_settings)} model and the llama.cpp engine. If the connection drops, the download resumes. The file is not run as a program."),
+            (progress, ct) => LocalBrain.DownloadAsync(_settings, progress, ct),
+            gb + L.T(" ГБ", " GB"));
+        BrainDownloadButton.IsEnabled = false;
+        try { await window.RunAsync(); }
+        finally
+        {
+            BrainDownloadButton.IsEnabled = true;
+            Localize();
+        }
+    }
+
+    private void SaveBrainUrl()
+    {
+        var text = BrainUrlBox.Text.Trim();
+        if (text == _settings.BrainCustomUrl) return;
+        _settings.BrainCustomUrl = text;
+        _apply();
     }
 
     private void DeleteBrain_Click(object sender, RoutedEventArgs e)
