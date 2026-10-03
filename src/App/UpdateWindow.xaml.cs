@@ -15,7 +15,7 @@ public partial class UpdateWindow : Window
         _info = info;
         _ = quit;
         InitializeComponent();
-        Title = L.T("Гига Писарь", "Giga Pisar");
+        Title = L.T("Chawo VA", "Chawo VA");
         Heading.Text = L.T($"Вышла версия {info.Version}", $"Version {info.Version} is out");
         var notes = L.Russian || string.IsNullOrWhiteSpace(info.NotesEn) ? info.Notes : info.NotesEn;
         Notes.Text = string.IsNullOrWhiteSpace(notes)

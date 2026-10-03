@@ -140,7 +140,12 @@
                         <TextBlock x:Name="WrittenHeader" Grid.Column="1" Margin="8,0,0,0" FontWeight="SemiBold"/>
                     </Grid>
                     <StackPanel x:Name="DictionaryRows"/>
-                    <Button x:Name="AddDictionaryButton" HorizontalAlignment="Left" Margin="0,10,0,0" Padding="12,4" Click="AddDictionary_Click"/>
+                    <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
+                        <Button x:Name="AddDictionaryButton" HorizontalAlignment="Left" Padding="12,4" Click="AddDictionary_Click"/>
+                        <Button x:Name="SuggestDictionaryButton" Margin="8,0,0,0" Padding="12,4" Click="SuggestDictionary_Click"/>
+                    </StackPanel>
+                    <TextBlock x:Name="SuggestDictionaryHint" Margin="0,6,0,0" Opacity="0.7" TextWrapping="Wrap"/>
+                    <StackPanel x:Name="SuggestDictionaryRows" Margin="0,8,0,0"/>
                 </StackPanel>
 
                 <StackPanel x:Name="SalesPage" Visibility="Collapsed">
@@ -161,6 +166,14 @@
                     </Grid>
                     <StackPanel x:Name="SalesRows"/>
                     <Button x:Name="AddSalesButton" HorizontalAlignment="Left" Margin="0,10,0,0" Padding="12,4" Click="AddSales_Click"/>
+                    <TextBlock x:Name="RagHeading" Margin="0,18,0,4" FontWeight="SemiBold"/>
+                    <TextBlock x:Name="RagIntro" Margin="0,0,0,8" Opacity="0.75" TextWrapping="Wrap"/>
+                    <DockPanel LastChildFill="True">
+                        <Button x:Name="RagClearButton" DockPanel.Dock="Right" Margin="8,0,0,0" Padding="12,4" Click="RagClear_Click"/>
+                        <Button x:Name="RagPickButton" DockPanel.Dock="Right" Margin="8,0,0,0" Padding="12,4" Click="RagPick_Click"/>
+                        <TextBox x:Name="RagFolderBox" Padding="7,5" IsReadOnly="True" VerticalContentAlignment="Center"/>
+                    </DockPanel>
+                    <TextBlock x:Name="RagStatus" Margin="0,6,0,0" Opacity="0.75" TextWrapping="Wrap"/>
                 </StackPanel>
 
                 <StackPanel x:Name="BrainPage" Visibility="Collapsed">

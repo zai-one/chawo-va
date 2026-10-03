@@ -67,6 +67,8 @@ public sealed class Settings
     public AppMode Mode { get; set; } = AppMode.Dictation;
     /// <summary>Local sales catalog. Empty until the user types rows. Never downloaded.</summary>
     public List<SalesCatalogItem> SalesCatalog { get; set; } = new();
+    /// <summary>Folder of .txt / .md for local sales RAG. Empty means off. Never uploaded.</summary>
+    public string RagFolder { get; set; } = "";
     /// <summary>Client only. IP or name of the PC that listens on Hermes. Not a download URL.</summary>
     public string RemoteHost { get; set; } = "";
     /// <summary>Client only. Hermes port on that PC.</summary>

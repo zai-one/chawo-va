@@ -14,7 +14,7 @@ public sealed class SalesCatalogItem
 
 public enum SalesHitKind { Exact, Similar }
 
-public readonly record struct SalesHit(SalesHitKind Kind, string Name, string Line, string Code);
+public readonly record struct SalesHit(SalesHitKind Kind, string Name, string Line, string Code, string RagSnippet = "");
 
 public static class SalesCatalog
 {
@@ -84,6 +84,9 @@ public static class SalesCatalog
         bestOverlap = overlap;
         nearest = item;
     }
+
+    public static SalesHit WithRag(SalesHit hit, string? snippet) =>
+        hit with { RagSnippet = string.IsNullOrWhiteSpace(snippet) ? "" : snippet.Trim() };
 
     private static string ShowName(SalesCatalogItem item)
     {

@@ -320,7 +320,7 @@ public partial class PisarApp : Application
         _tray = new Forms.NotifyIcon
         {
             Icon = _iconIdle,
-            Text = L.T("Гига Писарь", "Giga Pisar"),
+            Text = L.T("Chawo VA", "Chawo VA"),
             Visible = true,
             ContextMenuStrip = BuildMenu(),
         };
@@ -360,7 +360,7 @@ public partial class PisarApp : Application
         if (JustUpdated)
         {
             Updater.Cleanup();
-            _tray.ShowBalloonTip(6000, L.T($"Гига Писарь обновлён до {Version}", $"Giga Pisar updated to {Version}"),
+            _tray.ShowBalloonTip(6000, L.T($"Chawo VA обновлён до {Version}", $"Chawo VA updated to {Version}"),
                 L.T("Всё готово, можно диктовать.", "All set, dictate away."), Forms.ToolTipIcon.None);
         }
         // No update check on a timer. The tray and About have a manual button for this fork's releases.
@@ -369,7 +369,7 @@ public partial class PisarApp : Application
             _settings.FirstRunDone = true;
             _settings.Save();
             if (SpeechIsRemote)
-                _tray.ShowBalloonTip(8000, L.T("Гига Писарь — клиент", "Giga Pisar is a client"),
+                _tray.ShowBalloonTip(8000, L.T("Chawo VA — клиент", "Chawo VA is a client"),
                     L.T("Укажите адрес хоста в разделе «Сеть». Модель на этом компьютере не скачивается.",
                         "Set the host address under Network. This PC does not download a model."),
                     Forms.ToolTipIcon.None);
@@ -379,7 +379,7 @@ public partial class PisarApp : Application
                         "Open Settings and press Download the selected model. It does not download by itself."),
                     Forms.ToolTipIcon.None);
             else
-            _tray.ShowBalloonTip(8000, L.T("Гига Писарь готов", "Giga Pisar is ready"),
+            _tray.ShowBalloonTip(8000, L.T("Chawo VA готов", "Chawo VA is ready"),
                 L.T($"Поставьте курсор в любой текст, зажмите {Settings.HotkeyTitle(_settings.HotkeyVk)} и говорите. Отпустите, и текст появится сам.",
                     $"Put the cursor in any text, hold {Settings.HotkeyTitle(_settings.HotkeyVk)} and speak. Release, and the text appears by itself."),
                 Forms.ToolTipIcon.None);
@@ -400,7 +400,7 @@ public partial class PisarApp : Application
                     System.Windows.MessageBox.Show(
                         L.T($"У вас последняя версия, {Version}.\n\nПроверено: {Updater.ReleasesPage}",
                             $"You have the latest version, {Version}.\n\nChecked: {Updater.ReleasesPage}"),
-                        L.T($"Гига Писарь {Version}", $"Giga Pisar {Version}"),
+                        L.T($"Chawo VA {Version}", $"Chawo VA {Version}"),
                         System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Information);
                 return;
             }
@@ -422,7 +422,7 @@ public partial class PisarApp : Application
                 System.Windows.MessageBox.Show(
                     L.T($"Не удалось проверить обновления.\n{Updater.ReleasesPage}\n{ex.Message}",
                         $"Could not check for updates.\n{Updater.ReleasesPage}\n{ex.Message}"),
-                    L.T($"Гига Писарь {Version}", $"Giga Pisar {Version}"),
+                    L.T($"Chawo VA {Version}", $"Chawo VA {Version}"),
                     System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Warning);
         }
     }
@@ -437,7 +437,7 @@ public partial class PisarApp : Application
         string text = L.T($"Выделено {selected.Length} знаков. Скажите, что с ними сделать",
                           $"{selected.Length} characters selected. Say what to do with them");
         if (_settings.ShowOverlay) _overlay?.ShowCaption(text);
-        else _tray?.ShowBalloonTip(2500, L.T("Гига Писарь", "Giga Pisar"), text, Forms.ToolTipIcon.None);
+        else _tray?.ShowBalloonTip(2500, L.T("Chawo VA", "Chawo VA"), text, Forms.ToolTipIcon.None);
     }
 
     private async Task HandlePressAsync()
@@ -866,7 +866,7 @@ public partial class PisarApp : Application
         }
         else
         {
-            _tray?.ShowBalloonTip(4000, L.T("Гига Писарь", "Giga Pisar"), text, Forms.ToolTipIcon.None);
+            _tray?.ShowBalloonTip(4000, L.T("Chawo VA", "Chawo VA"), text, Forms.ToolTipIcon.None);
         }
     }
 
@@ -1215,7 +1215,7 @@ public partial class PisarApp : Application
     private void SetStatus(string? status)
     {
         if (_tray == null) return;
-        _tray.Text = status == null ? L.T("Гига Писарь", "Giga Pisar") : L.T($"Гига Писарь: {status}", $"Giga Pisar: {status}");
+        _tray.Text = status == null ? L.T("Chawo VA", "Chawo VA") : L.T($"Chawo VA: {status}", $"Chawo VA: {status}");
     }
 
     private bool GpuWarmActive()
@@ -1523,8 +1523,16 @@ public partial class PisarApp : Application
         if (_settings.Mode != AppMode.Sales) return;
         var hit = SalesCatalog.Match(transcript, _settings.SalesCatalog);
         if (hit == null) return;
+        var shown = hit.Value;
+        // Exact code is enough. When the code is missing, also look in the local materials folder.
+        if (shown.Kind == SalesHitKind.Similar)
+        {
+            var snip = SalesRag.FindSnippet(transcript, _settings.RagFolder);
+            if (snip != null)
+                shown = SalesCatalog.WithRag(shown, snip.Value.Text);
+        }
         _salesCard ??= new SalesCardWindow();
-        _salesCard.ShowHit(hit.Value);
+        _salesCard.ShowHit(shown);
     }
 
     private void ApplySettings()

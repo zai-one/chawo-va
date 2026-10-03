@@ -11,6 +11,7 @@ public partial class SalesCardWindow : Window
     private SalesHitKind _kind;
     private string _name = "";
     private string _line = "";
+    private string _rag = "";
 
     public SalesCardWindow()
     {
@@ -25,14 +26,20 @@ public partial class SalesCardWindow : Window
 
     public void ShowHit(SalesHit hit)
     {
-        if (hit.Kind == _kind && hit.Name == _name && hit.Line == _line && IsVisible) return;
+        string rag = hit.RagSnippet ?? "";
+        if (hit.Kind == _kind && hit.Name == _name && hit.Line == _line && rag == _rag && IsVisible) return;
         _kind = hit.Kind;
         _name = hit.Name;
         _line = hit.Line;
+        _rag = rag;
         Badge.Visibility = hit.Kind == SalesHitKind.Similar ? Visibility.Visible : Visibility.Collapsed;
         NameText.Text = hit.Name;
         LineText.Text = hit.Line;
         LineText.Visibility = hit.Line.Length == 0 ? Visibility.Collapsed : Visibility.Visible;
+        bool hasRag = rag.Length > 0;
+        RagLabel.Visibility = hasRag ? Visibility.Visible : Visibility.Collapsed;
+        RagText.Text = rag;
+        RagText.Visibility = hasRag ? Visibility.Visible : Visibility.Collapsed;
         if (!IsVisible) Show();
         Place();
     }
@@ -41,6 +48,7 @@ public partial class SalesCardWindow : Window
     {
         _name = "";
         _line = "";
+        _rag = "";
         Hide();
     }
 

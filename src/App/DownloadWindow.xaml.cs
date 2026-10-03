@@ -34,7 +34,7 @@ public partial class DownloadWindow : Window
         _spaceNeeded = spaceNeeded;
         _manualStart = manualStart;
         InitializeComponent();
-        Title = L.T("Гига Писарь", "Giga Pisar");
+        Title = L.T("Chawo VA", "Chawo VA");
         Heading.Text = heading;
         Intro.Text = intro;
         DownloadButton.Content = L.T("Скачать", "Download");

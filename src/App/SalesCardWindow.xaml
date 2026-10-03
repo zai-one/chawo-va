@@ -4,8 +4,8 @@
         WindowStyle="None" AllowsTransparency="True" Background="Transparent"
         Topmost="True" ShowInTaskbar="False" ShowActivated="False" Focusable="False"
         ResizeMode="NoResize" SizeToContent="WidthAndHeight"
-        Title="Гига Писарь">
-    <Border Margin="16" Padding="14,12" CornerRadius="10" MaxWidth="340"
+        Title="Chawo VA">
+    <Border Margin="16" Padding="14,12" CornerRadius="10" MaxWidth="360"
             Background="#F7FFFFFF" BorderBrush="#33000000" BorderThickness="1">
         <Border.Effect>
             <DropShadowEffect BlurRadius="16" ShadowDepth="2" Direction="270" Opacity="0.28" Color="#000000"/>
@@ -15,6 +15,10 @@
                        FontSize="12" FontWeight="SemiBold" Foreground="#C05600" Margin="0,0,0,4"/>
             <TextBlock x:Name="NameText" FontSize="15" FontWeight="SemiBold" Foreground="#D9000000" TextWrapping="Wrap"/>
             <TextBlock x:Name="LineText" Margin="0,4,0,0" FontSize="13.5" Foreground="#CC000000" TextWrapping="Wrap"/>
+            <TextBlock x:Name="RagLabel" Margin="0,10,0,0" FontSize="11" FontWeight="SemiBold"
+                       Foreground="#99000000" Visibility="Collapsed" Text="из материалов"/>
+            <TextBlock x:Name="RagText" Margin="0,2,0,0" FontSize="12.5" Foreground="#B3000000"
+                       TextWrapping="Wrap" Visibility="Collapsed"/>
         </StackPanel>
     </Border>
 </Window>

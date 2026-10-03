@@ -13,9 +13,9 @@
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <StartupObject>GigaPisar.App.PisarApp</StartupObject>
     <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
-    <Version>1.12.0</Version>
-    <Product>Giga Pisar</Product>
-    <Company>Giga Pisar</Company>
+    <Version>1.13.0</Version>
+    <Product>Chawo VA</Product>
+    <Company>Chawo</Company>
     <Copyright>MIT License</Copyright>
     <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
     <InvariantGlobalization>false</InvariantGlobalization>

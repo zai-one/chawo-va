@@ -87,7 +87,7 @@ public partial class SettingsWindow : Window
     public void Localize()
     {
         _loading = true;
-        Title = L.T($"Гига Писарь {PisarApp.Version}", $"Giga Pisar {PisarApp.Version}");
+        Title = L.T($"Chawo VA {PisarApp.Version}", $"Chawo VA {PisarApp.Version}");
         NavDictation.Text = L.T("Диктовка", "Dictation");
         NavSpeech.Text = L.T("Распознавание", "Speech");
         NavDictionary.Text = L.T("Словарь", "Dictionary");
@@ -104,8 +104,8 @@ public partial class SettingsWindow : Window
         foreach (ComboBoxItem it in ModeBox.Items)
             if ((AppMode)it.Tag == _settings.Mode) ModeBox.SelectedItem = it;
         ModeHint.Text = _settings.Mode == AppMode.Sales
-            ? L.T("Карточка только из каталога на этом компьютере. Сеть и модель для неё не нужны, веса не скачиваются. Диктовка вставляет текст как раньше.",
-                  "The card comes only from the catalog on this PC. It needs no network and no model, and it does not download weights. Dictation still inserts text as before.")
+            ? L.T("Карточка из каталога и, если кода нет, фрагмент из папки материалов. Сеть и модель для неё не нужны. Диктовка вставляет текст как раньше.",
+                  "The card comes from the catalog and, when the code is missing, a snippet from the materials folder. It needs no network and no model. Dictation still inserts text as before.")
             : L.T("Обычная диктовка. Карточка продаж не показывается.",
                   "Ordinary dictation. The sales card stays hidden.");
         HotkeyLabel.Text = L.T("Клавиша диктовки", "Dictation key");
@@ -224,16 +224,26 @@ public partial class SettingsWindow : Window
         HeardHeader.Text = L.T("Как слышно", "Heard");
         WrittenHeader.Text = L.T("Как писать", "Written");
         AddDictionaryButton.Content = L.T("Добавить", "Add");
+        SuggestDictionaryButton.Content = L.T("Подсказать из материалов", "Suggest from materials");
+        SuggestDictionaryHint.Text = L.T("Берёт латинские бренды и соседние русские слова из папки материалов на вкладке «Продажи». В словарь само не пишет — только предлагает строки.",
+                                         "Takes Latin brands and neighboring Russian words from the materials folder on the Sales tab. Nothing is written into the dictionary until you add a row.");
         FillDictionaryRows();
+        FillSuggestDictionaryRows(clear: true);
         SalesHeading.Text = "Продажи";
         SalesIntro.Text = L.T(
-            "Каталог на этом компьютере. Код в живом черновике открывает карточку с короткой строкой. Если кода нет, берётся ближайшее название по буквам и на карточке пишется «похоже». Облака нет.",
-            "A catalog on this PC. A code in the live draft opens a card with the short line. If the code is missing, the nearest name by letters is shown and the card says «похоже». No cloud.");
+            "Каталог на этом компьютере. Код в живом черновике открывает карточку с короткой строкой. Если кода нет, берётся ближайшее название по буквам и на карточке пишется «похоже». Ниже — папка материалов (.txt / .md): из неё подставляется короткий фрагмент под карточкой, когда точного кода нет. Облака нет.",
+            "A catalog on this PC. A code in the live draft opens a card with the short line. If the code is missing, the nearest name by letters is shown and the card says «похоже». Below is a materials folder (.txt / .md): a short snippet from it appears under the card when the exact code is missing. No cloud.");
         CodeHeader.Text = L.T("Код", "Code");
         NameHeader.Text = L.T("Название", "Name");
         LineHeader.Text = L.T("Строка", "Line");
         SimilarHeader.Text = L.T("Похожий код", "Similar code");
         AddSalesButton.Content = L.T("Добавить", "Add");
+        RagHeading.Text = L.T("Материалы (локальный RAG)", "Materials (local RAG)");
+        RagIntro.Text = L.T("Папка с текстовыми и markdown-файлами на этом компьютере. Никуда не загружается. В режиме «Продажи», если кода нет, на карточке под строкой каталога показывается ближайший фрагмент.",
+                            "A folder of text and markdown files on this PC. Nothing is uploaded. In Sales mode, when the code is missing, the nearest snippet appears on the card under the catalog line.");
+        RagPickButton.Content = L.T("Выбрать папку", "Choose folder");
+        RagClearButton.Content = L.T("Убрать", "Clear");
+        RefreshRagFolderUi();
         FillSalesRows();
 
 
@@ -621,8 +631,8 @@ public partial class SettingsWindow : Window
         _settings.Mode = mode;
         _apply();
         ModeHint.Text = mode == AppMode.Sales
-            ? L.T("Карточка только из каталога на этом компьютере. Сеть и модель для неё не нужны, веса не скачиваются. Диктовка вставляет текст как раньше.",
-                  "The card comes only from the catalog on this PC. It needs no network and no model, and it does not download weights. Dictation still inserts text as before.")
+            ? L.T("Карточка из каталога и, если кода нет, фрагмент из папки материалов. Сеть и модель для неё не нужны. Диктовка вставляет текст как раньше.",
+                  "The card comes from the catalog and, when the code is missing, a snippet from the materials folder. It needs no network and no model. Dictation still inserts text as before.")
             : L.T("Обычная диктовка. Карточка продаж не показывается.",
                   "Ordinary dictation. The sales card stays hidden.");
     }
@@ -791,6 +801,131 @@ public partial class SettingsWindow : Window
         if (next.Trim() == current.Trim()) return;
         _settings.SaveDictionary(rows);
         _apply();
+    }
+
+    private void RefreshRagFolderUi()
+    {
+        string folder = (_settings.RagFolder ?? "").Trim();
+        RagFolderBox.Text = folder.Length == 0
+            ? L.T("Папка не выбрана", "No folder chosen")
+            : folder;
+        RagClearButton.IsEnabled = folder.Length > 0;
+        if (folder.Length == 0)
+            RagStatus.Text = L.T("Без папки карточка показывает только каталог.", "Without a folder the card shows only the catalog.");
+        else if (!System.IO.Directory.Exists(folder))
+            RagStatus.Text = L.T("Папка не найдена на диске.", "The folder is not on disk.");
+        else
+        {
+            int n = 0;
+            try
+            {
+                n = System.IO.Directory.EnumerateFiles(folder, "*.*", System.IO.SearchOption.AllDirectories)
+                    .Count(p =>
+                    {
+                        string ext = System.IO.Path.GetExtension(p).ToLowerInvariant();
+                        return ext is ".txt" or ".md" or ".markdown";
+                    });
+            }
+            catch { /* status only */ }
+            RagStatus.Text = L.T($"Файлов .txt/.md: {n}.", $".txt/.md files: {n}.");
+        }
+    }
+
+    private void RagPick_Click(object sender, RoutedEventArgs e)
+    {
+        var dlg = new Microsoft.Win32.OpenFolderDialog
+        {
+            Title = L.T("Папка материалов для продаж", "Sales materials folder"),
+        };
+        string current = (_settings.RagFolder ?? "").Trim();
+        if (current.Length > 0 && System.IO.Directory.Exists(current))
+            dlg.InitialDirectory = current;
+        if (dlg.ShowDialog(this) != true) return;
+        string path = (dlg.FolderName ?? "").Trim();
+        if (path.Length == 0 || path == _settings.RagFolder) return;
+        _settings.RagFolder = path;
+        _apply();
+        RefreshRagFolderUi();
+        FillSuggestDictionaryRows(clear: true);
+    }
+
+    private void RagClear_Click(object sender, RoutedEventArgs e)
+    {
+        if (string.IsNullOrWhiteSpace(_settings.RagFolder)) return;
+        _settings.RagFolder = "";
+        _apply();
+        RefreshRagFolderUi();
+        FillSuggestDictionaryRows(clear: true);
+    }
+
+    private void SuggestDictionary_Click(object sender, RoutedEventArgs e)
+    {
+        if (string.IsNullOrWhiteSpace(_settings.RagFolder) || !System.IO.Directory.Exists(_settings.RagFolder))
+        {
+            SuggestDictionaryHint.Text = L.T("Сначала выберите папку материалов на вкладке «Продажи».",
+                                             "Choose a materials folder on the Sales tab first.");
+            FillSuggestDictionaryRows(clear: true);
+            return;
+        }
+        var suggestions = SalesRag.SuggestDictionary(_settings.RagFolder, _settings.DictionaryRows);
+        FillSuggestDictionaryRows(clear: false, suggestions);
+        SuggestDictionaryHint.Text = suggestions.Count == 0
+            ? L.T("В материалах не нашлось пар «русское рядом с латинским брендом».",
+                  "No Russian-next-to-Latin-brand pairs were found in the materials.")
+            : L.T($"Предложено {suggestions.Count}. Нажмите «В словарь», чтобы добавить строку. Само ничего не пишется.",
+                  $"Suggested {suggestions.Count}. Press Add to dictionary to insert a row. Nothing is written by itself.");
+    }
+
+    private void FillSuggestDictionaryRows(bool clear, IReadOnlyList<DictSuggestion>? suggestions = null)
+    {
+        SuggestDictionaryRows.Children.Clear();
+        if (clear || suggestions == null || suggestions.Count == 0) return;
+        foreach (var s in suggestions)
+        {
+            var grid = new Grid { Margin = new Thickness(0, 4, 0, 0) };
+            grid.ColumnDefinitions.Add(new ColumnDefinition());
+            grid.ColumnDefinitions.Add(new ColumnDefinition());
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(120) });
+            var heard = new TextBlock
+            {
+                Text = s.Heard,
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(0, 0, 8, 0),
+                TextWrapping = TextWrapping.Wrap,
+            };
+            var written = new TextBlock
+            {
+                Text = s.Written + (s.Source.Length > 0 ? $"  ({s.Source})" : ""),
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(0, 0, 8, 0),
+                Opacity = 0.85,
+                TextWrapping = TextWrapping.Wrap,
+            };
+            Grid.SetColumn(written, 1);
+            var add = new Button
+            {
+                Content = L.T("В словарь", "Add"),
+                Padding = new Thickness(10, 4, 10, 4),
+                Tag = s,
+                VerticalAlignment = VerticalAlignment.Center,
+            };
+            Grid.SetColumn(add, 2);
+            add.Click += AddSuggestion_Click;
+            grid.Children.Add(heard);
+            grid.Children.Add(written);
+            grid.Children.Add(add);
+            SuggestDictionaryRows.Children.Add(grid);
+        }
+    }
+
+    private void AddSuggestion_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button button || button.Tag is not DictSuggestion s) return;
+        // Do not auto-write elsewhere: only when the user clicks.
+        AddDictionaryRow(s.Heard, s.Written, focus: false);
+        PersistDictionary();
+        if (button.Parent is Grid grid)
+            SuggestDictionaryRows.Children.Remove(grid);
     }
 
     private void FillSpeechModelRows()
