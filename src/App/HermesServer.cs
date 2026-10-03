@@ -1,5 +1,6 @@
-// Local decoder for Hermes. Listens on 127.0.0.1 only.
-// A POST body is an audio file; the response is JSON text. Audio is not uploaded.
+// Decoder for Hermes. Starts on 127.0.0.1. After the user opens the firewall
+// port it can bind 0.0.0.0 so other machines on the LAN can POST audio.
+// The audio is decoded here. This process does not upload it.
 
 using System.Net;
 using System.Net.Sockets;
@@ -17,18 +18,22 @@ public sealed class HermesServer : IDisposable
 
     public int Port { get; }
 
-    public HermesServer(int port, Func<byte[], HermesResult> transcribe)
+    public bool ListenOnLan { get; }
+    public string BindAddress => ListenOnLan ? "0.0.0.0" : "127.0.0.1";
+
+    public HermesServer(int port, Func<byte[], HermesResult> transcribe, bool listenOnLan = false)
     {
         Port = port;
+        ListenOnLan = listenOnLan;
         _transcribe = transcribe;
-        _listener = new TcpListener(IPAddress.Loopback, port);
+        _listener = new TcpListener(listenOnLan ? IPAddress.Any : IPAddress.Loopback, port);
     }
 
     public void Start()
     {
         _listener.Start();
         _ = Task.Run(AcceptLoop);
-        Log.Write($"hermes listening on 127.0.0.1:{Port}");
+        Log.Write($"hermes listening on {BindAddress}:{Port}");
     }
 
     private async Task AcceptLoop()
@@ -54,7 +59,7 @@ public sealed class HermesServer : IDisposable
         {
             try
             {
-                if (client.Client.RemoteEndPoint is IPEndPoint ep && !IPAddress.IsLoopback(ep.Address))
+                if (!ListenOnLan && client.Client.RemoteEndPoint is IPEndPoint ep && !IPAddress.IsLoopback(ep.Address))
                 {
                     Write(client.GetStream(), 403, JsonSerializer.Serialize(new { error = "localhost_only" }));
                     return;
@@ -74,6 +79,7 @@ public sealed class HermesServer : IDisposable
                         device = status.Device,
                         provider = status.Provider,
                         port = Port,
+                        listen = BindAddress,
                     }));
                     return;
                 }

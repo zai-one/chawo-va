@@ -12,6 +12,25 @@ The model is **not** downloaded on startup. Settings and the tray have a
 **Download the selected model** button. Until you press it, the app does not
 fetch weights.
 
+
+## По-русски: что добавлено и зачем
+
+Это форк обычного Гига Писаря для Windows (ветка `gpu-mimo-hermes`). Ниже не список галочек, а зачем каждая правка.
+
+**Выбор модели и кнопка «Скачать».** В оригинале модель качается сама при первом запуске, и это одна русская GigaAM v3. Здесь две модели, и файл не уходит в сеть, пока вы сами не нажмёте кнопку. Большая — Multilingual Large CTC, около 600 миллионов параметров: это самая крупная модель Сбера, у которой есть готовый ONNX и которая умеет именно распознавать речь (русский, английский и ещё языки из её словаря). Ещё крупнее опубликован только энкодер `large_ssl`, им нельзя диктовать: у него нет головы распознавания. RNN-T на 600M в ONNX никто не выложил. Вторая модель — прежняя v3 e2e RNN-T: меньше, только русский, зато сама ставит точки и запятые. Кнопка нужна, чтобы свежая установка ничего не скачивала молча: веса большие (у большой модели около 2,4 ГБ), и вы сами решаете, когда и какую брать.
+
+**Процессор или видеокарта.** Оригинал всегда считает на CPU. Здесь можно выбрать видеокарту. Это DirectML, а не отдельный CUDA: библиотека лежит рядом с программой и использует карту NVIDIA (в том числе RTX 3070), AMD или Intel без установки CUDA. Если карта не поднялась, распознавание само переходит на процессор и пишет об этом. Звук при этом всё равно остаётся на компьютере. fp32, а не int8, потому что целочисленную модель видеокарта часто не принимает.
+
+**Мозг Xiaomi MiMo, Сингапур, выключен.** Мозг — это правка уже распознанного текста, не звука. Он по-прежнему выключен, пока вы сами не выберете сервис. Добавлен Xiaomi Token Plan Singapore: адрес `https://token-plan-sgp.xiaomimimo.com/v1`, модель `mimo-v2.6-flash`. Свой ключ вставляете вы, в репозитории ключа нет, на диске он лежит в DPAPI, как и остальные ключи. Уходит только текст. Так можно пользоваться своим тарифом MiMo и не платить за распознавание: звук считает локальная GigaAM.
+
+**Hermes, HTTP-расшифровщик.** Писарь с самого запуска слушает только `127.0.0.1`, порт **17831**. Другая программа на этом же компьютере (Hermes) может прислать `POST /v1/transcribe` с файлом wav или ogg/opus и получить JSON с текстом. Звук никуда не загружается: его разбирает эта же программа. Порт по умолчанию не торчит в сеть, чтобы расшифровка не была доступна соседям по Wi‑Fi без вашего решения.
+
+**Кнопка «Открыть порт в брандмауэре и слушать сеть».** Если этот ПК должен быть расшифровщиком для других машин, кнопка делает две вещи. Windows спрашивает права администратора и добавляет входящее правило брандмауэра на TCP **17831** (имя правила `Giga Pisar Hermes`), затем открывает консоль брандмауэра, чтобы правило было видно. После этого Писарь слушает **0.0.0.0:17831**, то есть все свои сетевые адреса, не только localhost. Другой компьютер в локальной сети шлёт тот же `POST http://<адрес-этого-ПК>:17831/v1/transcribe`. Это уже доступ к расшифровке из локальной сети: кто угодно в ней может прислать запись. В интернет программа запись не отправляет. Пока кнопку не нажали, снаружи порт закрыт. Кнопка «снова только этот компьютер» возвращает прослушивание на 127.0.0.1.
+
+**Галочка «не давать компьютеру уснуть».** Пока Писарь слушает и галочка включена, вызывается `SetThreadExecutionState`: Windows не усыпляет ПК от простоя, иначе расшифровщик замолчит посреди очереди голосовых. Ручное выключение это не блокирует. Сняли галочку или закрыли программу (слушатель остановился) — запрет сна снимается.
+
+Проверок обновлений с репозитория автора оригинала нет.
+
 ## Speech model
 
 Two published Sber GigaAM graphs:
@@ -64,10 +83,22 @@ Token Plan examples use, and sets `thinking` to `disabled` so Flash does not
 spend the answer on a reasoning trace. The brain stays **off** until you
 select a service in Settings.
 
-## Hermes (localhost decoder)
+## Hermes
 
-While Pisar is running it listens only on `127.0.0.1:17831`. Nothing is bound
-to a LAN address. The body is decoded in this process and is not uploaded.
+While Pisar is running it listens on `127.0.0.1:17831` only. Audio posted
+there is decoded in this process and is not uploaded.
+
+**Open the firewall port and listen on the network** (Settings → Dictation)
+asks Windows (UAC) to allow inbound TCP **17831** (rule name `Giga Pisar Hermes`),
+opens the firewall console, and rebinds to **0.0.0.0:17831**. Other machines
+on the LAN can then `POST http://<this-pc>:17831/v1/transcribe`. That exposes
+transcription to the local network. It stays off until you press the button.
+**Listen on this PC only again** returns the bind to 127.0.0.1.
+
+**Keep the PC awake while transcription is listening** calls
+`SetThreadExecutionState` so Windows does not idle-sleep while the listener
+is up. It does not block a manual shutdown. Clear the box or quit Pisar
+(the listener stops) and sleep is allowed again.
 
 `GET /v1/health`
 
@@ -92,7 +123,8 @@ to a LAN address. The body is decoded in this process and is not uploaded.
 `503` `{"error":"model_not_loaded"}` until you download a model.
 `400` `{"error":"bad_audio","detail":"..."}` when the bytes are not wav or ogg/opus.
 
-Any program on this PC can call it. It is not exposed off the machine.
+Until you press the LAN button, only programs on this PC can call it.
+After that, anyone on the local network can.
 
 ## What the app does on your machine
 
@@ -174,7 +206,8 @@ All team members use multi-factor authentication on GitHub.
 
 This fork collects no telemetry. It does not check for updates. Speech is
 recognized on your computer; audio never leaves it, including audio posted to
-the Hermes port (that port is `127.0.0.1` only).
+the Hermes port. That port is `127.0.0.1` until you open it for the LAN
+(`0.0.0.0:17831`).
 
 Network traffic happens only when you ask for it:
 

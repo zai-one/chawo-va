@@ -19,6 +19,9 @@ public partial class SettingsWindow : Window
     private readonly Func<Task>? _downloadSpeech;
     private readonly Action? _speechChanged;
     private readonly Func<string>? _speechStatus;
+    private readonly Func<string>? _hermesStatus;
+    private readonly Func<Task>? _toggleLan;
+    private readonly Action? _keepAwakeChanged;
     private bool _loading = true;
     /// <summary>Last open section, kept while Pisar runs.</summary>
     private static int _lastPage;
@@ -26,7 +29,8 @@ public partial class SettingsWindow : Window
     public enum Page { Dictation, Brain, Edit, About }
 
     public SettingsWindow(Settings settings, Action apply, Action unpin, Func<BrainSource, Task> selectBrain,
-        Func<Task>? downloadSpeech = null, Action? speechChanged = null, Func<string>? speechStatus = null)
+        Func<Task>? downloadSpeech = null, Action? speechChanged = null, Func<string>? speechStatus = null,
+        Func<string>? hermesStatus = null, Func<Task>? toggleLan = null, Action? keepAwakeChanged = null)
     {
         _settings = settings;
         _apply = apply;
@@ -35,6 +39,9 @@ public partial class SettingsWindow : Window
         _downloadSpeech = downloadSpeech;
         _speechChanged = speechChanged;
         _speechStatus = speechStatus;
+        _hermesStatus = hermesStatus;
+        _toggleLan = toggleLan;
+        _keepAwakeChanged = keepAwakeChanged;
         InitializeComponent();
         ServerPanel.Saved += UpdateBrainTexts;   // the panel has already applied and saved
         Localize();
@@ -145,6 +152,18 @@ public partial class SettingsWindow : Window
                 ? L.T("Файлы модели на месте.", "The model files are on disk.")
                 : L.T("Модель не скачана. Нажмите кнопку. Сама она не скачивается.",
                       "The model is not downloaded. Press the button. It does not download by itself."));
+        HermesHeading.Text = L.T("Расшифровка для других компьютеров", "Transcription for other computers");
+        HermesListenStatus.Text = _hermesStatus?.Invoke()
+            ?? L.T($"Сейчас только этот компьютер, порт {SpeechModels.HermesPort}.",
+                   $"This computer only right now, port {SpeechModels.HermesPort}.");
+        LanButton.Content = _settings.HermesOnLan
+            ? L.T("Снова слушать только этот компьютер", "Listen on this PC only again")
+            : L.T("Открыть порт в брандмауэре и слушать сеть", "Open the firewall port and listen on the network");
+        KeepAwakeBox.Content = L.T("Не давать компьютеру уснуть, пока идёт расшифровка",
+                                   "Keep the PC awake while transcription is listening");
+        KeepAwakeBox.ToolTip = L.T("Пока Писарь слушает порт, Windows не уйдёт в сон от простоя. Выключение руками по-прежнему работает. Снимите галочку или закройте Писаря, и сон снова разрешён.",
+                                   "While Pisar is listening, Windows will not idle-sleep. You can still shut down by hand. Clear the box or quit Pisar and sleep is allowed again.");
+        KeepAwakeBox.IsChecked = _settings.KeepAwakeWhileListening;
 
         CleanupHeading.Text = L.T("Мозг", "Brain");
         CleanupHint.Text = L.T("Нейросеть правит надиктованное по команде. Скажите в конце: «Писарь, исправь», «Писарь, сократи» или «Писарь, переведи на английский». Без обращения текст вставляется сразу.",
@@ -186,9 +205,8 @@ public partial class SettingsWindow : Window
         About.Text = L.T($"Гига Писарь {PisarApp.Version}. Распознавание идёт на вашем компьютере моделью GigaAM от Сбера, звук никуда не отправляется.",
                          $"Giga Pisar {PisarApp.Version}. Speech is recognized on your computer by Sber's GigaAM model; audio never leaves it.");
         ModelPath.Text = L.T("Папка модели: ", "Model folder: ") + Settings.ModelDirectory(_settings.SpeechModel);
-        HermesLine.Text = L.T(
-            $"Hermes: POST http://127.0.0.1:{SpeechModels.HermesPort}/v1/transcribe — только этот компьютер, звук никуда не уходит.",
-            $"Hermes: POST http://127.0.0.1:{SpeechModels.HermesPort}/v1/transcribe — this computer only, audio is not uploaded.");
+        HermesLine.Text = _hermesStatus?.Invoke()
+            ?? L.T($"Hermes: порт {SpeechModels.HermesPort}.", $"Hermes: port {SpeechModels.HermesPort}.");
         CodeLink.Text = L.T("исходный код", "source code");
         MicLine.Text = L.T("Микрофон: ", "Microphone: ") + Recorder.DefaultDeviceName();
         ModelLink.Text = L.T("модель GigaAM от Сбера", "GigaAM model by Sber");
@@ -259,6 +277,25 @@ public partial class SettingsWindow : Window
         finally
         {
             DownloadModelButton.IsEnabled = true;
+            Localize();
+        }
+    }
+
+    private void KeepAwake_Click(object sender, RoutedEventArgs e)
+    {
+        _settings.KeepAwakeWhileListening = KeepAwakeBox.IsChecked == true;
+        _apply();
+        _keepAwakeChanged?.Invoke();
+    }
+
+    private async void Lan_Click(object sender, RoutedEventArgs e)
+    {
+        if (_toggleLan == null) return;
+        LanButton.IsEnabled = false;
+        try { await _toggleLan(); }
+        finally
+        {
+            LanButton.IsEnabled = true;
             Localize();
         }
     }

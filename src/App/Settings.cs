@@ -30,6 +30,10 @@ public sealed class Settings
     public SpeechModelKind SpeechModel { get; set; } = SpeechModelKind.MultilingualLargeCtc;
     /// <summary>Video card (DirectML) or CPU. GPU falls back to CPU if DirectML cannot start.</summary>
     public SpeechDeviceKind SpeechDevice { get; set; } = SpeechDeviceKind.Gpu;
+    /// <summary>Hermes accepts connections from the LAN (0.0.0.0). Off until the user opens the firewall port.</summary>
+    public bool HermesOnLan { get; set; }
+    /// <summary>While the Hermes listener is running, ask Windows not to idle-sleep. Off by default.</summary>
+    public bool KeepAwakeWhileListening { get; set; }
     /// <summary>Send every take through the Brain, not only those ending with "Pisar, …".</summary>
     public bool BrainEveryTake { get; set; }
     /// <summary>With text selected at the key press, the take is a command on the selection. On by default, as on macOS.</summary>

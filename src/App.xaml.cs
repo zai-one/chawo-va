@@ -825,17 +825,104 @@ public partial class PisarApp : Application
         return L.T($"Загружена {rec.ModelId}, считает на {where}. ", $"Loaded {rec.ModelId}, running on {where}. ") + note;
     }
 
-    private void StartHermes()
+    private void StartHermes() => RestartHermes(_settings.HermesOnLan);
+
+    private void RestartHermes(bool lan)
     {
         try
         {
-            _hermes = new HermesServer(Core.SpeechModels.HermesPort, HermesTranscribe);
+            _hermes?.Dispose();
+            _hermes = null;
+            _hermes = new HermesServer(Core.SpeechModels.HermesPort, HermesTranscribe, lan);
             _hermes.Start();
         }
         catch (Exception ex)
         {
             Log.Write($"hermes failed: {ex.Message}");
+            _hermes = null;
+            if (lan)
+            {
+                try
+                {
+                    _hermes = new HermesServer(Core.SpeechModels.HermesPort, HermesTranscribe, false);
+                    _hermes.Start();
+                    _settings.HermesOnLan = false;
+                    _settings.Save();
+                }
+                catch (Exception again)
+                {
+                    Log.Write($"hermes localhost failed: {again.Message}");
+                }
+            }
         }
+        ApplyKeepAwake();
+    }
+
+    private void ApplyKeepAwake()
+    {
+        if (_settings.KeepAwakeWhileListening && _hermes != null) KeepAwake.PreventSleep();
+        else KeepAwake.AllowSleep();
+    }
+
+    private string HermesStatusText()
+    {
+        int port = Core.SpeechModels.HermesPort;
+        if (_hermes == null)
+            return L.T("Расшифровщик не запущен.", "The decoder is not running.");
+        if (!_hermes.ListenOnLan)
+            return L.T($"Слушаю только этот компьютер: http://127.0.0.1:{port}/v1/transcribe. Другие машины сюда не попадут, пока вы не откроете порт.",
+                       $"Listening on this PC only: http://127.0.0.1:{port}/v1/transcribe. Other machines cannot reach it until you open the port.");
+        return L.T($"Слушаю всю локальную сеть, порт {port} (адрес 0.0.0.0). С других компьютеров: {LanUrls(port)}. Звук приходит сюда и здесь же расшифровывается, в интернет он не уходит. Любой в этой сети может прислать запись.",
+                   $"Listening on the local network, port {port} (0.0.0.0). From another computer: {LanUrls(port)}. Audio is transcribed here and is not uploaded. Anyone on this network can send a recording.");
+    }
+
+    private static string LanUrls(int port)
+    {
+        try
+        {
+            var ips = System.Net.Dns.GetHostAddresses(System.Net.Dns.GetHostName())
+                .Where(a => a.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork && !System.Net.IPAddress.IsLoopback(a))
+                .Select(a => $"http://{a}:{port}/v1/transcribe")
+                .ToArray();
+            if (ips.Length > 0) return string.Join(", ", ips);
+        }
+        catch { }
+        return $"http://<адрес-этого-ПК>:{port}/v1/transcribe";
+    }
+
+    private async Task ToggleLanAsync()
+    {
+        if (_hermes?.ListenOnLan == true)
+        {
+            _settings.HermesOnLan = false;
+            _settings.Save();
+            RestartHermes(false);
+            return;
+        }
+        var yes = System.Windows.MessageBox.Show(
+            L.T($"Порт {Core.SpeechModels.HermesPort} откроется в брандмауэре Windows (система спросит разрешение администратора), и Писарь начнёт принимать записи со всех компьютеров в локальной сети. Адрес 0.0.0.0. В интернет звук не отправляется, но любой в этой сети сможет прислать файл на расшифровку. Продолжить?",
+                $"Port {Core.SpeechModels.HermesPort} will be opened in Windows Firewall (Windows will ask for administrator permission) and Pisar will accept recordings from every computer on the local network, on 0.0.0.0. Audio is not uploaded, but anyone on this network can send a file to transcribe. Continue?"),
+            L.T("Слушать сеть", "Listen on the network"),
+            System.Windows.MessageBoxButton.YesNo, System.Windows.MessageBoxImage.Warning);
+        if (yes != System.Windows.MessageBoxResult.Yes) return;
+        var (opened, error) = await Task.Run(() =>
+        {
+            bool ok = HermesFirewall.TryOpenPort(Core.SpeechModels.HermesPort, out var err);
+            return (ok, err);
+        });
+        if (!opened)
+        {
+            Log.Write($"firewall rule failed: {error}");
+            HermesFirewall.OpenConsole();
+            System.Windows.MessageBox.Show(
+                L.T($"Правило брандмауэра не добавилось ({error}). Открыл консоль брандмауэра: разрешите входящий TCP {Core.SpeechModels.HermesPort}. Слушать сеть всё равно пробую.",
+                    $"The firewall rule was not added ({error}). The firewall console is open: allow inbound TCP {Core.SpeechModels.HermesPort}. Trying to listen on the network anyway."),
+                L.T("Брандмауэр", "Firewall"), System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Warning);
+        }
+        else HermesFirewall.OpenConsole();
+        _settings.HermesOnLan = true;
+        _settings.Save();
+        RestartHermes(true);
     }
 
     private HermesResult HermesTranscribe(byte[] audio)
@@ -884,7 +971,8 @@ public partial class PisarApp : Application
         if (_settingsWindow == null)
         {
             _settingsWindow = new SettingsWindow(_settings, ApplySettings, () => { _overlay?.Unpin(); _settings.OverlayX = null; _settings.OverlayY = null; _settings.Save(); }, SelectBrainAsync,
-                () => DownloadSpeechAsync(manualStart: false), () => _ = ReloadSpeechAsync(), SpeechStatusText);
+                () => DownloadSpeechAsync(manualStart: false), () => _ = ReloadSpeechAsync(), SpeechStatusText,
+                HermesStatusText, ToggleLanAsync, ApplyKeepAwake);
             _settingsWindow.Closed += (_, _) => _settingsWindow = null;
         }
         _settingsWindow.Show();
@@ -921,6 +1009,8 @@ public partial class PisarApp : Application
     {
         _lifetime.Cancel();
         _hermes?.Dispose();
+        _hermes = null;
+        KeepAwake.AllowSleep();
         LocalBrain.Stop();
         _hook?.Dispose();
         _recorder.Dispose();
