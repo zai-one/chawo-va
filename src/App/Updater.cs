@@ -1,7 +1,6 @@
-// Over-the-air updates. A small JSON manifest in the repository says which
-// version is current and where its installer lives; the app checks it on start
-// and every few hours, downloads the installer, verifies its SHA-256 and runs
-// it silently. The installer closes and relaunches the app.
+// Manual update check against GitHub releases of zai-one/giga-pisar-win.
+// The app tells the user when a newer release exists and gives its page.
+// It does not download or install the update.
 
 using System.Net.Http;
 using System.Security.Cryptography;
@@ -22,46 +21,51 @@ public sealed class UpdateInfo
 
 public static class Updater
 {
-    /// <summary>Update checks against the upstream repo are disabled in this fork. The list stays empty on purpose.</summary>
-    private static readonly string[] ManifestUrls = [];
-
-    /// <summary>Test aid: PISAR_UPDATE_URL overrides the manifest location and makes the first check immediate.</summary>
-    private static readonly string? OverrideUrl = Environment.GetEnvironmentVariable("PISAR_UPDATE_URL") is { Length: > 0 } u ? u : null;
+    /// <summary>This fork only. Not the upstream repository and not update.json.</summary>
+    public const string ReleasesApi = "https://api.github.com/repos/zai-one/giga-pisar-win/releases/latest";
+    public const string ReleasesPage = "https://github.com/zai-one/giga-pisar-win/releases";
 
     public static readonly TimeSpan CheckInterval = TimeSpan.FromHours(6);
-    public static readonly TimeSpan FirstCheckDelay = OverrideUrl != null ? TimeSpan.FromSeconds(5) : TimeSpan.FromSeconds(45);
+    public static readonly TimeSpan FirstCheckDelay = TimeSpan.FromSeconds(45);
     private const long MaxInstallerBytes = 512L << 20;
 
     public static string UpdatesDir => Path.Combine(Settings.LocalDataDir, "updates");
 
-    /// <summary>Returns the manifest when it advertises a version newer than ours, otherwise null.</summary>
-    public static Task<UpdateInfo?> CheckAsync(CancellationToken ct)
+    /// <summary>
+    /// Asks GitHub for the latest non-draft release of zai-one/giga-pisar-win.
+    /// Returns it only when it is newer than this build. Does not download anything.
+    /// Null means this build is current (or there is no release yet).
+    /// </summary>
+    public static async Task<UpdateInfo?> CheckAsync(CancellationToken ct)
     {
-        // This fork does not phone home to moznoazachem, or anywhere else, for updates.
-        return Task.FromResult<UpdateInfo?>(null);
-#if false
         using var http = NewClient();
-        foreach (var url in OverrideUrl != null ? new[] { OverrideUrl } : ManifestUrls)
-        {
-            try
-            {
-                using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-                cts.CancelAfter(TimeSpan.FromSeconds(20));
-                var json = await http.GetStringAsync(url + "?t=" + DateTimeOffset.UtcNow.ToUnixTimeSeconds(), cts.Token);
-                var info = JsonSerializer.Deserialize<UpdateInfo>(json);
-                if (info == null || !Version.TryParse(info.Version, out var remote)) continue;
-                if (!Version.TryParse(PisarApp.Version, out var local)) return null;
-                Log.Write($"update check: local {local}, remote {remote}");
-                bool trusted = info.Url.StartsWith("https://", StringComparison.OrdinalIgnoreCase) || OverrideUrl != null;
-                return remote > local && trusted ? info : null;
-            }
-            catch (Exception e) when (e is not OperationCanceledException || !ct.IsCancellationRequested)
-            {
-                Log.Write($"update check failed ({url}): {e.Message}");
-            }
-        }
-        return null;
-#endif
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        cts.CancelAfter(TimeSpan.FromSeconds(20));
+        using var req = new HttpRequestMessage(HttpMethod.Get, ReleasesApi);
+        req.Headers.TryAddWithoutValidation("Accept", "application/vnd.github+json");
+        using var response = await http.SendAsync(req, cts.Token);
+        if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+            return null;
+        if (!response.IsSuccessStatusCode)
+            throw new InvalidOperationException($"GitHub answered {(int)response.StatusCode}");
+        var json = await response.Content.ReadAsStringAsync(cts.Token);
+        using var doc = JsonDocument.Parse(json);
+        var root = doc.RootElement;
+        if (root.TryGetProperty("draft", out var draft) && draft.ValueKind == JsonValueKind.True) return null;
+        if (root.TryGetProperty("prerelease", out var pre) && pre.ValueKind == JsonValueKind.True) return null;
+        var tag = root.TryGetProperty("tag_name", out var tagEl) ? tagEl.GetString() ?? "" : "";
+        var verText = tag.Trim().TrimStart('v', 'V');
+        if (!Version.TryParse(verText, out var remote)) return null;
+        if (!Version.TryParse(PisarApp.Version, out var local))
+            throw new InvalidOperationException("local version is not a number");
+        Log.Write($"update check: local {local}, remote {remote} ({ReleasesApi})");
+        if (remote <= local) return null;
+        var html = root.TryGetProperty("html_url", out var urlEl) ? urlEl.GetString() ?? "" : "";
+        const string allowed = "https://github.com/zai-one/giga-pisar-win/";
+        if (!html.StartsWith(allowed, StringComparison.OrdinalIgnoreCase))
+            html = ReleasesPage + "/tag/v" + verText;
+        var body = root.TryGetProperty("body", out var bodyEl) ? bodyEl.GetString() ?? "" : "";
+        return new UpdateInfo { Version = verText, Url = html, Notes = body, NotesEn = body };
     }
 
     /// <summary>Downloads the installer next to the app data, verifies it, returns its path.</summary>

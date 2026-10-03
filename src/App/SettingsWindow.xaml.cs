@@ -22,6 +22,7 @@ public partial class SettingsWindow : Window
     private readonly Func<string>? _hermesStatus;
     private readonly Func<Task>? _toggleLan;
     private readonly Action? _keepAwakeChanged;
+    private readonly Action? _checkUpdates;
     private bool _loading = true;
     /// <summary>Last open section, kept while Pisar runs.</summary>
     private static int _lastPage;
@@ -30,7 +31,8 @@ public partial class SettingsWindow : Window
 
     public SettingsWindow(Settings settings, Action apply, Action unpin, Func<BrainSource, Task> selectBrain,
         Func<Task>? downloadSpeech = null, Action? speechChanged = null, Func<string>? speechStatus = null,
-        Func<string>? hermesStatus = null, Func<Task>? toggleLan = null, Action? keepAwakeChanged = null)
+        Func<string>? hermesStatus = null, Func<Task>? toggleLan = null, Action? keepAwakeChanged = null,
+        Action? checkUpdates = null)
     {
         _settings = settings;
         _apply = apply;
@@ -42,6 +44,7 @@ public partial class SettingsWindow : Window
         _hermesStatus = hermesStatus;
         _toggleLan = toggleLan;
         _keepAwakeChanged = keepAwakeChanged;
+        _checkUpdates = checkUpdates;
         InitializeComponent();
         ServerPanel.Saved += UpdateBrainTexts;   // the panel has already applied and saved
         Localize();
@@ -65,7 +68,7 @@ public partial class SettingsWindow : Window
     public void Localize()
     {
         _loading = true;
-        Title = L.T("Гига Писарь: настройки", "Giga Pisar: settings");
+        Title = L.T($"Гига Писарь {PisarApp.Version}", $"Giga Pisar {PisarApp.Version}");
         NavDictation.Text = L.T("Диктовка", "Dictation");
         NavBrain.Text = L.T("Мозг", "Brain");
         NavEdit.Text = L.T("Правка выделенного", "Edit selection");
@@ -100,6 +103,8 @@ public partial class SettingsWindow : Window
                                       "Like a chat reply: \"ok, see you at five\". Question and exclamation marks stay.");
         SimpleSyntaxBox.IsChecked = _settings.SimpleSyntax;
         AutostartBox.Content = L.T("Запускать при входе в Windows", "Start when I sign in to Windows");
+        TrayHint.Text = L.T("Крестик не выключает программу: окно прячется, Писарь остаётся в трее у часов. Полный выход — пункт «Выход» в меню трея.",
+                            "The close button does not quit: the window hides and Pisar stays by the clock. Quit is in the tray menu.");
         KeepBox.Content = L.T("Сохранять последнюю запись для разбора ошибок", "Keep the last recording for troubleshooting");
         OverlayBox.IsChecked = _settings.ShowOverlay;
         OverlayBox.ToolTip = L.T("Плашку можно перетащить мышью, пока она видна: она запомнит место.",
@@ -204,6 +209,9 @@ public partial class SettingsWindow : Window
         AboutHeading.Text = L.T("О программе", "About");
         About.Text = L.T($"Гига Писарь {PisarApp.Version}. Распознавание идёт на вашем компьютере моделью GigaAM от Сбера, звук никуда не отправляется.",
                          $"Giga Pisar {PisarApp.Version}. Speech is recognized on your computer by Sber's GigaAM model; audio never leaves it.");
+        VersionLine.Text = L.T($"Версия {PisarApp.Version}. Кнопка ниже сравнивает её с последним релизом github.com/zai-one/giga-pisar-win. Другие адреса не спрашиваются, обновление само не скачивается.",
+                               $"Version {PisarApp.Version}. The button below compares it with the latest release of github.com/zai-one/giga-pisar-win. No other address is asked, and the update is not downloaded.");
+        CheckUpdatesButton.Content = L.T("Проверить обновления", "Check for updates");
         ModelPath.Text = L.T("Папка модели: ", "Model folder: ") + Settings.ModelDirectory(_settings.SpeechModel);
         HermesLine.Text = _hermesStatus?.Invoke()
             ?? L.T($"Hermes: порт {SpeechModels.HermesPort}.", $"Hermes: port {SpeechModels.HermesPort}.");
@@ -247,6 +255,20 @@ public partial class SettingsWindow : Window
     {
         UpdatesBox.IsChecked = false;
         _settings.CheckUpdates = false;
+    }
+
+    private void CheckUpdates_Click(object sender, RoutedEventArgs e) => _checkUpdates?.Invoke();
+
+    /// <summary>The close button hides the window. The process stays in the tray until Quit.</summary>
+    protected override void OnClosing(System.ComponentModel.CancelEventArgs e)
+    {
+        if (!PisarApp.IsQuitting)
+        {
+            e.Cancel = true;
+            Hide();
+            return;
+        }
+        base.OnClosing(e);
     }
 
     private void SpeechModel_Changed(object sender, SelectionChangedEventArgs e)

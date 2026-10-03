@@ -1,7 +1,8 @@
 // Application entry: tray icon, push-to-talk wiring, model bootstrap.
 //
-// Flow: single-instance check -> settings -> tray icon -> recognizer if the
-// chosen model is already on disk (never downloaded on its own) -> keyboard hook.
+// Flow: single-instance check -> tray icon -> settings window (always) ->
+// recognizer only if the chosen model is already on disk -> keyboard hook.
+// Closing the window hides it. Quit is the tray menu item.
 // Hold the key: record. Release: recognize and insert the text where the caret is.
 
 using System.Diagnostics;
@@ -34,6 +35,9 @@ public partial class PisarApp : Application
     /// <summary>Takes shorter than this are treated as an accidental key press.</summary>
     private const int MinTakeSamples = Recorder.SampleRate / 4;
 
+    /// <summary>Set only for a real exit (tray Quit, session end). Closing the window hides it instead.</summary>
+    public static bool IsQuitting { get; private set; }
+
     private Settings _settings = new();
     private Forms.NotifyIcon? _tray;
     private System.Drawing.Icon? _iconIdle;
@@ -47,7 +51,6 @@ public partial class PisarApp : Application
     private readonly Recorder _recorder = new();
     private OverlayWindow? _overlay;
     private SettingsWindow? _settingsWindow;
-    private UpdateWindow? _updateWindow;
     private readonly CancellationTokenSource _lifetime = new();
     private bool _busy;
     /// <summary>Text selected when the key went down (read in the background); a take with a selection is a command on it.</summary>
@@ -304,8 +307,14 @@ public partial class PisarApp : Application
                 Dispatcher.BeginInvoke(ShowSettings);
         }) { IsBackground = true, Name = "show-settings-signal" }.Start();
 
-        if (!Core.Recognizer.ModelExists(Settings.ModelDirectory(_settings.SpeechModel), _settings.SpeechModel))
-            await OfferSpeechDownloadAsync();
+        SessionEnding += (_, _) =>
+        {
+            IsQuitting = true;
+            KeepAwake.AllowSleep();
+        };
+
+        // Window first. Model files are loaded only if they are already on disk.
+        ShowSettings();
         await ReloadSpeechAsync();
         StartHermes();
 
@@ -328,7 +337,7 @@ public partial class PisarApp : Application
             _tray.ShowBalloonTip(6000, L.T($"Гига Писарь обновлён до {Version}", $"Giga Pisar updated to {Version}"),
                 L.T("Всё готово, можно диктовать.", "All set, dictate away."), Forms.ToolTipIcon.None);
         }
-        // Update checks against the upstream repository are disabled.
+        // No update check on a timer. The tray and About have a manual button for this fork's releases.
         if (!_settings.FirstRunDone)
         {
             _settings.FirstRunDone = true;
@@ -348,37 +357,43 @@ public partial class PisarApp : Application
 
     // ── updates ──────────────────────────────────────────────────
 
-    private async Task UpdateLoopAsync()
+    /// <summary>Manual check of this fork's GitHub releases. Never downloads or installs. Not called on a timer.</summary>
+    private async Task CheckForUpdatesAsync(bool silent)
     {
         try
         {
-            await Task.Delay(Updater.FirstCheckDelay, _lifetime.Token);
-            while (!_lifetime.IsCancellationRequested)
+            var info = await Updater.CheckAsync(_lifetime.Token);
+            if (info == null)
             {
-                if (_settings.CheckUpdates) await CheckForUpdatesAsync(silent: true);
-                await Task.Delay(Updater.CheckInterval, _lifetime.Token);
+                if (!silent)
+                    System.Windows.MessageBox.Show(
+                        L.T($"У вас последняя версия, {Version}.\n\nПроверено: {Updater.ReleasesPage}",
+                            $"You have the latest version, {Version}.\n\nChecked: {Updater.ReleasesPage}"),
+                        L.T($"Гига Писарь {Version}", $"Giga Pisar {Version}"),
+                        System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Information);
+                return;
             }
+            string notes = (L.Russian || string.IsNullOrWhiteSpace(info.NotesEn) ? info.Notes : info.NotesEn).Trim();
+            if (notes.Length > 500) notes = notes[..500] + "…";
+            string extra = notes.Length == 0 ? "" : notes + "\n\n";
+            var open = System.Windows.MessageBox.Show(
+                L.T($"Есть версия {info.Version}. У вас {Version}.\nПрограмма сама ничего не скачивает и не устанавливает.\n\n{extra}Страница:\n{info.Url}\n\nОткрыть её в браузере?",
+                    $"Version {info.Version} is out. You have {Version}.\nThe app does not download or install it.\n\n{extra}Page:\n{info.Url}\n\nOpen it in the browser?"),
+                L.T("Есть обновление", "Update available"),
+                System.Windows.MessageBoxButton.YesNo, System.Windows.MessageBoxImage.Information);
+            if (open == System.Windows.MessageBoxResult.Yes) Open(info.Url);
         }
         catch (OperationCanceledException) { }
-    }
-
-    private async Task CheckForUpdatesAsync(bool silent)
-    {
-        if (_updateWindow != null) { _updateWindow.Activate(); return; }
-        UpdateInfo? info;
-        try { info = await Updater.CheckAsync(_lifetime.Token); }
-        catch (OperationCanceledException) { return; }
-        if (info == null)
+        catch (Exception ex)
         {
+            Log.Write($"update check failed: {ex.Message}");
             if (!silent)
-                _tray?.ShowBalloonTip(4000, L.T("Гига Писарь", "Giga Pisar"),
-                    L.T($"У вас последняя версия, {Version}.", $"You have the latest version, {Version}."), Forms.ToolTipIcon.None);
-            return;
+                System.Windows.MessageBox.Show(
+                    L.T($"Не удалось проверить обновления.\n{Updater.ReleasesPage}\n{ex.Message}",
+                        $"Could not check for updates.\n{Updater.ReleasesPage}\n{ex.Message}"),
+                    L.T($"Гига Писарь {Version}", $"Giga Pisar {Version}"),
+                    System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Warning);
         }
-        _updateWindow = new UpdateWindow(info, Quit);
-        _updateWindow.Closed += (_, _) => _updateWindow = null;
-        _updateWindow.Show();
-        _updateWindow.Activate();
     }
 
     // ── push-to-talk ─────────────────────────────────────────────
@@ -686,6 +701,8 @@ public partial class PisarApp : Application
         menu.Items.Add(title);
         menu.Items.Add(hint);
         menu.Items.Add(new Forms.ToolStripSeparator());
+        menu.Items.Add(L.T("Открыть окно", "Open window"), null, (_, _) => ShowSettings());
+        menu.Items.Add(L.T("Свернуть в трей", "Hide to tray"), null, (_, _) => _settingsWindow?.Hide());
         menu.Items.Add(L.T("Настройки…", "Settings…"), null, (_, _) => ShowSettings());
         // Always visible, so it is clear whether text leaves the computer.
         var brain = new Forms.ToolStripMenuItem("");
@@ -719,6 +736,7 @@ public partial class PisarApp : Application
         menu.Items.Add(L.T("Скачать модель распознавания…", "Download the speech model…"), null, (_, _) => _ = DownloadSpeechAsync(manualStart: false));
         menu.Items.Add(L.T("Сайт проекта", "Project website"), null, (_, _) => Open(SiteUrl));
         menu.Items.Add(L.T("Исходный код", "Source code"), null, (_, _) => Open(RepoUrl));
+        menu.Items.Add(L.T("Проверить обновления", "Check for updates"), null, (_, _) => _ = CheckForUpdatesAsync(silent: false));
         menu.Items.Add(new Forms.ToolStripSeparator());
         menu.Items.Add(L.T("Выход", "Quit"), null, (_, _) => Quit());
         menu.Opening += (_, _) =>
@@ -747,12 +765,6 @@ public partial class PisarApp : Application
                       $"Hold {Settings.HotkeyTitle(_settings.HotkeyVk)} and speak ({_recognizer.DeviceActual})");
         };
         return menu;
-    }
-
-    private async Task OfferSpeechDownloadAsync()
-    {
-        var window = new DownloadWindow(_settings.SpeechModel, manualStart: true);
-        await window.RunAsync();
     }
 
     private Task DownloadSpeechAsync(bool manualStart)
@@ -972,7 +984,8 @@ public partial class PisarApp : Application
         {
             _settingsWindow = new SettingsWindow(_settings, ApplySettings, () => { _overlay?.Unpin(); _settings.OverlayX = null; _settings.OverlayY = null; _settings.Save(); }, SelectBrainAsync,
                 () => DownloadSpeechAsync(manualStart: false), () => _ = ReloadSpeechAsync(), SpeechStatusText,
-                HermesStatusText, ToggleLanAsync, ApplyKeepAwake);
+                HermesStatusText, ToggleLanAsync, ApplyKeepAwake,
+                () => _ = CheckForUpdatesAsync(silent: false));
             _settingsWindow.Closed += (_, _) => _settingsWindow = null;
         }
         _settingsWindow.Show();
@@ -1007,6 +1020,7 @@ public partial class PisarApp : Application
 
     private void Quit()
     {
+        IsQuitting = true;
         _lifetime.Cancel();
         _hermes?.Dispose();
         _hermes = null;

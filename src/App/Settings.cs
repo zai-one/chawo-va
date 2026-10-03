@@ -22,7 +22,7 @@ public sealed class Settings
     public bool KeepLastRecording { get; set; } = false;
     public bool FirstRunDone { get; set; } = false;
     public UiLanguage Language { get; set; } = UiLanguage.Auto;
-    /// <summary>Kept for old settings files. This build never checks upstream for updates.</summary>
+    /// <summary>Kept for old settings files. Nothing reads this on a timer. Updates are a manual button against this fork.</summary>
     public bool CheckUpdates { get; set; } = false;
     /// <summary>Where the Brain thinks; Off by default.</summary>
     public BrainSource Brain { get; set; } = BrainSource.Off;

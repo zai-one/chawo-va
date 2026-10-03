@@ -8,14 +8,24 @@ This fork (`gpu-mimo-hermes`) changes three things relative to
 - an optional Xiaomi MiMo brain (off until you turn it on)
 - a localhost HTTP decoder for Hermes
 
-The model is **not** downloaded on startup. Settings and the tray have a
-**Download the selected model** button. Until you press it, the app does not
-fetch weights.
+On startup the normal settings window opens (Dictation, Brain, Edit selection, About).
+There is no download screen in front of it. The model is **not** downloaded
+on startup. A **Download the selected model** button in that window (and in
+the tray) fetches weights only after you pick the model and CPU or GPU.
+Closing the window hides it; the app stays in the notification area until
+**Quit**. **Check for updates** looks at releases of this fork only
+(`zai-one/giga-pisar-win`) and does not download them.
 
 
 ## По-русски: что добавлено и зачем
 
-Это форк обычного Гига Писаря для Windows (ветка `gpu-mimo-hermes`). Ниже не список галочек, а зачем каждая правка.
+Это форк обычного Гига Писаря для Windows (ветка `gpu-mimo-hermes`, версия 1.2.0). Ниже не список галочек, а зачем каждая правка.
+
+**Сначала окно, не скачивание.** В 1.1.0 при запуске сразу вылезало окно «скачайте модель», и до обычных настроек было не добраться. Теперь при старте открывается то же окно, что у Гига Писаря: слева «Диктовка», «Мозг», «Правка выделенного», «О программе». Модель, процессор или видеокарта выбираются здесь, до любой загрузки. Веса сами не качаются. Кнопка «Скачать выбранную модель» по-прежнему отдельно: пока её не нажать, в сеть за весами ничего не уходит.
+
+**Трей Windows.** Крестик на окне программу не убивает: окно прячется, а Писарь остаётся у часов. Двойной щелчок по значку или пункт «Открыть окно» возвращает настройки. «Свернуть в трей» делает то же, что крестик. Процесс заканчивается только пунктом «Выход» (и тем выходом, который уже был). Тогда же снимается запрет сна, если он был включён. Отдельного «старт/стоп прослушивания» в программе не было: диктовка по-прежнему с зажатой клавишей, а расшифровщик Hermes слушает, пока Писарь запущен.
+
+**Проверка обновлений только этого форка.** В «О программе» написана текущая версия и есть кнопка «Проверить обновления». Тот же пункт есть в меню трея. Кнопка один раз спрашивает последний релиз `https://github.com/zai-one/giga-pisar-win/releases` (API `https://api.github.com/repos/zai-one/giga-pisar-win/releases/latest`). Адрес оригинала и любые другие сайты не опрашиваются. По таймеру проверка не ходит. Если версия новее, программа показывает номер и ссылку на страницу релиза и спрашивает, открыть ли её в браузере. Сама она архив не скачивает и не ставит.
 
 **Выбор модели и кнопка «Скачать».** В оригинале модель качается сама при первом запуске, и это одна русская GigaAM v3. Здесь две модели, и файл не уходит в сеть, пока вы сами не нажмёте кнопку. Большая — Multilingual Large CTC, около 600 миллионов параметров: это самая крупная модель Сбера, у которой есть готовый ONNX и которая умеет именно распознавать речь (русский, английский и ещё языки из её словаря). Ещё крупнее опубликован только энкодер `large_ssl`, им нельзя диктовать: у него нет головы распознавания. RNN-T на 600M в ONNX никто не выложил. Вторая модель — прежняя v3 e2e RNN-T: меньше, только русский, зато сама ставит точки и запятые. Кнопка нужна, чтобы свежая установка ничего не скачивала молча: веса большие (у большой модели около 2,4 ГБ), и вы сами решаете, когда и какую брать.
 
@@ -29,7 +39,7 @@ fetch weights.
 
 **Галочка «не давать компьютеру уснуть».** Пока Писарь слушает и галочка включена, вызывается `SetThreadExecutionState`: Windows не усыпляет ПК от простоя, иначе расшифровщик замолчит посреди очереди голосовых. Ручное выключение это не блокирует. Сняли галочку или закрыли программу (слушатель остановился) — запрет сна снимается.
 
-Проверок обновлений с репозитория автора оригинала нет.
+Проверка обновлений есть только по кнопке и только у этого форка (`zai-one/giga-pisar-win`). Репозиторий автора оригинала не опрашивается. Обновление само не скачивается.
 
 ## Speech model
 
@@ -140,7 +150,7 @@ After that, anyone on the local network can.
   A Brain API key is stored there encrypted with Windows DPAPI for the current user.
 - Optionally keeps the last take as `last.wav` in the same folder for
   troubleshooting (off by default; deleted when the option is turned off).
-- Does **not** check `moznoazachem/giga-pisar-win` (or anywhere else) for updates.
+- Does **not** check `moznoazachem/giga-pisar-win` for updates. A manual **Check for updates** button asks GitHub for the latest release of `zai-one/giga-pisar-win` only, shows the page URL, and does not download it. There is no timer.
 
 ## Layout
 
@@ -204,10 +214,13 @@ All team members use multi-factor authentication on GitHub.
 
 ## Privacy
 
-This fork collects no telemetry. It does not check for updates. Speech is
-recognized on your computer; audio never leaves it, including audio posted to
-the Hermes port. That port is `127.0.0.1` until you open it for the LAN
-(`0.0.0.0:17831`).
+This fork collects no telemetry. Speech is recognized on your computer; audio
+never leaves it, including audio posted to the Hermes port. That port is
+`127.0.0.1` until you open it for the LAN (`0.0.0.0:17831`).
+
+**Check for updates** (About, or the tray menu) is manual. It requests
+`https://api.github.com/repos/zai-one/giga-pisar-win/releases/latest` and no
+other host. It does not run on a timer and does not download the release.
 
 Network traffic happens only when you ask for it:
 
