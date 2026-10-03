@@ -438,7 +438,7 @@ public partial class PisarApp : Application
         if (_selectionAtPress != null) _ = HintSelectionAsync(_selectionAtPress);
         try
         {
-            await _recorder.StartAsync();
+            await _recorder.StartAsync(_settings.MicrophoneId);
         }
         catch (Exception ex)
         {
@@ -920,6 +920,34 @@ public partial class PisarApp : Application
         _settingsWindow?.Localize();
     }
 
+    private async Task DeleteSpeechModelAsync(Core.SpeechModelKind kind)
+    {
+        Core.Recognizer? old = null;
+        lock (_recogLock)
+        {
+            if (_recognizer != null && _recognizer.Kind == kind)
+            {
+                old = _recognizer;
+                _recognizer = null;
+            }
+        }
+        old?.Dispose();
+        try
+        {
+            SpeechModelStore.DeleteInstalled(kind);
+        }
+        catch (Exception ex)
+        {
+            Log.Write($"speech delete failed: {ex.Message}");
+            System.Windows.MessageBox.Show(
+                L.T($"Не удалось удалить файлы. Если идёт распознавание, нажмите Стоп и попробуйте снова.\n\n{ex.Message}",
+                    $"Could not delete the files. If recognition is running, press Stop and try again.\n\n{ex.Message}"),
+                L.T("Удалить модель", "Delete model"),
+                System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Warning);
+        }
+        await ReloadSpeechAsync();
+    }
+
     private async Task ReloadSpeechAsync()
     {
         var kind = _settings.SpeechModel;
@@ -1151,7 +1179,7 @@ public partial class PisarApp : Application
             _settingsWindow = new SettingsWindow(_settings, ApplySettings, () => { _overlay?.Unpin(); _settings.OverlayX = null; _settings.OverlayY = null; _settings.Save(); }, SelectBrainAsync,
                 () => DownloadSpeechAsync(manualStart: false), () => _ = ReloadSpeechAsync(), SpeechStatusText,
                 HermesStatusText, ToggleLanAsync, ApplyKeepAwake,
-                () => _ = CheckForUpdatesAsync(silent: false), RequestStop);
+                () => _ = CheckForUpdatesAsync(silent: false), RequestStop, DeleteSpeechModelAsync);
             SetPhase(_phase);
             _settingsWindow.Closed += (_, _) => _settingsWindow = null;
         }

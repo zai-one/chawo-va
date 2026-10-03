@@ -19,6 +19,9 @@ namespace GigaPisar.App;
 
 public enum LocalBrainKind { Qwen3, Qwen35, Custom }
 
+/// <summary>Where llama.cpp runs. Gpu is the official b10701 Windows Vulkan build, not a label.</summary>
+public enum BrainDeviceKind { Cpu, Gpu }
+
 public static class LocalBrain
 {
     /// <summary>
@@ -30,6 +33,9 @@ public static class LocalBrain
     public const string EngineTag = "b10701";
     private const string EngineUrl = "https://github.com/ggml-org/llama.cpp/releases/download/b10701/llama-b10701-bin-win-cpu-x64.zip";
     private const string EngineSha256 = "84ecf626a9893a7701a5883480b06fb91043ee9cb76de10c5aaeea43cfc7c680";
+    /// <summary>Same llama.cpp tag, Vulkan build. RTX 3070 uses it through the NVIDIA Vulkan driver. Not bundled in the app zip.</summary>
+    private const string VulkanUrl = "https://github.com/ggml-org/llama.cpp/releases/download/b10701/llama-b10701-bin-win-vulkan-x64.zip";
+    private const string VulkanSha256 = "ea3524895529aff485ec3d8da477d654f9cc4375cb9e6651793daaca7208daf2";
 
     public const string ModelTitle = "Qwen3 4B";
     public const string ModelFile = "Qwen3-4B-Instruct-2507-Q3_K_M.gguf";
@@ -60,8 +66,11 @@ public static class LocalBrain
     private static readonly TimeSpan DownloadIdleTimeout = TimeSpan.FromSeconds(60);
 
     public static string Dir => Path.Combine(Settings.LocalDataDir, "brain");
-    private static string EngineDir => Path.Combine(Dir, "engine-" + EngineTag);
-    private static string ServerExe => Path.Combine(EngineDir, "llama-server.exe");
+    private static string EngineDirFor(BrainDeviceKind kind) =>
+        Path.Combine(Dir, kind == BrainDeviceKind.Gpu ? "engine-" + EngineTag + "-vulkan" : "engine-" + EngineTag);
+    private static string ServerExeFor(BrainDeviceKind kind) => Path.Combine(EngineDirFor(kind), "llama-server.exe");
+    private static string EngineDir => EngineDirFor(BrainDeviceKind.Cpu);
+    private static string ServerExe => ServerExeFor(BrainDeviceKind.Cpu);
     public static string LogPath => Path.Combine(Settings.LocalDataDir, "brain.log");
 
     public static string Title(Settings s) => s.BrainModel switch
@@ -157,7 +166,7 @@ public static class LocalBrain
     public static bool IsReady(Settings s)
     {
         var path = ModelPath(s);
-        if (!File.Exists(ServerExe) || !File.Exists(path)) return false;
+        if (!File.Exists(ServerExeFor(s.BrainDevice)) || !File.Exists(path)) return false;
         long len = new FileInfo(path).Length;
         return s.BrainModel switch
         {
@@ -228,23 +237,7 @@ public static class LocalBrain
 
         try
         {
-            if (!File.Exists(ServerExe))
-            {
-                var zip = Path.Combine(Dir, "engine.zip.part");
-                if (File.Exists(zip)) File.Delete(zip);
-                await FetchAsync(http, EngineUrl, zip, 64L << 20, null, ct);
-                await Task.Run(() => Verify(zip, EngineSha256, "engine"), ct);
-                progress.Report(new ModelDownloader.Progress(0, 0, "unpack"));
-                await Task.Run(() =>
-                {
-                    var temp = EngineDir + ".tmp";
-                    if (Directory.Exists(temp)) Directory.Delete(temp, true);
-                    ZipFile.ExtractToDirectory(zip, temp);
-                    if (Directory.Exists(EngineDir)) Directory.Delete(EngineDir, true);
-                    Directory.Move(temp, EngineDir);
-                }, ct);
-                File.Delete(zip);
-            }
+            await EnsureEngineAsync(http, s.BrainDevice, progress, ct);
 
             bool have = File.Exists(dest) && (bytes > 0 ? new FileInfo(dest).Length == bytes : HasGgufMagic(dest) && new FileInfo(dest).Length > 1024);
             if (!have)
@@ -350,10 +343,76 @@ public static class LocalBrain
         if (actual != sha256) throw new InvalidDataException($"checksum mismatch for the {what}");
     }
 
+    public readonly record struct InstalledGguf(string Path, string Label);
+
+    /// <summary>GGUF files in the brain folder. The llama.cpp engine and the app are not included.</summary>
+    public static IReadOnlyList<InstalledGguf> InstalledGgufs()
+    {
+        if (!Directory.Exists(Dir)) return Array.Empty<InstalledGguf>();
+        var list = new List<InstalledGguf>();
+        foreach (var path in Directory.EnumerateFiles(Dir, "*.gguf"))
+        {
+            var info = new FileInfo(path);
+            if (info.Length <= 1024) continue;
+            var name = info.Name;
+            string label = name.Equals(ModelFile, StringComparison.OrdinalIgnoreCase) ? "Qwen3 4B"
+                : name.Equals(Qwen35File, StringComparison.OrdinalIgnoreCase) ? "Qwen3.5 4B"
+                : name;
+            list.Add(new InstalledGguf(info.FullName, label));
+        }
+        return list;
+    }
+
+    /// <summary>Deletes one GGUF under the brain folder. Stops llama-server first. Does not delete the engine or the app.</summary>
+    public static void DeleteGguf(string path)
+    {
+        var full = Path.GetFullPath(path);
+        var root = Path.GetFullPath(Dir);
+        var rel = Path.GetRelativePath(root, full);
+        if (rel == ".." || rel.StartsWith(".." + Path.DirectorySeparatorChar, StringComparison.Ordinal) || Path.IsPathRooted(rel))
+            throw new IOException("файл не в папке мозга");
+        if (!full.EndsWith(".gguf", StringComparison.OrdinalIgnoreCase))
+            throw new IOException("это не файл модели");
+        if (File.Exists(Path.Combine(root, "GigaPisar.exe")))
+            throw new IOException("рядом лежит программа, файл не удалён");
+        Stop();
+        if (File.Exists(full)) File.Delete(full);
+        var part = full + ".part";
+        if (File.Exists(part))
+        {
+            try { File.Delete(part); } catch { }
+        }
+    }
+
     public static void DeleteModel()
     {
         Stop();
         try { if (Directory.Exists(Dir)) Directory.Delete(Dir, true); } catch (Exception e) { Log.Write($"brain delete failed: {e.Message}"); }
+    }
+
+    private static async Task EnsureEngineAsync(HttpClient http, BrainDeviceKind kind, IProgress<ModelDownloader.Progress> progress, CancellationToken ct)
+    {
+        var exe = ServerExeFor(kind);
+        if (File.Exists(exe)) return;
+        var url = kind == BrainDeviceKind.Gpu ? VulkanUrl : EngineUrl;
+        var sha = kind == BrainDeviceKind.Gpu ? VulkanSha256 : EngineSha256;
+        var engineDir = EngineDirFor(kind);
+        var zip = Path.Combine(Dir, (kind == BrainDeviceKind.Gpu ? "engine-vulkan.zip.part" : "engine.zip.part"));
+        if (File.Exists(zip)) File.Delete(zip);
+        await FetchAsync(http, url, zip, 64L << 20, null, ct);
+        await Task.Run(() => Verify(zip, sha, "engine"), ct);
+        progress.Report(new ModelDownloader.Progress(0, 0, "unpack"));
+        await Task.Run(() =>
+        {
+            var temp = engineDir + ".tmp";
+            if (Directory.Exists(temp)) Directory.Delete(temp, true);
+            ZipFile.ExtractToDirectory(zip, temp);
+            if (!File.Exists(Path.Combine(temp, "llama-server.exe")))
+                throw new InvalidDataException("в архиве движка нет llama-server.exe");
+            if (Directory.Exists(engineDir)) Directory.Delete(engineDir, true);
+            Directory.Move(temp, engineDir);
+        }, ct);
+        File.Delete(zip);
     }
 
     // ── server ───────────────────────────────────────────────────
@@ -378,10 +437,33 @@ public static class LocalBrain
         lock (Gate)
         {
             // A server left on the previous file is not the one we want. Alive is not the same as ready.
-            bool same = _server is { HasExited: false } && string.Equals(_loadedPath, model, StringComparison.OrdinalIgnoreCase);
-            server = same ? _server! : StartProcess(model);
+            var device = s.BrainDevice;
+            bool same = _server is { HasExited: false }
+                && string.Equals(_loadedPath, model, StringComparison.OrdinalIgnoreCase)
+                && _loadedDevice == device;
+            server = same ? _server! : StartProcess(model, device);
         }
 
+        try
+        {
+            await WaitHealthyAsync(server, startingTick, ct);
+        }
+        catch (BrainException) when (s.BrainDevice == BrainDeviceKind.Gpu && File.Exists(ServerExeFor(BrainDeviceKind.Cpu)))
+        {
+            Log.Write("brain vulkan did not start, using the CPU engine");
+            DeviceNote = L.T("Видеокарта не поднялась, мозг считает на процессоре.", "The video card did not start, the brain is on the processor.");
+            lock (Gate) server = StartProcess(model, BrainDeviceKind.Cpu);
+            await WaitHealthyAsync(server, startingTick, ct);
+        }
+        Log.Write($"brain up on port {_port}, device {_loadedDevice}");
+        TouchIdle();
+    }
+
+    /// <summary>Set when Vulkan failed and the CPU engine took over. Cleared on the next successful GPU start.</summary>
+    public static string? DeviceNote { get; private set; }
+
+    private static async Task WaitHealthyAsync(Process server, Action<int>? startingTick, CancellationToken ct)
+    {
         using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(2) };
         var sw = Stopwatch.StartNew();
         int lastTick = 0;
@@ -394,7 +476,11 @@ public static class LocalBrain
             try
             {
                 var body = await http.GetStringAsync($"http://127.0.0.1:{_port}/health", ct);
-                if (body.Contains("ok")) break;
+                if (body.Contains("ok"))
+                {
+                    if (_loadedDevice == BrainDeviceKind.Gpu) DeviceNote = null;
+                    return;
+                }
             }
             catch (HttpRequestException) { }
             catch (TaskCanceledException) when (!ct.IsCancellationRequested) { }
@@ -407,20 +493,22 @@ public static class LocalBrain
             if (sec >= 3 && sec != lastTick) { lastTick = sec; startingTick?.Invoke(sec); }
             await Task.Delay(400, ct);
         }
-        Log.Write($"brain up in {sw.Elapsed.TotalSeconds:F1}s on port {_port}");
-        TouchIdle();
     }
 
     private static string? _loadedPath;
+    private static BrainDeviceKind _loadedDevice;
 
-    private static Process StartProcess(string modelPath)
+    private static Process StartProcess(string modelPath, BrainDeviceKind device)
     {
         Stop();
         _port = FreePort();
         _apiKey = Convert.ToHexString(RandomNumberGenerator.GetBytes(16));
-        var psi = new ProcessStartInfo(ServerExe)
+        var exe = ServerExeFor(device);
+        if (!File.Exists(exe))
+            throw new BrainException(L.T("движок мозга не скачан", "the brain engine is not downloaded"));
+        var psi = new ProcessStartInfo(exe)
         {
-            WorkingDirectory = EngineDir,
+            WorkingDirectory = EngineDirFor(device),
             UseShellExecute = false,
             CreateNoWindow = true,
             RedirectStandardOutput = true,
@@ -430,6 +518,12 @@ public static class LocalBrain
         foreach (var a in new[] { "-m", modelPath, "--host", "127.0.0.1", "--port", _port.ToString(), "--api-key", _apiKey,
                                   "-c", ContextTokens.ToString(), "--no-webui", "--jinja", "--reasoning", "off" })
             psi.ArgumentList.Add(a);
+        // Vulkan build of the same b10701. 99 layers puts a 4B Q3 file on the card. CPU build ignores nothing here: the flag is GPU-only.
+        if (device == BrainDeviceKind.Gpu)
+        {
+            psi.ArgumentList.Add("-ngl");
+            psi.ArgumentList.Add("99");
+        }
 
         // Shared read/write so a writer left from a previous run can never block this one.
         var log = new StreamWriter(new FileStream(LogPath, FileMode.Create, FileAccess.Write, FileShare.ReadWrite)) { AutoFlush = true };
@@ -454,7 +548,8 @@ public static class LocalBrain
         AttachToJob(p);
         _server = p;
         _loadedPath = modelPath;
-        Log.Write($"brain starting: {Path.GetFileName(modelPath)}, engine {EngineTag}, reasoning off");
+        _loadedDevice = device;
+        Log.Write($"brain starting: {Path.GetFileName(modelPath)}, engine {EngineTag}/{device}, reasoning off");
         return p;
     }
 

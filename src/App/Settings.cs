@@ -40,6 +40,10 @@ public sealed class Settings
     public SpeechDeviceKind SpeechDevice { get; set; } = SpeechDeviceKind.Gpu;
     /// <summary>CPU intra-op threads. 0 means every logical processor. Not applied to a DirectML session.</summary>
     public int CpuThreads { get; set; }
+    /// <summary>WASAPI capture endpoint id. Empty is the Windows default input device.</summary>
+    public string MicrophoneId { get; set; } = "";
+    /// <summary>Where the local llama.cpp brain runs. Cpu is the original engine. Gpu downloads the Vulkan build.</summary>
+    public BrainDeviceKind BrainDevice { get; set; } = BrainDeviceKind.Cpu;
 
     /// <summary>
     /// Letter script for the large CTC model. Auto keeps Latin when the model already wrote Latin,

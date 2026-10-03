@@ -24,6 +24,7 @@ public partial class SettingsWindow : Window
     private readonly Action? _keepAwakeChanged;
     private readonly Action? _checkUpdates;
     private readonly Action? _stop;
+    private readonly Func<SpeechModelKind, Task>? _deleteSpeech;
     private string _phaseText = "";
     private bool _stopEnabled;
     private bool _loading = true;
@@ -35,7 +36,7 @@ public partial class SettingsWindow : Window
     public SettingsWindow(Settings settings, Action apply, Action unpin, Func<BrainSource, Task> selectBrain,
         Func<Task>? downloadSpeech = null, Action? speechChanged = null, Func<string>? speechStatus = null,
         Func<string>? hermesStatus = null, Func<Task>? toggleLan = null, Action? keepAwakeChanged = null,
-        Action? checkUpdates = null, Action? stop = null)
+        Action? checkUpdates = null, Action? stop = null, Func<SpeechModelKind, Task>? deleteSpeech = null)
     {
         _settings = settings;
         _apply = apply;
@@ -49,6 +50,7 @@ public partial class SettingsWindow : Window
         _keepAwakeChanged = keepAwakeChanged;
         _checkUpdates = checkUpdates;
         _stop = stop;
+        _deleteSpeech = deleteSpeech;
         InitializeComponent();
         ServerPanel.Saved += UpdateBrainTexts;   // the panel has already applied and saved
         Localize();
@@ -99,6 +101,27 @@ public partial class SettingsWindow : Window
         LanguageBox.Items.Add(new ComboBoxItem { Content = "Русский", Tag = UiLanguage.Russian });
         LanguageBox.Items.Add(new ComboBoxItem { Content = "English", Tag = UiLanguage.English });
         LanguageBox.SelectedIndex = (int)_settings.Language;
+
+        MicLabel.Text = L.T("Микрофон", "Microphone");
+        MicHint.Text = L.T("По умолчанию — то устройство, которое Windows считает основным. Если входов несколько, они перечислены ниже, можно выбрать свой.",
+                           "Default is whichever device Windows treats as the main one. If there are more inputs, they are listed and you can pick one.");
+        MicBox.Items.Clear();
+        MicBox.Items.Add(new ComboBoxItem
+        {
+            Content = L.T("По умолчанию Windows", "Windows default") + " — " + Recorder.DefaultDeviceName(),
+            Tag = "",
+        });
+        foreach (var device in Recorder.InputDevices())
+            MicBox.Items.Add(new ComboBoxItem { Content = device.Name, Tag = device.Id });
+        int micIndex = 0;
+        for (int i = 0; i < MicBox.Items.Count; i++)
+            if (MicBox.Items[i] is ComboBoxItem it && (string)it.Tag == _settings.MicrophoneId) micIndex = i;
+        if (micIndex == 0 && _settings.MicrophoneId.Length > 0)
+        {
+            _settings.MicrophoneId = "";
+            _settings.Save();
+        }
+        MicBox.SelectedIndex = micIndex;
 
         OverlayBox.Content = L.T("Показывать плашку: волна и черновик текста", "Show the pill: wave and the draft text");
         StopButton.Content = L.T("Стоп", "Stop");
@@ -189,8 +212,9 @@ public partial class SettingsWindow : Window
             if ((SpeechDeviceKind)it.Tag == _settings.SpeechDevice) DeviceBox.SelectedItem = it;
         int cores = Math.Max(1, Environment.ProcessorCount);
         ThreadsLabel.Text = L.T("Потоки процессора", "Processor threads");
-        ThreadsHint.Text = L.T($"Только когда считает процессор. «Все ядра» — это {cores}. На видеокарте выбор не действует: там по-прежнему не больше 4 потоков внутри ONNX. Раньше и процессор был ограничен четырьмя.",
-                                $"Only when the processor does the work. All cores means {cores}. The video card ignores this and still uses at most 4 ONNX threads. The processor used to be capped at four as well.");
+        ThreadsHint.Text = L.T($"«Все ядра» — это {cores}. Меньше — если хотите оставить ядра другим программам. На видеокарте этот список спрятан.",
+                                $"All cores means {cores}. Choose less to leave cores for other programs. This list is hidden when the video card is selected.");
+        ThreadsPanel.Visibility = _settings.SpeechDevice == SpeechDeviceKind.Cpu ? Visibility.Visible : Visibility.Collapsed;
         ThreadsBox.Items.Clear();
         ThreadsBox.Items.Add(new ComboBoxItem { Content = L.T($"Все ядра ({cores})", $"All cores ({cores})"), Tag = 0 });
         for (int n = 1; n <= cores; n++)
@@ -207,6 +231,7 @@ public partial class SettingsWindow : Window
                 ? L.T("Файлы модели на месте.", "The model files are on disk.")
                 : L.T("Модель не скачана. Нажмите кнопку. Сама она не скачивается.",
                       "The model is not downloaded. Press the button. It does not download by itself."));
+        FillSpeechDeleteButtons();
         HermesHeading.Text = L.T("Расшифровка для других компьютеров", "Transcription for other computers");
         HermesListenStatus.Text = _hermesStatus?.Invoke()
             ?? L.T($"Сейчас только этот компьютер, порт {SpeechModels.HermesPort}.",
@@ -250,9 +275,17 @@ public partial class SettingsWindow : Window
                                   "A .gguf file page or a resolve link. Downloaded only by the button below.");
         InstructionLabel.Text = L.T("Инструкция мозгу", "Instruction for the brain");
         InstructionBox.Text = _settings.BrainInstruction;
-        InstructionHint.Text = L.T("Пусто по умолчанию: тогда правила прежние. Если написать, локальный мозг берёт это как системную инструкцию. Сюда можно правило перевода. Облако и Xiaomi это поле не читают.",
-                                   "Empty by default, so the old rules stay. If you write here, the local brain uses it as the system prompt. A translation rule can live here. The cloud and Xiaomi do not read this box.");
-        DeleteBrainButton.Content = L.T("Удалить модели мозга с компьютера", "Delete the brain models from this computer");
+        InstructionHint.Text = L.T("Пусто по умолчанию: локальный мозг чистит текст как раньше и убирает очевидный фон другой темы, песню в комнате или чужую реплику, а вашу фразу оставляет. Если написать своё, берётся только ваш текст, без этой добавки. Облако и Xiaomi поле не читают.",
+                                   "Empty by default: the local brain cleans as before and drops obvious background that is a different topic, a song in the room or someone else talking, and keeps your phrase. If you write your own text, only that is used. The cloud and Xiaomi do not read this box.");
+        BrainDeviceLabel.Text = L.T("Где считает мозг", "Where the brain runs");
+        BrainDeviceHint.Text = L.T("Процессор — прежний llama.cpp. Видеокарта — официальная сборка Vulkan той же версии b10701, файл качается кнопкой ниже и в программу не вшит. На RTX 3070 её берёт драйвер NVIDIA. Если карта не поднялась, а процессорный движок уже скачан, мозг перейдёт на процессор. Здесь это не запускалось.",
+                                   "Processor is the same llama.cpp as before. Video card is the official Vulkan build of the same b10701, downloaded by the button below and not inside the program. An RTX 3070 uses the NVIDIA driver. If the card does not start and the CPU engine is already downloaded, the brain falls back to the processor. This was not run here.");
+        BrainDeviceBox.Items.Clear();
+        BrainDeviceBox.Items.Add(new ComboBoxItem { Content = L.T("Процессор (CPU)", "Processor (CPU)"), Tag = BrainDeviceKind.Cpu });
+        BrainDeviceBox.Items.Add(new ComboBoxItem { Content = L.T("Видеокарта (Vulkan)", "Video card (Vulkan)"), Tag = BrainDeviceKind.Gpu });
+        foreach (ComboBoxItem it in BrainDeviceBox.Items)
+            if ((BrainDeviceKind)it.Tag == _settings.BrainDevice) BrainDeviceBox.SelectedItem = it;
+        FillBrainDeleteButtons();
         EditHeading.Text = L.T("Правка выделенного", "Edit selection");
         EditIntro.Text = L.T("Выделите текст в любой программе, зажмите клавишу диктовки и скажите, что с ним сделать. Результат встанет на место выделенного, а Ctrl+Z вернёт как было.",
                              "Select text in any app, hold the dictation key and say what to do with it. The result replaces the selection; Ctrl+Z brings the original back.");
@@ -263,10 +296,13 @@ public partial class SettingsWindow : Window
         ExamplesLabel.Text = L.T("Что можно сказать", "What you can say");
         Examples.Text = L.T("«сделай короче»  ·  «исправь ошибки»  ·  «перепиши вежливее»\n«переведи на английский»  ·  «сделай списком»  ·  «добавь заголовок»",
                             "\"make it shorter\"  ·  \"fix the mistakes\"  ·  \"make it more polite\"\n\"translate into English\"  ·  \"make it a list\"  ·  \"add a title\"\n(said in Russian)");
-        EveryTakeBox.Content = L.T("Править на лету", "Edit on the fly");
-        EveryTakeBox.IsChecked = _settings.BrainEveryTake;
-        EveryTakeHint.Text = L.T("Нейросеть причёсывает каждую диктовку сама, без команды «Писарь, …». Удобно с быстрым облачным сервисом.",
-                                 "The model tidies every take by itself, no \"Pisar, …\" needed. Handy with a fast cloud service.");
+        EveryTakeLabel.Text = L.T("Правка каждой фразы", "Each phrase");
+        EveryTakeBox.Items.Clear();
+        EveryTakeBox.Items.Add(new ComboBoxItem { Content = L.T("Выключено", "Off"), Tag = false });
+        EveryTakeBox.Items.Add(new ComboBoxItem { Content = L.T("Переписывать каждую фразу", "Rewrite each phrase"), Tag = true });
+        EveryTakeBox.SelectedIndex = _settings.BrainEveryTake ? 1 : 0;
+        EveryTakeHint.Text = L.T("Мозг переписывает каждую надиктованную фразу до вставки в поле, по инструкции выше. Выключено: фраза вставляется как распознана, пока вы не скажете «Писарь, …».",
+                                 "The brain rewrites each dictated phrase before it is inserted, using the instruction above. Off: the phrase is inserted as recognized until you say \"Pisar, …\".");
         PromptExpander.Header = L.T("Инструкция для этого режима", "Instructions for this mode");
         PromptBox.Text = _settings.EffectiveCleanupPrompt;
         UpdateBrainTexts();
@@ -284,7 +320,7 @@ public partial class SettingsWindow : Window
         HermesLine.Text = _hermesStatus?.Invoke()
             ?? L.T($"Hermes: порт {SpeechModels.HermesPort}.", $"Hermes: port {SpeechModels.HermesPort}.");
         CodeLink.Text = L.T("исходный код", "source code");
-        MicLine.Text = L.T("Микрофон: ", "Microphone: ") + Recorder.DefaultDeviceName();
+        MicLine.Text = L.T("Микрофон: ", "Microphone: ") + Recorder.Describe(_settings.MicrophoneId);
         ModelLink.Text = L.T("модель GigaAM от Сбера", "GigaAM model by Sber");
         LogLink.Text = L.T("Открыть папку с журналом", "Open the log folder");
         _loading = false;
@@ -388,6 +424,7 @@ public partial class SettingsWindow : Window
         var device = (SpeechDeviceKind)item.Tag;
         if (device == _settings.SpeechDevice) return;
         _settings.SpeechDevice = device;
+        ThreadsPanel.Visibility = device == SpeechDeviceKind.Cpu ? Visibility.Visible : Visibility.Collapsed;
         _apply();
         _speechChanged?.Invoke();
     }
@@ -489,13 +526,15 @@ public partial class SettingsWindow : Window
         };
         BrainStatus.Visibility = BrainStatus.Text.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
         ServerPanel.Visibility = b == BrainSource.Server ? Visibility.Visible : Visibility.Collapsed;
-        DeleteBrainButton.Visibility = LocalBrain.HasAnything() ? Visibility.Visible : Visibility.Collapsed;
         bool local = b == BrainSource.Local;
         var localVis = local ? Visibility.Visible : Visibility.Collapsed;
         BrainModelLabel.Visibility = localVis;
         BrainModelBox.Visibility = localVis;
         BrainFileStatus.Visibility = localVis;
         BrainDownloadButton.Visibility = localVis;
+        BrainDeviceLabel.Visibility = localVis;
+        BrainDeviceBox.Visibility = localVis;
+        BrainDeviceHint.Visibility = localVis;
         bool custom = local && _settings.BrainModel == LocalBrainKind.Custom;
         var urlVis = custom ? Visibility.Visible : Visibility.Collapsed;
         BrainUrlLabel.Visibility = urlVis;
@@ -507,7 +546,8 @@ public partial class SettingsWindow : Window
         else if (_settings.BrainModel == LocalBrainKind.Custom && !LocalBrain.TryParseCustomUrl(_settings.BrainCustomUrl, out _, out _, out var urlError))
             fileStatus = urlError;
         else if (readyLocal)
-            fileStatus = L.T("Уже на диске: ", "Already on disk: ") + LocalBrain.ModelPath(_settings);
+            fileStatus = L.T("Уже на диске: ", "Already on disk: ") + LocalBrain.ModelPath(_settings)
+                + (LocalBrain.DeviceNote == null ? "" : " " + LocalBrain.DeviceNote);
         else
             fileStatus = L.T("Файла ещё нет. Нажмите кнопку, сама модель не скачивается.", "Not on disk yet. Press the button. It does not download by itself.");
         BrainFileStatus.Text = fileStatus;
@@ -515,6 +555,7 @@ public partial class SettingsWindow : Window
             ? L.T("Уже на диске, не скачивать", "Already on disk, do not download")
             : L.T("Скачать модель мозга", "Download the brain model");
         var every = b == BrainSource.Off ? Visibility.Collapsed : Visibility.Visible;
+        EveryTakeLabel.Visibility = every;
         bool ready = b switch { BrainSource.Local => readyLocal, BrainSource.Server => Brain.ServerConfigured(_settings), _ => false };
         string host = SpeechCleanup.HostOf(_settings.CleanupEndpointUrl);
         EditBrainLine.Text = !ready
@@ -556,11 +597,116 @@ public partial class SettingsWindow : Window
         _apply();
     }
 
-    private void EveryTake_Click(object sender, RoutedEventArgs e)
+    private void EveryTake_Changed(object sender, SelectionChangedEventArgs e)
     {
-        _settings.BrainEveryTake = EveryTakeBox.IsChecked == true;
+        if (_loading || EveryTakeBox.SelectedItem is not ComboBoxItem item) return;
+        bool on = item.Tag is bool b && b;
+        if (on == _settings.BrainEveryTake) return;
+        _settings.BrainEveryTake = on;
         _apply();
         UpdateBrainTexts();
+    }
+
+    private void BrainDevice_Changed(object sender, SelectionChangedEventArgs e)
+    {
+        if (_loading || BrainDeviceBox.SelectedItem is not ComboBoxItem item) return;
+        var device = (BrainDeviceKind)item.Tag;
+        if (device == _settings.BrainDevice) return;
+        _settings.BrainDevice = device;
+        LocalBrain.Stop();
+        _apply();
+        UpdateBrainTexts();
+    }
+
+    private void Mic_Changed(object sender, SelectionChangedEventArgs e)
+    {
+        if (_loading || MicBox.SelectedItem is not ComboBoxItem item) return;
+        var id = (string)item.Tag;
+        if (id == _settings.MicrophoneId) return;
+        _settings.MicrophoneId = id;
+        _apply();
+    }
+
+    private void FillSpeechDeleteButtons()
+    {
+        SpeechDeletePanel.Children.Clear();
+        foreach (var kind in new[] { SpeechModelKind.V3E2eRnnt, SpeechModelKind.MultilingualLargeCtc })
+        {
+            if (!SpeechModelStore.HasDeletable(kind)) continue;
+            var button = new Button
+            {
+                Content = SpeechModelStore.DeleteButtonLabel(kind),
+                Tag = kind,
+                HorizontalAlignment = HorizontalAlignment.Left,
+                Padding = new Thickness(12, 4, 12, 4),
+                Margin = new Thickness(0, 6, 0, 0),
+            };
+            button.Click += DeleteSpeech_Click;
+            SpeechDeletePanel.Children.Add(button);
+        }
+    }
+
+    private async void DeleteSpeech_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button button || button.Tag is not SpeechModelKind kind) return;
+        var paths = string.Join("\n", SpeechModelStore.DeletableTargets(kind));
+        var yes = System.Windows.MessageBox.Show(
+            L.T($"Удалить эту модель с диска?\n\n{SpeechModelStore.DeleteButtonLabel(kind)}\n\n{paths}\n\nСама программа не удаляется.",
+                $"Delete this model from disk?\n\n{paths}\n\nThe program itself stays."),
+            L.T("Удалить модель", "Delete model"),
+            MessageBoxButton.YesNo, MessageBoxImage.Warning);
+        if (yes != MessageBoxResult.Yes) return;
+        button.IsEnabled = false;
+        try
+        {
+            if (_deleteSpeech != null) await _deleteSpeech(kind);
+            else SpeechModelStore.DeleteInstalled(kind);
+        }
+        catch (Exception ex)
+        {
+            System.Windows.MessageBox.Show(ex.Message, L.T("Удалить модель", "Delete model"), MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
+        Localize();
+    }
+
+    private void FillBrainDeleteButtons()
+    {
+        BrainDeletePanel.Children.Clear();
+        var files = LocalBrain.InstalledGgufs();
+        BrainDeleteLabel.Visibility = files.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+        BrainDeleteLabel.Text = L.T("Скачанные модели мозга. Кнопка удаляет только свой файл, не программу.",
+                                    "Downloaded brain models. A button deletes only that file, not the program.");
+        foreach (var file in files)
+        {
+            var button = new Button
+            {
+                Content = L.T($"Удалить {file.Label}", $"Delete {file.Label}"),
+                Tag = file.Path,
+                HorizontalAlignment = HorizontalAlignment.Left,
+                Padding = new Thickness(12, 4, 12, 4),
+                Margin = new Thickness(0, 6, 0, 0),
+            };
+            button.Click += DeleteGguf_Click;
+            BrainDeletePanel.Children.Add(button);
+        }
+    }
+
+    private void DeleteGguf_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button button || button.Tag is not string path) return;
+        var name = System.IO.Path.GetFileName(path);
+        var yes = System.Windows.MessageBox.Show(
+            L.T($"Удалить модель мозга «{name}»?\n\n{path}\n\nПрограмма и движок llama.cpp не удаляются.",
+                $"Delete the brain model \"{name}\"?\n\n{path}\n\nThe program and the llama.cpp engine stay."),
+            L.T("Удалить модель", "Delete model"),
+            MessageBoxButton.YesNo, MessageBoxImage.Warning);
+        if (yes != MessageBoxResult.Yes) return;
+        try { LocalBrain.DeleteGguf(path); }
+        catch (Exception ex)
+        {
+            System.Windows.MessageBox.Show(ex.Message, L.T("Удалить модель", "Delete model"), MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
+        Localize();
     }
 
     private void BrainModel_Changed(object sender, SelectionChangedEventArgs e)
@@ -635,13 +781,6 @@ public partial class SettingsWindow : Window
         _settings.BrainCustomUrl = text;
         _apply();
     }
-
-    private void DeleteBrain_Click(object sender, RoutedEventArgs e)
-    {
-        LocalBrain.DeleteModel();
-        Localize();
-    }
-
 
     private void Link_Click(object sender, RequestNavigateEventArgs e)
     {

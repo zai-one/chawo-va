@@ -76,13 +76,72 @@ public sealed class Recorder : IDisposable
         catch { return L.T("не найден", "none found"); }
     }
 
+    public readonly record struct InputDevice(string Id, string Name);
+
+    /// <summary>
+    /// Active capture endpoints. Empty id is not included; the caller adds "Windows default" itself.
+    /// WASAPI first (stable endpoint id). If that API fails, waveIn names with id "wave:N".
+    /// Not exercised on this Linux build machine.
+    /// </summary>
+    public static IReadOnlyList<InputDevice> InputDevices()
+    {
+        var list = new List<InputDevice>();
+        try
+        {
+            using var enumerator = new MMDeviceEnumerator();
+            foreach (var device in enumerator.EnumerateAudioEndPoints(DataFlow.Capture, DeviceState.Active))
+            {
+                try
+                {
+                    var id = device.ID;
+                    var name = device.FriendlyName;
+                    if (!string.IsNullOrWhiteSpace(id) && !string.IsNullOrWhiteSpace(name))
+                        list.Add(new InputDevice(id, name));
+                }
+                catch { }
+                finally { try { device.Dispose(); } catch { } }
+            }
+        }
+        catch (Exception e)
+        {
+            Log.Write($"mic list wasapi failed: {e.GetType().Name}: {e.Message}");
+        }
+        if (list.Count > 0) return list;
+        try
+        {
+            int n = WaveInEvent.DeviceCount;
+            for (int i = 0; i < n; i++)
+            {
+                var name = WaveInEvent.GetCapabilities(i).ProductName;
+                if (string.IsNullOrWhiteSpace(name)) name = L.T($"Микрофон {i + 1}", $"Microphone {i + 1}");
+                list.Add(new InputDevice("wave:" + i, name.Trim()));
+            }
+        }
+        catch (Exception e)
+        {
+            Log.Write($"mic list waveIn failed: {e.GetType().Name}: {e.Message}");
+        }
+        return list;
+    }
+
+    /// <summary>Label for the About page. Unknown saved ids fall back to the Windows default in words only.</summary>
+    public static string Describe(string? id)
+    {
+        if (string.IsNullOrWhiteSpace(id))
+            return L.T("по умолчанию Windows (", "Windows default (") + DefaultDeviceName() + ")";
+        foreach (var device in InputDevices())
+            if (device.Id == id) return device.Name;
+        return L.T("по умолчанию Windows (сохранённый микрофон не найден)", "Windows default (saved microphone is gone)");
+    }
+
     private DateTime _lastStop = DateTime.MinValue;
 
     /// <summary>Milliseconds between the previous take's stop and this start (diagnostics for quick re-presses).</summary>
     public double GapMs { get; private set; }
 
-    public Task StartAsync()
+    public Task StartAsync(string? microphoneId = null)
     {
+        var wanted = (microphoneId ?? "").Trim();
         GapMs = _lastStop == DateTime.MinValue ? -1 : (DateTime.UtcNow - _lastStop).TotalMilliseconds;
         lock (_gate) { _samples.Clear(); _levelSinceRead = 0; _takePeak = 0; _capHit = false; _noiseDb = double.NaN; _peakDb = double.NaN; }
         var stopped = new ManualResetEventSlim(false);
@@ -98,9 +157,19 @@ public sealed class Recorder : IDisposable
             Exception? first = null;
             // PISAR_CAPTURE=wasapi forces the fallback path (testing aid).
             bool forceWasapi = Environment.GetEnvironmentVariable("PISAR_CAPTURE") == "wasapi";
-            var attempts = forceWasapi
-                ? new Func<ManualResetEventSlim, IWaveIn>[] { OpenWasapi }
-                : new Func<ManualResetEventSlim, IWaveIn>[] { s => OpenWaveIn(-1, s), s => OpenWaveIn(0, s), OpenWasapi };
+            var attempts = new List<Func<ManualResetEventSlim, IWaveIn>>();
+            if (wanted.StartsWith("wave:", StringComparison.Ordinal) && int.TryParse(wanted.AsSpan(5), out int waveIndex) && waveIndex >= 0)
+                attempts.Add(s => OpenWaveIn(waveIndex, s));
+            else if (wanted.Length > 0)
+                attempts.Add(s => OpenWasapiId(wanted, s));
+            if (forceWasapi)
+                attempts.Add(s => OpenWasapi(s, null));
+            else
+            {
+                attempts.Add(s => OpenWaveIn(-1, s));
+                attempts.Add(s => OpenWaveIn(0, s));
+                attempts.Add(s => OpenWasapi(s, null));
+            }
             foreach (var attempt in attempts)
             {
                 try
@@ -144,9 +213,17 @@ public sealed class Recorder : IDisposable
         return wi;
     }
 
-    private IWaveIn OpenWasapi(ManualResetEventSlim stopped)
+    private IWaveIn OpenWasapiId(string id, ManualResetEventSlim stopped)
     {
-        var capture = new WasapiCapture();   // default capture endpoint, shared mode, device format
+        using var enumerator = new MMDeviceEnumerator();
+        var device = enumerator.GetDevice(id);
+        try { return OpenWasapi(stopped, device); }
+        catch { device.Dispose(); throw; }
+    }
+
+    private IWaveIn OpenWasapi(ManualResetEventSlim stopped, MMDevice? device)
+    {
+        var capture = device == null ? new WasapiCapture() : new WasapiCapture(device);
         // ReadFully=false: when the buffer runs dry Read returns 0 instead of padding with silence,
         // otherwise the drain loop below would never end.
         _wasapiBuffer = new BufferedWaveProvider(capture.WaveFormat) { DiscardOnBufferOverflow = true, BufferDuration = TimeSpan.FromSeconds(2), ReadFully = false };
@@ -165,7 +242,8 @@ public sealed class Recorder : IDisposable
             capture.Dispose();
             throw;
         }
-        Backend = $"wasapi/{capture.WaveFormat.SampleRate}Hz/{capture.WaveFormat.Channels}ch";
+        var who = device == null ? "default" : device.FriendlyName;
+        Backend = $"wasapi/{who}/{capture.WaveFormat.SampleRate}Hz/{capture.WaveFormat.Channels}ch";
         return capture;
     }
 

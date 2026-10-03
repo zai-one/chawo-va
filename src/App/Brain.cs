@@ -19,6 +19,13 @@ public enum BrainSource { Off, Local, Server }
 
 public static partial class Brain
 {
+    /// <summary>
+    /// Appended only when the local instruction box is empty. The GGUF is not changed.
+    /// Recognition already wrote the room into the text; this asks the brain to drop lines that are not the user.
+    /// </summary>
+    private const string DefaultLocalBackground =
+        "Оставь фразу пользователя. Убери очевидные чужие строки другой темы: песню, которая играла рядом, и реплики другого человека. Не добавляй ничего от себя.";
+
     /// <summary>Same wording as the macOS app, so both edit text alike.</summary>
     private const string CommandPrompt =
         "Ты обрабатываешь надиктованный голосом текст перед вставкой. Правила: " +
@@ -124,10 +131,13 @@ public static partial class Brain
         string prompt = command == null ? s.EffectiveCleanupPrompt
             : (selection ? SelectionPrompt : CommandPrompt) + "\n\nКоманда пользователя к тексту: " + command + ".";
         // Local only. Xiaomi and the other cloud brains keep the prompt above, instruction or not.
+        // Empty instruction box: usual rules, plus drop a song or another person. A filled box is used as written.
         if (s.Brain == BrainSource.Local)
         {
             var instruction = s.BrainInstruction.Trim();
-            if (instruction.Length > 0)
+            if (instruction.Length == 0)
+                prompt += "\n\n" + DefaultLocalBackground;
+            else
             {
                 prompt = command == null
                     ? instruction
