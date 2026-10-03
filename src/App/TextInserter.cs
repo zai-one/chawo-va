@@ -12,10 +12,15 @@
 using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Threading;
+using Microsoft.Win32;
+using WinClip = Windows.ApplicationModel.DataTransfer.Clipboard;
+using WinTransfer = Windows.ApplicationModel.DataTransfer;
 
 namespace GigaPisar.App;
 
 public enum InsertResult { Done, Blocked }
+
+public readonly record struct PhraseClipboardOptions(bool Keep, bool RestoreIfHistoryKeepsIt);
 
 public static class TextInserter
 {
@@ -25,10 +30,21 @@ public static class TextInserter
     private const int ErrorAccessDenied = 5;
     private static readonly SemaphoreSlim ClipboardGate = new(1, 1);
 
-    public static InsertResult Insert(string text, InsertMode mode, CancellationToken cancellationToken = default)
+    public static InsertResult Insert(string text, InsertMode mode, CancellationToken cancellationToken = default) =>
+        Insert(text, mode, cancellationToken, default);
+
+    public static InsertResult Insert(string text, InsertMode mode, CancellationToken cancellationToken, PhraseClipboardOptions clip)
     {
         if (string.IsNullOrEmpty(text)) return InsertResult.Done;
-        return mode == InsertMode.Paste ? Paste(text, cancellationToken) : Type(text);
+        return mode == InsertMode.Paste ? Paste(text, cancellationToken, clip) : TypeAndMaybeCopy(text, clip, cancellationToken);
+    }
+
+    private static InsertResult TypeAndMaybeCopy(string text, PhraseClipboardOptions clip, CancellationToken cancellationToken)
+    {
+        var result = Type(text);
+        if (result == InsertResult.Done && clip.Keep)
+            RememberAsync(text, clip.RestoreIfHistoryKeepsIt, cancellationToken).GetAwaiter().GetResult();
+        return result;
     }
 
     public static InsertResult Type(string text)
@@ -57,7 +73,10 @@ public static class TextInserter
         return InsertResult.Done;
     }
 
-    public static InsertResult Paste(string text, CancellationToken cancellationToken = default)
+    public static InsertResult Paste(string text, CancellationToken cancellationToken = default) =>
+        Paste(text, cancellationToken, default);
+
+    public static InsertResult Paste(string text, CancellationToken cancellationToken, PhraseClipboardOptions clip)
     {
         ClipboardGate.Wait(cancellationToken);
         bool restoreOwnsGate = false;
@@ -74,13 +93,21 @@ public static class TextInserter
                 saved = Snapshot();
                 try
                 {
-                    var data = new DataObject();
-                    data.SetData(DataFormats.UnicodeText, text);
-                    // Windows honours these formats: no Clipboard History entry, no cloud sync.
-                    data.SetData("ExcludeClipboardContentFromMonitorProcessing", new MemoryStream(new byte[4]));
-                    data.SetData("CanIncludeInClipboardHistory", new MemoryStream(new byte[4]));
-                    data.SetData("CanUploadToCloudClipboard", new MemoryStream(new byte[4]));
-                    Clipboard.SetDataObject(data, true);
+                    if (clip.Keep)
+                    {
+                        // Plain text, no exclude formats: the clipboard history service records it.
+                        Clipboard.SetText(text);
+                    }
+                    else
+                    {
+                        var data = new DataObject();
+                        data.SetData(DataFormats.UnicodeText, text);
+                        // Windows honours these formats: no Clipboard History entry, no cloud sync.
+                        data.SetData("ExcludeClipboardContentFromMonitorProcessing", new MemoryStream(new byte[4]));
+                        data.SetData("CanIncludeInClipboardHistory", new MemoryStream(new byte[4]));
+                        data.SetData("CanUploadToCloudClipboard", new MemoryStream(new byte[4]));
+                        Clipboard.SetDataObject(data, true);
+                    }
                     sequence = Native.GetClipboardSequenceNumber();
                     return true;
                 }
@@ -90,7 +117,31 @@ public static class TextInserter
                     return false;
                 }
             });
-            if (!placed) return Type(text);
+            if (!placed)
+            {
+                var typed = Type(text);
+                if (typed == InsertResult.Done && clip.Keep)
+                {
+                    uint seq = 0;
+                    bool again = ui.Invoke(() =>
+                    {
+                        try
+                        {
+                            Clipboard.SetText(text);
+                            seq = Native.GetClipboardSequenceNumber();
+                            return true;
+                        }
+                        catch (Exception e)
+                        {
+                            Log.Write($"phrase clipboard set failed: {e.Message}");
+                            return false;
+                        }
+                    });
+                    if (again && clip.RestoreIfHistoryKeepsIt)
+                        KeepOrRestoreAsync(ui, text, saved, seq, cancellationToken).GetAwaiter().GetResult();
+                }
+                return typed;
+            }
 
             var ok = Send(new[]
             {
@@ -104,12 +155,173 @@ public static class TextInserter
             // Recording may resume as soon as Ctrl+V is sent. Keep clipboard operations serialized
             // until the target has had time to read it, even when there is no snapshot to restore.
             restoreOwnsGate = true;
-            _ = RestoreClipboardAsync(ui, saved, sequence, cancellationToken);
+            if (clip.Keep)
+                _ = RestoreKeepingHistoryAsync(ui, text, saved, sequence, clip.RestoreIfHistoryKeepsIt, cancellationToken);
+            else
+                _ = RestoreClipboardAsync(ui, saved, sequence, cancellationToken);
             return InsertResult.Done;
         }
         finally
         {
             if (!restoreOwnsGate) ClipboardGate.Release();
+        }
+    }
+
+    /// <summary>Copy the finished phrase. Used when insertion itself does not touch the clipboard.</summary>
+    private static async Task RememberAsync(string text, bool restoreIfHistoryKeepsIt, CancellationToken cancellationToken)
+    {
+        try
+        {
+            ClipboardGate.Wait(cancellationToken);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            return;
+        }
+        var ui = Application.Current.Dispatcher;
+        try
+        {
+            if (cancellationToken.IsCancellationRequested || ui.HasShutdownStarted || ui.HasShutdownFinished) return;
+            IDataObject? saved = null;
+            uint sequence = 0;
+            bool placed = ui.Invoke(() =>
+            {
+                saved = Snapshot();
+                try
+                {
+                    Clipboard.SetText(text);
+                    sequence = Native.GetClipboardSequenceNumber();
+                    return true;
+                }
+                catch (Exception e)
+                {
+                    Log.Write($"phrase clipboard set failed: {e.Message}");
+                    return false;
+                }
+            });
+            if (!placed || !restoreIfHistoryKeepsIt) return;
+            await KeepOrRestoreAsync(ui, text, saved, sequence, cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            ClipboardGate.Release();
+        }
+    }
+
+    /// <summary>
+    /// The phrase is already the current clipboard, which is what puts it into Win+V when history is on.
+    /// Windows has no API that inserts into history without also making the text current.
+    /// Wait until the history service has the phrase, then put the previous clipboard back.
+    /// If history is off, or the phrase is not in history after the restore, put the phrase back
+    /// and leave it current. The dictated phrase is never dropped on the floor.
+    /// </summary>
+    private static async Task RestoreKeepingHistoryAsync(Dispatcher ui, string text, IDataObject? saved, uint sequence,
+        bool restore, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await Task.Delay(ClipboardRestoreDelayMs, cancellationToken).ConfigureAwait(false);
+            if (!restore || ui.HasShutdownStarted || ui.HasShutdownFinished) return;
+            await KeepOrRestoreAsync(ui, text, saved, sequence, cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested || ui.HasShutdownStarted)
+        {
+        }
+        catch (Exception e)
+        {
+            Log.Write($"clipboard history restore failed: {e.Message}");
+        }
+        finally
+        {
+            ClipboardGate.Release();
+        }
+    }
+
+    private static async Task KeepOrRestoreAsync(Dispatcher ui, string text, IDataObject? saved, uint sequence,
+        CancellationToken cancellationToken)
+    {
+        if (!await WaitUntilHistoryHasAsync(text, cancellationToken).ConfigureAwait(false))
+        {
+            Log.Write("clipboard history does not have the phrase; leaving it as the current clipboard");
+            return;
+        }
+        bool restored = false;
+        await ui.InvokeAsync(() =>
+        {
+            if (cancellationToken.IsCancellationRequested || ui.HasShutdownStarted) return;
+            if (sequence != 0 && Native.GetClipboardSequenceNumber() != sequence) return;
+            try
+            {
+                if (saved != null) Clipboard.SetDataObject(saved, true);
+                else Clipboard.Clear();
+                restored = true;
+            }
+            catch (Exception e) { Log.Write($"clipboard restore failed: {e.Message}"); }
+        }, DispatcherPriority.Normal, cancellationToken).Task.ConfigureAwait(false);
+        if (!restored) return;
+        if (await WaitUntilHistoryHasAsync(text, cancellationToken).ConfigureAwait(false)) return;
+        Log.Write("restore dropped the phrase from clipboard history; putting the phrase back");
+        await ui.InvokeAsync(() =>
+        {
+            try { Clipboard.SetText(text); }
+            catch (Exception e) { Log.Write($"phrase clipboard restore failed: {e.Message}"); }
+        }).Task.ConfigureAwait(false);
+    }
+
+    private static async Task<bool> WaitUntilHistoryHasAsync(string text, CancellationToken cancellationToken)
+    {
+        if (!HistoryEnabled()) return false;
+        var deadline = DateTime.UtcNow.AddMilliseconds(1200);
+        while (true)
+        {
+            if (await HistoryHasAsync(text).ConfigureAwait(false)) return true;
+            if (DateTime.UtcNow >= deadline) return false;
+            await Task.Delay(150, cancellationToken).ConfigureAwait(false);
+        }
+    }
+
+    private static bool HistoryEnabled()
+    {
+        try
+        {
+            return WinClip.IsHistoryEnabled();
+        }
+        catch (Exception e)
+        {
+            Log.Write($"IsHistoryEnabled failed: {e.GetType().Name}");
+        }
+        try
+        {
+            using var key = Registry.CurrentUser.OpenSubKey(@"Software\Microsoft\Clipboard");
+            return key?.GetValue("EnableClipboardHistory") is int v && v != 0;
+        }
+        catch { return false; }
+    }
+
+    private static async Task<bool> HistoryHasAsync(string text)
+    {
+        try
+        {
+            WinTransfer.ClipboardHistoryItemsResult result = await WinClip.GetHistoryItemsAsync();
+            if (result.Status != WinTransfer.ClipboardHistoryItemsResultStatus.Success) return false;
+            int seen = 0;
+            foreach (WinTransfer.ClipboardHistoryItem item in result.Items)
+            {
+                if (seen++ >= 25) break;
+                try
+                {
+                    if (!item.Content.Contains(WinTransfer.StandardDataFormats.Text)) continue;
+                    string got = await item.Content.GetTextAsync();
+                    if (string.Equals(got.Trim(), text.Trim(), StringComparison.Ordinal)) return true;
+                }
+                catch { /* a history item the shell will not give us as text */ }
+            }
+            return false;
+        }
+        catch (Exception e)
+        {
+            Log.Write($"clipboard history read failed: {e.GetType().Name}: {e.Message}");
+            return false;
         }
     }
 

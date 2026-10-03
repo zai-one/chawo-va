@@ -96,7 +96,10 @@ public partial class OverlayWindow : Window
         Label.Visibility = Visibility.Collapsed;
         Caption.Visibility = Visibility.Collapsed;
         Bars.Visibility = Visibility.Visible;
-        Resize(BarsWidth);
+        Live.Foreground = Label.Foreground;
+        Live.Text = L.T("Слушаю…", "Listening…");
+        Live.Visibility = Visibility.Visible;
+        LayoutToContent(BarsWidth);
         Array.Clear(_heights);
         _smoothed = 0;
         foreach (var b in _bars) b.Height = BarWidth;
@@ -120,7 +123,39 @@ public partial class OverlayWindow : Window
         _timer.Stop();
         _recorder = null;
         _busyRipple = false;
+        Live.Visibility = Visibility.Collapsed;
+        Live.Text = "";
         Hide();
+    }
+
+    /// <summary>
+    /// Draft from a pass over the audio so far. Not the text that will be inserted.
+    /// Empty results keep the previous line. Does not take focus.
+    /// </summary>
+    public void ShowPartial(string text)
+    {
+        if (_recorder == null && !_demo && !_busyRipple) return;
+        string shown = Tail(text);
+        if (shown.Length == 0) return;
+        Live.Foreground = Label.Foreground;
+        Live.Text = shown;
+        Live.Visibility = Visibility.Visible;
+        double main = Bars.Visibility == Visibility.Visible ? BarsWidth : 0;
+        if (Caption.Visibility == Visibility.Visible)
+        {
+            Caption.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+            main = Math.Ceiling(Caption.DesiredSize.Width) + 10 + BarsWidth;
+        }
+        LayoutToContent(main);
+        if (!_dragging) Place();
+    }
+
+    private static string Tail(string text)
+    {
+        text = text.Trim();
+        const int max = 280;
+        if (text.Length <= max) return text;
+        return "…" + text[^(max - 1)..];
     }
 
     /// <summary>Shows a short message (e.g. "heard nothing") and hides after a moment.</summary>
@@ -145,11 +180,11 @@ public partial class OverlayWindow : Window
         Caption.Text = text;
         Caption.Visibility = Visibility.Visible;
         Caption.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
-        Resize(Math.Ceiling(Caption.DesiredSize.Width) + 10 + BarsWidth);
+        LayoutToContent(Math.Ceiling(Caption.DesiredSize.Width) + 10 + BarsWidth);
         await Task.Delay(ms);
         if (mine != _captionSerial || Caption.Visibility != Visibility.Visible || Bars.Visibility != Visibility.Visible) return;
         Caption.Visibility = Visibility.Collapsed;
-        Resize(BarsWidth);
+        LayoutToContent(BarsWidth);
     }
 
     private int _captionSerial;
@@ -170,10 +205,11 @@ public partial class OverlayWindow : Window
         _busyRipple = false;
         ApplyTheme();
         Bars.Visibility = Visibility.Collapsed;
+        Live.Visibility = Visibility.Collapsed;
         Label.Text = text;
         Label.Visibility = Visibility.Visible;
         Label.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
-        Resize(Math.Ceiling(Label.DesiredSize.Width));
+        LayoutToContent(Math.Ceiling(Label.DesiredSize.Width));
         Place();
         Appear();
     }
@@ -224,13 +260,21 @@ public partial class OverlayWindow : Window
         _saveSettings();
     }
 
-    /// <summary>Pill and window sized around the content with equal side padding.</summary>
-    private void Resize(double contentWidth)
+    /// <summary>Pill and window sized around the bars or the hint, plus the live line when it is visible.</summary>
+    private void LayoutToContent(double contentWidth)
     {
-        Pill.Width = contentWidth + 2 * PillPadding;
-        Pill.Height = PillHeight;
+        double liveExtra = 0;
+        double width = contentWidth;
+        if (Live.Visibility == Visibility.Visible)
+        {
+            Live.Measure(new Size(380, double.PositiveInfinity));
+            width = Math.Max(width, Math.Min(380, Math.Ceiling(Live.DesiredSize.Width)));
+            liveExtra = Math.Ceiling(Live.DesiredSize.Height) + 4;
+        }
+        Pill.Width = width + 2 * PillPadding;
+        Pill.Height = PillHeight + liveExtra;
         Width = Pill.Width + 2 * WindowMargin;
-        Height = PillHeight + 2 * WindowMargin;
+        Height = Pill.Height + 2 * WindowMargin;
     }
 
     private void Appear()
@@ -288,12 +332,14 @@ public partial class OverlayWindow : Window
             Pill.Background = new SolidColorBrush(Color.FromArgb(0xF5, 0xFF, 0xFF, 0xFF));
             Pill.BorderBrush = new SolidColorBrush(Color.FromArgb(0x1F, 0x00, 0x00, 0x00));
             Label.Foreground = new SolidColorBrush(Color.FromArgb(0xD9, 0x00, 0x00, 0x00));
+            Live.Foreground = Label.Foreground;
         }
         else
         {
             Pill.Background = new SolidColorBrush(Color.FromArgb(0xF2, 0x2C, 0x2C, 0x2C));
             Pill.BorderBrush = new SolidColorBrush(Color.FromArgb(0x26, 0xFF, 0xFF, 0xFF));
             Label.Foreground = new SolidColorBrush(Color.FromArgb(0xE6, 0xFF, 0xFF, 0xFF));
+            Live.Foreground = Label.Foreground;
         }
     }
 

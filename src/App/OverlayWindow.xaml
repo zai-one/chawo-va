@@ -14,14 +14,19 @@
         <Border.Effect>
             <DropShadowEffect BlurRadius="14" ShadowDepth="1" Direction="270" Opacity="0.20" Color="#000000"/>
         </Border.Effect>
-        <Grid>
-            <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center">
-                <TextBlock x:Name="Caption" Visibility="Collapsed" Margin="0,0,10,0" VerticalAlignment="Center"
-                           FontSize="12.5" FontFamily="Segoe UI Variable Text, Segoe UI"/>
-                <StackPanel x:Name="Bars" Orientation="Horizontal" Height="22" VerticalAlignment="Center"/>
-            </StackPanel>
-            <TextBlock x:Name="Label" HorizontalAlignment="Center" VerticalAlignment="Center" Visibility="Collapsed"
-                       Foreground="#D9000000" FontSize="12.5" FontFamily="Segoe UI Variable Text, Segoe UI"/>
-        </Grid>
+        <StackPanel>
+            <Grid Height="30">
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center">
+                    <TextBlock x:Name="Caption" Visibility="Collapsed" Margin="0,0,10,0" VerticalAlignment="Center"
+                               FontSize="12.5" FontFamily="Segoe UI Variable Text, Segoe UI"/>
+                    <StackPanel x:Name="Bars" Orientation="Horizontal" Height="22" VerticalAlignment="Center"/>
+                </StackPanel>
+                <TextBlock x:Name="Label" HorizontalAlignment="Center" VerticalAlignment="Center" Visibility="Collapsed"
+                           Foreground="#D9000000" FontSize="12.5" FontFamily="Segoe UI Variable Text, Segoe UI"/>
+            </Grid>
+            <TextBlock x:Name="Live" Visibility="Collapsed" TextWrapping="Wrap" MaxWidth="380"
+                       Margin="0,2,0,0" FontSize="14.5" FontFamily="Segoe UI Variable Text, Segoe UI"
+                       Foreground="#D9000000"/>
+        </StackPanel>
     </Border>
 </Window>

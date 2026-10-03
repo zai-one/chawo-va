@@ -21,15 +21,21 @@ public sealed class KeyboardHook : IDisposable
     private uint _threadId;
     private Exception? _installError;
     private volatile int _hotkeyVk;
+    private volatile bool _armCancel;
     private bool _down;
+    private bool _escapeLatched;
     private int _activeWinVk;
     private int _activeSingleVk;
 
     public int HotkeyVk { get => _hotkeyVk; set => _hotkeyVk = value; }
 
+    /// <summary>While set, Escape is swallowed and <see cref="CancelPressed"/> fires once per press.</summary>
+    public bool ArmCancel { get => _armCancel; set => _armCancel = value; }
+
     /// <summary>Raised on the hook thread; handlers must return immediately (marshal to the UI thread).</summary>
     public event Action? Pressed;
     public event Action? Released;
+    public event Action? CancelPressed;
 
     public KeyboardHook(int hotkeyVk)
     {
@@ -73,6 +79,18 @@ public sealed class KeyboardHook : IDisposable
                 int vk = info.vkCode == Native.VK_CONTROL
                     ? (info.flags & Native.LLKHF_EXTENDED) != 0 ? 0xA3 : 0xA2
                     : (int)info.vkCode;
+
+                if (vk == 0x1B && _armCancel)
+                {
+                    if (keyDown && !_escapeLatched)
+                    {
+                        _escapeLatched = true;
+                        CancelPressed?.Invoke();
+                    }
+                    else if (keyUp)
+                        _escapeLatched = false;
+                    return 1;
+                }
 
                 if (vk == Native.VK_LCONTROL && keyUp && _activeWinVk != 0 && _down)
                 {

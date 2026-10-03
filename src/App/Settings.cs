@@ -19,6 +19,14 @@ public sealed class Settings
     public int HotkeyVk { get; set; } = 0xA3;
     public InsertMode InsertMode { get; set; } = InsertMode.Paste;
     public bool ShowOverlay { get; set; } = true;
+    /// <summary>After the final phrase is ready, also put it on the clipboard. On by default.</summary>
+    public bool CopyPhraseToClipboard { get; set; } = true;
+    /// <summary>
+    /// After that copy, put the previous clipboard back, but only when the phrase stays in
+    /// Windows clipboard history (Win+V). On by default. If history is off or the phrase would
+    /// disappear from it, the phrase stays as the current clipboard.
+    /// </summary>
+    public bool RestoreClipboardAfterCopy { get; set; } = true;
     public bool KeepLastRecording { get; set; } = false;
     public bool FirstRunDone { get; set; } = false;
     public UiLanguage Language { get; set; } = UiLanguage.Auto;
@@ -30,6 +38,8 @@ public sealed class Settings
     public SpeechModelKind SpeechModel { get; set; } = SpeechModelKind.MultilingualLargeCtc;
     /// <summary>Video card (DirectML) or CPU. GPU falls back to CPU if DirectML cannot start.</summary>
     public SpeechDeviceKind SpeechDevice { get; set; } = SpeechDeviceKind.Gpu;
+    /// <summary>CPU intra-op threads. 0 means every logical processor. Not applied to a DirectML session.</summary>
+    public int CpuThreads { get; set; }
     /// <summary>Hermes accepts connections from the LAN (0.0.0.0). Off until the user opens the firewall port.</summary>
     public bool HermesOnLan { get; set; }
     /// <summary>While the Hermes listener is running, ask Windows not to idle-sleep. Off by default.</summary>

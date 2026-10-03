@@ -9,9 +9,12 @@ using System.Diagnostics;
 using System.Reflection;
 using System.Text;
 using System.Windows;
+using System.Windows.Threading;
 using Forms = System.Windows.Forms;
 
 namespace GigaPisar.App;
+
+public enum DictatePhase { NoModel, Idle, Listening, Recognizing }
 
 public partial class PisarApp : Application
 {
@@ -53,6 +56,13 @@ public partial class PisarApp : Application
     private SettingsWindow? _settingsWindow;
     private readonly CancellationTokenSource _lifetime = new();
     private bool _busy;
+    private volatile bool _abandonTake;
+    private int _partialEpoch;
+    private int _partialBusy;
+    private Task? _partialTask;
+    private DispatcherTimer? _partialTimer;
+    private CancellationTokenSource? _takeCts;
+    private DictatePhase _phase = DictatePhase.NoModel;
     /// <summary>Text selected when the key went down (read in the background); a take with a selection is a command on it.</summary>
     private Task<string?>? _selectionAtPress;
 
@@ -266,7 +276,8 @@ public partial class PisarApp : Application
                 ? Core.SpeechModelKind.V3E2eRnnt : Core.SpeechModelKind.MultilingualLargeCtc;
             var device = Environment.GetEnvironmentVariable("PISAR_DEVICE") == "cpu"
                 ? Core.SpeechDeviceKind.Cpu : Core.SpeechDeviceKind.Gpu;
-            var modelDir = Environment.GetEnvironmentVariable("PISAR_MODEL_DIR") is { Length: > 0 } env ? env : Settings.ModelDirectory(kind);
+            var modelDir = Environment.GetEnvironmentVariable("PISAR_MODEL_DIR") is { Length: > 0 } env ? env
+                : SpeechModelStore.FindComplete(kind) ?? Settings.ModelDirectory(kind);
             var sw = Stopwatch.StartNew();
             using var rec = new Core.Recognizer(modelDir, kind, device);
             var load = sw.Elapsed.TotalSeconds;
@@ -324,6 +335,8 @@ public partial class PisarApp : Application
             _hook = new KeyboardHook(_settings.HotkeyVk);
             _hook.Pressed += () => Dispatcher.BeginInvoke(() => _ = HandlePressAsync());
             _hook.Released += () => Dispatcher.BeginInvoke(() => _ = HandleReleaseAsync());
+            _hook.CancelPressed += () => Dispatcher.BeginInvoke(RequestStop);
+            SetPhase(_phase);
         }
         catch (Exception ex)
         {
@@ -411,7 +424,15 @@ public partial class PisarApp : Application
 
     private async Task HandlePressAsync()
     {
-        if (_busy || _recognizer == null || _recorder.IsRecording) return;
+        if (_busy || _recorder.IsRecording) return;
+        if (_recognizer == null)
+        {
+            SetPhase(DictatePhase.NoModel);
+            Hint(L.T("Модель не скачана. Откройте окно и нажмите «Скачать выбранную модель». Сама она не скачивается.",
+                     "The model is not downloaded. Open the window and press Download the selected model. It does not download by itself."));
+            return;
+        }
+        _abandonTake = false;
         _selectionAtPress = BrainUsable && _settings.BrainOnSelection ? SelectionReader.TryGetAsync(_lifetime.Token) : null;
         if (_selectionAtPress != null) _ = HintSelectionAsync(_selectionAtPress);
         try
@@ -429,6 +450,7 @@ public partial class PisarApp : Application
                       "Windows denies microphone access. Settings, Privacy and security, Microphone: turn on microphone access and let desktop apps use the microphone.")
                 : L.T($"Не удалось открыть микрофон: {ex.Message}", $"Could not open the microphone: {ex.Message}");
             _tray?.ShowBalloonTip(8000, L.T("Микрофон недоступен", "Microphone unavailable"), why, Forms.ToolTipIcon.Warning);
+            SetPhase(_recognizer == null ? DictatePhase.NoModel : DictatePhase.Idle);
             return;
         }
         if (_tray != null) _tray.Icon = _iconBusy;
@@ -436,6 +458,81 @@ public partial class PisarApp : Application
         {
             _overlay ??= new OverlayWindow(_settings, _settings.Save);
             _overlay.ShowListening(_recorder);
+            StartPartials();
+        }
+        SetPhase(DictatePhase.Listening);
+    }
+
+    /// <summary>Escape or the Stop button. Drops the take: nothing is inserted.</summary>
+    private void RequestStop()
+    {
+        if (!_recorder.IsRecording && !_busy) return;
+        _abandonTake = true;
+        Interlocked.Increment(ref _partialEpoch);
+        _recognizer?.CancelOwned();
+        try { _takeCts?.Cancel(); } catch (ObjectDisposedException) { }
+        if (_recorder.IsRecording)
+            _ = HandleReleaseAsync();
+    }
+
+    private void StartPartials()
+    {
+        StopPartials();
+        _partialTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(1000) };
+        _partialTimer.Tick += (_, _) => _ = PartialTickAsync();
+        _partialTimer.Start();
+    }
+
+    private void StopPartials()
+    {
+        if (_partialTimer == null) return;
+        _partialTimer.Stop();
+        _partialTimer = null;
+    }
+
+    /// <summary>
+    /// One pass over the audio recorded so far. Skipped when the previous pass is still running,
+    /// so the final pass is not queued behind a pile of drafts. The result is only shown.
+    /// </summary>
+    private async Task PartialTickAsync()
+    {
+        if (!_recorder.IsRecording || _recognizer == null || !_settings.ShowOverlay) return;
+        if (Interlocked.CompareExchange(ref _partialBusy, 1, 0) != 0) return;
+        int epoch = Volatile.Read(ref _partialEpoch);
+        var rec = _recognizer;
+        var task = Task.Run(() =>
+        {
+            if (Volatile.Read(ref _partialEpoch) != epoch || _abandonTake) return "";
+            var samples = _recorder.Snapshot();
+            if (samples.Length < Recorder.SampleRate * 6 / 10) return "";
+            if (!HasSpeechDynamics(samples)) return "";
+            float peak = 0;
+            for (int i = 0; i < samples.Length; i++) peak = Math.Max(peak, Math.Abs(samples[i]));
+            if (peak < SilenceFloor) return "";
+            if (peak < TargetPeak)
+            {
+                float gain = Math.Min(TargetPeak / peak, MaxGain);
+                for (int i = 0; i < samples.Length; i++) samples[i] *= gain;
+            }
+            if (Volatile.Read(ref _partialEpoch) != epoch || _abandonTake) return "";
+            return rec.TranscribeCancelable(samples, Recorder.SampleRate, () => Volatile.Read(ref _partialEpoch) == epoch && !_abandonTake);
+        });
+        _partialTask = task;
+        try
+        {
+            string text = await task;
+            if (epoch == Volatile.Read(ref _partialEpoch) && _recorder.IsRecording && !_abandonTake && text.Length > 0 && _settings.ShowOverlay)
+                _overlay?.ShowPartial(text);
+            if (text.Length > 0)
+                Log.Write($"partial {text.Length} chars");
+        }
+        catch (Exception ex)
+        {
+            Log.Write($"partial: {ex.GetType().Name}: {ex.Message}");
+        }
+        finally
+        {
+            Interlocked.Exchange(ref _partialBusy, 0);
         }
     }
 
@@ -456,10 +553,32 @@ public partial class PisarApp : Application
     {
         if (!_recorder.IsRecording || _busy) return;
         _busy = true;
+        bool abandon = _abandonTake;
+        Interlocked.Increment(ref _partialEpoch);
+        StopPartials();
+        if (Volatile.Read(ref _partialBusy) != 0)
+            _recognizer?.CancelOwned();
+        var partialTask = _partialTask;
+        _takeCts?.Dispose();
+        _takeCts = CancellationTokenSource.CreateLinkedTokenSource(_lifetime.Token);
+        if (abandon) _takeCts.Cancel();
         var overlay = _settings.ShowOverlay ? _overlay : null;
         try
         {
-            var samples = await _recorder.StopAsync();
+            var stopTask = _recorder.StopAsync();
+            if (partialTask != null)
+            {
+                try { await partialTask; }
+                catch (Exception ex) { Log.Write($"partial join: {ex.GetType().Name}"); }
+            }
+            var samples = await stopTask;
+            if (abandon || _abandonTake)
+            {
+                overlay?.HideNow();
+                Log.Write("take cancelled");
+                return;
+            }
+            SetPhase(DictatePhase.Recognizing);
             overlay?.ShowRecognizing();
 
             float peak = _recorder.TakePeak;
@@ -486,7 +605,8 @@ public partial class PisarApp : Application
                     float gain = Math.Min(TargetPeak / peak, MaxGain);
                     for (int i = 0; i < samples.Length; i++) samples[i] *= gain;
                 }
-                text = await Task.Run(() => _recognizer!.Transcribe(samples, Recorder.SampleRate));
+                text = await Task.Run(() => _recognizer!.TranscribeCancelable(samples, Recorder.SampleRate, () => !_abandonTake));
+                if (_abandonTake) { overlay?.HideNow(); Log.Write("recognize cancelled"); return; }
                 string? selected = _selectionAtPress != null && text.Length > 0 ? await _selectionAtPress : null;
                 _selectionAtPress = null;
                 if (selected != null)
@@ -495,7 +615,7 @@ public partial class PisarApp : Application
                     // The answer is pasted over the selection; Ctrl+Z in the app brings the original back.
                     Log.Write($"brain on selection, {selected.Length} chars");
                     var (answer, failure) = await RunBrainAsync(selected, Brain.StripAddress(text), selection: true, overlay);
-                    if (_lifetime.IsCancellationRequested) return;
+                    if (_lifetime.IsCancellationRequested || _abandonTake) { overlay?.HideNow(); return; }
                     if (answer == null)
                     {
                         Hint(L.T($"Мозг не справился: {failure}. Выделенный текст не тронут.",
@@ -514,7 +634,7 @@ public partial class PisarApp : Application
                         if (cmd != null) Log.Write($"brain command, {body.Length} chars");
                         brainCommand = cmd != null;
                         var (answer, failure) = await RunBrainAsync(body, cmd?.command, selection: false, overlay);
-                        if (_lifetime.IsCancellationRequested) return;
+                        if (_lifetime.IsCancellationRequested || _abandonTake) { overlay?.HideNow(); return; }
                         brainFailure = failure;
                         text = answer ?? body;   // on failure the dictation goes in as recognized, without the command
                     }
@@ -531,11 +651,18 @@ public partial class PisarApp : Application
             else if (text.Length > 0)
                 Log.Write($"insert as is: simple={_settings.SimpleSyntax} selection={editedSelection} command={brainCommand}");
 
+            if (_abandonTake)
+            {
+                overlay?.HideNow();
+                Log.Write("take cancelled before insert");
+                return;
+            }
             if (text.Length > 0)
             {
                 overlay?.HideNow();
                 var mode = _settings.InsertMode;
-                var result = await Task.Run(() => TextInserter.Insert(text, mode, _lifetime.Token));
+                var clip = new PhraseClipboardOptions(_settings.CopyPhraseToClipboard, _settings.RestoreClipboardAfterCopy);
+                var result = await Task.Run(() => TextInserter.Insert(text, mode, _takeCts?.Token ?? _lifetime.Token, clip));
                 if (result == InsertResult.Blocked)
                     Hint(L.T("Это окно запущено от администратора, вставить туда нельзя. Текст лежит в буфере обмена.",
                              "That window runs as administrator; typing into it is blocked. The text is on the clipboard."));
@@ -566,7 +693,9 @@ public partial class PisarApp : Application
         finally
         {
             _busy = false;
+            _abandonTake = false;
             if (_tray != null) _tray.Icon = _iconIdle;
+            SetPhase(_recognizer == null ? DictatePhase.NoModel : DictatePhase.Idle);
         }
     }
 
@@ -581,10 +710,10 @@ public partial class PisarApp : Application
             if (!ConfirmBrainMemory())
                 return (null, L.T("мало свободной памяти, запуск отменён", "not enough free memory, start cancelled"));
             var answer = await Brain.TransformAsync(_settings, body, command,
-                status => { overlay?.ShowStatus(status); SetStatus(status); }, _lifetime.Token, selection);
+                status => { overlay?.ShowStatus(status); SetStatus(status); }, _takeCts?.Token ?? _lifetime.Token, selection);
             return answer.Trim().Length > 0 ? (answer, null) : (null, L.T("нейросеть вернула пустой ответ", "the model returned an empty answer"));
         }
-        catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) { return (null, null); }
+        catch (OperationCanceledException) when (_abandonTake || _lifetime.IsCancellationRequested) { return (null, null); }
         catch (Exception ex)
         {
             Log.Write($"brain failed: {ex.GetType().Name}: {ex.Message}");
@@ -702,6 +831,9 @@ public partial class PisarApp : Application
         menu.Items.Add(hint);
         menu.Items.Add(new Forms.ToolStripSeparator());
         menu.Items.Add(L.T("Открыть окно", "Open window"), null, (_, _) => ShowSettings());
+        var stopItem = new Forms.ToolStripMenuItem(L.T("Стоп", "Stop"));
+        stopItem.Click += (_, _) => RequestStop();
+        menu.Items.Add(stopItem);
         menu.Items.Add(L.T("Свернуть в трей", "Hide to tray"), null, (_, _) => _settingsWindow?.Hide());
         menu.Items.Add(L.T("Настройки…", "Settings…"), null, (_, _) => ShowSettings());
         // Always visible, so it is clear whether text leaves the computer.
@@ -742,6 +874,7 @@ public partial class PisarApp : Application
         menu.Opening += (_, _) =>
         {
             autostart.Checked = Autostart.IsEnabled();
+            stopItem.Enabled = _phase is DictatePhase.Listening or DictatePhase.Recognizing;
             string host = SpeechCleanup.HostOf(_settings.CleanupEndpointUrl);
             brain.Text = _settings.Brain switch
             {
@@ -769,6 +902,16 @@ public partial class PisarApp : Application
 
     private Task DownloadSpeechAsync(bool manualStart)
     {
+        var existing = SpeechModelStore.FindComplete(_settings.SpeechModel);
+        if (existing != null)
+        {
+            System.Windows.MessageBox.Show(
+                L.T($"Эта модель уже на диске. Скачивать её снова не нужно.\n\n{existing}",
+                    $"This model is already on disk. It will not be downloaded again.\n\n{existing}"),
+                L.T("Модель уже на диске", "Model is already on disk"),
+                System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Information);
+            return ReloadSpeechAsync();
+        }
         var window = new DownloadWindow(_settings.SpeechModel, manualStart);
         return DownloadAndReloadAsync(window);
     }
@@ -784,20 +927,20 @@ public partial class PisarApp : Application
     {
         var kind = _settings.SpeechModel;
         var device = _settings.SpeechDevice;
-        var dir = Settings.ModelDirectory(kind);
+        var dir = SpeechModelStore.FindComplete(kind);
         Core.Recognizer? next = null;
         string note = "";
-        if (Core.Recognizer.ModelExists(dir, kind))
+        if (dir != null)
         {
             SetStatus(L.T("Загружаю модель…", "Loading the model…"));
             try
             {
-                next = await Task.Run(() => new Core.Recognizer(dir, kind, device));
+                next = await Task.Run(() => new Core.Recognizer(dir, kind, device, _settings.CpuThreads));
                 if (next.DeviceNote != null)
                     note = next.DeviceActual == "cpu"
                         ? L.T("Видеокарта не поднялась, считаю на процессоре.", "The video card did not start, running on the processor.")
                         : "";
-                Log.Write($"model {next.ModelId} on {next.DeviceActual}/{next.Provider}" + (next.DeviceNote == null ? "" : $" note={next.DeviceNote}"));
+                Log.Write($"model {next.ModelId} on {next.DeviceActual}/{next.Provider} intra={next.IntraOpThreads}" + (next.DeviceNote == null ? "" : $" note={next.DeviceNote}"));
             }
             catch (Exception ex)
             {
@@ -816,25 +959,45 @@ public partial class PisarApp : Application
         }
         old?.Dispose();
         SetStatus(null);
+        SetPhase(next == null ? DictatePhase.NoModel : DictatePhase.Idle);
         _settingsWindow?.Localize();
+    }
+
+    private void SetPhase(DictatePhase phase)
+    {
+        _phase = phase;
+        if (_hook != null)
+            _hook.ArmCancel = phase is DictatePhase.Listening or DictatePhase.Recognizing;
+        string text = phase switch
+        {
+            DictatePhase.NoModel => L.T("Сейчас: модель не загружена", "Now: the model is not loaded"),
+            DictatePhase.Listening => L.T("Сейчас: слушаю…  отпустите клавишу, черновик на плашке", "Now: listening…  release the key, draft is on the pill"),
+            DictatePhase.Recognizing => L.T("Сейчас: распознаю…  вставится окончательный текст", "Now: recognizing…  the final text will be inserted"),
+            _ => L.T("Сейчас: готово, жду клавишу. Стоп — кнопка или Escape.", "Now: ready, waiting for the key. Stop is the button or Escape."),
+        };
+        _settingsWindow?.SetPhase(text, phase is DictatePhase.Listening or DictatePhase.Recognizing);
     }
 
     private string SpeechStatusText()
     {
         var kind = _settings.SpeechModel;
-        var dir = Settings.ModelDirectory(kind);
-        if (!Core.Recognizer.ModelExists(dir, kind))
-            return L.T("Эта модель ещё не скачана. Нажмите кнопку ниже. Пока не нажмёте, в сеть ничего не уходит.",
-                       "This model is not downloaded yet. Press the button below. Nothing goes out on the network until you do.");
+        var found = SpeechModelStore.FindComplete(kind);
+        if (found == null)
+            return L.T("Эта модель на диске не найдена. Нажмите кнопку ниже, сама она не скачивается. Ищу в папках оригинального Писаря и этого форка, и рядом с программой.",
+                       "This model was not found on disk. Press the button below. It does not download by itself. The original Pisar folders, this fork's folders, and the folder next to the program are checked.");
+        string whereFile = L.T($"Уже на диске: {found}. ", $"Already on disk: {found}. ");
         Core.Recognizer? rec;
         string note;
         lock (_recogLock) { rec = _recognizer; note = _speechNote; }
         if (rec == null || rec.Kind != kind)
-            return L.T("Файлы на месте, но модель не загрузилась. ", "The files are there, but the model did not load. ") + note;
+            return whereFile + L.T("Файлы на месте, но модель не загрузилась. ", "The files are there, but the model did not load. ") + note;
         string where = rec.DeviceActual == "gpu"
             ? L.T("видеокарте (DirectML)", "the video card (DirectML)")
             : L.T("процессоре", "the processor");
-        return L.T($"Загружена {rec.ModelId}, считает на {where}. ", $"Loaded {rec.ModelId}, running on {where}. ") + note;
+        string threads = rec.DeviceActual == "cpu"
+            ? L.T($" Потоков процессора: {rec.IntraOpThreads}.", $" Processor threads: {rec.IntraOpThreads}.")
+            : L.T(" Настройка потоков процессор не трогает, пока считает видеокарта.", " The processor-thread setting is idle while the video card runs.");
+        return whereFile + L.T($"Загружена {rec.ModelId}, считает на {where}. ", $"Loaded {rec.ModelId}, running on {where}. ") + note + threads;
     }
 
     private void StartHermes() => RestartHermes(_settings.HermesOnLan);
@@ -985,7 +1148,8 @@ public partial class PisarApp : Application
             _settingsWindow = new SettingsWindow(_settings, ApplySettings, () => { _overlay?.Unpin(); _settings.OverlayX = null; _settings.OverlayY = null; _settings.Save(); }, SelectBrainAsync,
                 () => DownloadSpeechAsync(manualStart: false), () => _ = ReloadSpeechAsync(), SpeechStatusText,
                 HermesStatusText, ToggleLanAsync, ApplyKeepAwake,
-                () => _ = CheckForUpdatesAsync(silent: false));
+                () => _ = CheckForUpdatesAsync(silent: false), RequestStop);
+            SetPhase(_phase);
             _settingsWindow.Closed += (_, _) => _settingsWindow = null;
         }
         _settingsWindow.Show();

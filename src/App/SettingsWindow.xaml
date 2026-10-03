@@ -53,6 +53,13 @@
                 <StackPanel x:Name="DictationPage">
                     <TextBlock x:Name="Heading" FontSize="20" FontWeight="SemiBold"/>
                     <TextBlock x:Name="Intro" Margin="0,4,0,0" Opacity="0.75" TextWrapping="Wrap"/>
+                    <Border Margin="0,14,0,0" Padding="10,8" CornerRadius="6" BorderThickness="1" BorderBrush="#40808080">
+                        <DockPanel>
+                            <Button x:Name="StopButton" DockPanel.Dock="Right" MinWidth="96" Padding="14,5" Margin="12,0,0,0"
+                                    Click="Stop_Click" IsEnabled="False" FontWeight="SemiBold"/>
+                            <TextBlock x:Name="PhaseLine" VerticalAlignment="Center" TextWrapping="Wrap" FontSize="14"/>
+                        </DockPanel>
+                    </Border>
                     <Grid Margin="0,18,0,0">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="170"/>
@@ -74,6 +81,8 @@
                         <CheckBox x:Name="OverlayBox" VerticalAlignment="Center" Click="Overlay_Click"/>
                         <Button x:Name="UnpinButton" Margin="12,0,0,0" Padding="10,2" FontSize="12" Click="Unpin_Click"/>
                     </StackPanel>
+                    <CheckBox x:Name="CopyClipBox" Margin="0,10,0,0" Click="CopyClip_Click"/>
+                    <CheckBox x:Name="RestoreClipBox" Margin="18,4,0,0" Click="RestoreClip_Click"/>
                     <CheckBox x:Name="SimpleSyntaxBox" Margin="0,10,0,0" Click="SimpleSyntax_Click"/>
                     <CheckBox x:Name="AutostartBox" Margin="0,10,0,0" Click="Autostart_Click"/>
                     <TextBlock x:Name="TrayHint" Margin="0,8,0,0" Opacity="0.7" TextWrapping="Wrap"/>
@@ -83,6 +92,9 @@
                     <ComboBox x:Name="ModelBox" MinWidth="360" HorizontalAlignment="Left" SelectionChanged="SpeechModel_Changed"/>
                     <TextBlock x:Name="DeviceLabel" Margin="0,12,0,4" FontWeight="SemiBold"/>
                     <ComboBox x:Name="DeviceBox" MinWidth="360" HorizontalAlignment="Left" SelectionChanged="SpeechDevice_Changed"/>
+                    <TextBlock x:Name="ThreadsLabel" Margin="0,12,0,4" FontWeight="SemiBold"/>
+                    <ComboBox x:Name="ThreadsBox" MinWidth="360" HorizontalAlignment="Left" SelectionChanged="CpuThreads_Changed"/>
+                    <TextBlock x:Name="ThreadsHint" Margin="0,4,0,0" Opacity="0.7" TextWrapping="Wrap"/>
                     <TextBlock x:Name="SpeechStatus" Margin="0,8,0,0" Opacity="0.75" TextWrapping="Wrap"/>
                     <Button x:Name="DownloadModelButton" HorizontalAlignment="Left" Margin="0,10,0,0" Padding="12,4" Click="DownloadModel_Click"/>
                     <TextBlock x:Name="HermesHeading" Margin="0,18,0,4" FontWeight="SemiBold"/>

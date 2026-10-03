@@ -27,7 +27,13 @@ public sealed class Recognizer : IDisposable
     private CtcVocab? _ctcVocab;
     private readonly Features _features;
     private readonly ModelConfig _cfg;
-    private readonly RunOptions _runOptions = new();
+    private readonly object _runLock = new();
+    private RunOptions _runOptions = new();
+    /// <summary>1 while a dictation pass (partial or final) is inside the session lock.</summary>
+    private int _ownedRun;
+    /// <summary>Bumped when that dictation pass should abort. Hermes calls do not own the run.</summary>
+    private int _kill;
+    private volatile bool _terminateSet;
 
     public string ModelDir { get; }
     public SpeechModelKind Kind => _kind;
@@ -38,6 +44,8 @@ public sealed class Recognizer : IDisposable
     public string Provider { get; private set; } = "cpu";
     /// <summary>Set when a GPU request had to fall back to the CPU.</summary>
     public string? DeviceNote { get; private set; }
+    /// <summary>Intra-op threads of the session that is actually running. GPU stays at the old cap of 4.</summary>
+    public int IntraOpThreads { get; private set; }
     public int SampleRate => _cfg.Features.SampleRate;
 
     public static bool ModelExists(string dir, SpeechModelKind kind)
@@ -61,7 +69,11 @@ public sealed class Recognizer : IDisposable
     {
         ModelDir = modelDir;
         _kind = kind;
-        int nThreads = threads > 0 ? threads : Math.Min(4, Environment.ProcessorCount);
+        int cores = Math.Max(1, Environment.ProcessorCount);
+        // 0 means all logical processors. The old hard cap was min(4, cores), in this program, not in the graph.
+        int cpuThreads = threads <= 0 ? cores : Math.Clamp(threads, 1, cores);
+        // DirectML does not go faster with more CPU threads. Leave that session as it was.
+        int gpuThreads = Math.Min(4, cores);
         bool wantGpu = device == SpeechDeviceKind.Gpu;
 
         if (kind == SpeechModelKind.V3E2eRnnt)
@@ -74,11 +86,12 @@ public sealed class Recognizer : IDisposable
             {
                 if (wantGpu)
                 {
-                    _encoder = Open(Path.Combine(modelDir, name + "_encoder.onnx"), true, nThreads);
-                    _decoder = Open(Path.Combine(modelDir, name + "_decoder.onnx"), true, nThreads);
-                    _joint = Open(Path.Combine(modelDir, name + "_joint.onnx"), true, nThreads);
+                    _encoder = Open(Path.Combine(modelDir, name + "_encoder.onnx"), true, gpuThreads);
+                    _decoder = Open(Path.Combine(modelDir, name + "_decoder.onnx"), true, gpuThreads);
+                    _joint = Open(Path.Combine(modelDir, name + "_joint.onnx"), true, gpuThreads);
                     DeviceActual = "gpu";
                     Provider = "directml";
+                    IntraOpThreads = gpuThreads;
                     return;
                 }
             }
@@ -90,11 +103,12 @@ public sealed class Recognizer : IDisposable
                 _encoder = _decoder = _joint = null;
                 DeviceNote = e.Message;
             }
-            _encoder = Open(Path.Combine(modelDir, name + "_encoder.onnx"), false, nThreads);
-            _decoder = Open(Path.Combine(modelDir, name + "_decoder.onnx"), false, nThreads);
-            _joint = Open(Path.Combine(modelDir, name + "_joint.onnx"), false, nThreads);
+            _encoder = Open(Path.Combine(modelDir, name + "_encoder.onnx"), false, cpuThreads);
+            _decoder = Open(Path.Combine(modelDir, name + "_decoder.onnx"), false, cpuThreads);
+            _joint = Open(Path.Combine(modelDir, name + "_joint.onnx"), false, cpuThreads);
             DeviceActual = "cpu";
             Provider = "cpu";
+            IntraOpThreads = cpuThreads;
             return;
         }
 
@@ -105,9 +119,10 @@ public sealed class Recognizer : IDisposable
         {
             if (wantGpu)
             {
-                _ctc = Open(Path.Combine(modelDir, "multilingual_large_ctc.onnx"), true, nThreads);
+                _ctc = Open(Path.Combine(modelDir, "multilingual_large_ctc.onnx"), true, gpuThreads);
                 DeviceActual = "gpu";
                 Provider = "directml";
+                IntraOpThreads = gpuThreads;
                 return;
             }
         }
@@ -117,9 +132,10 @@ public sealed class Recognizer : IDisposable
             _ctc = null;
             DeviceNote = e.Message;
         }
-        _ctc = Open(Path.Combine(modelDir, "multilingual_large_ctc.onnx"), false, nThreads);
+        _ctc = Open(Path.Combine(modelDir, "multilingual_large_ctc.onnx"), false, cpuThreads);
         DeviceActual = "cpu";
         Provider = "cpu";
+        IntraOpThreads = cpuThreads;
     }
 
     private static InferenceSession Open(string path, bool gpu, int threads)
@@ -137,8 +153,79 @@ public sealed class Recognizer : IDisposable
         return new InferenceSession(path, options);
     }
 
+    /// <summary>Recognizes a recording. Not cancelled by <see cref="CancelOwned"/> (Hermes).</summary>
+    public string Transcribe(float[] samples, int rate) => Execute(samples, rate, owned: false, null);
+
+    /// <summary>
+    /// Dictation pass. <see cref="CancelOwned"/> aborts it if it is inside the session.
+    /// A pass that has not entered yet, or that was aborted, returns an empty string.
+    /// </summary>
+    public string TranscribeCancelable(float[] samples, int rate, Func<bool>? stillWanted = null) =>
+        Execute(samples, rate, owned: true, stillWanted);
+
+    /// <summary>
+    /// Abort the dictation pass that is inside ONNX right now. Does nothing if the session
+    /// is idle or a Hermes call holds it, so a stray Escape cannot kill another request.
+    /// The same <see cref="RunOptions"/> instance is flagged; ONNX watches that flag from
+    /// another thread. There is no way to drop a result without touching the in-flight run.
+    /// </summary>
+    public void CancelOwned()
+    {
+        if (Volatile.Read(ref _ownedRun) == 0) return;
+        Interlocked.Increment(ref _kill);
+        _terminateSet = true;
+        try { _runOptions.Terminate = true; }
+        catch { /* the pass ends on its own; the caller ignores the result */ }
+    }
+
+    private string Execute(float[] samples, int rate, bool owned, Func<bool>? stillWanted)
+    {
+        int seen = Volatile.Read(ref _kill);
+        lock (_runLock)
+        {
+            // Checked under the lock, so a release that landed before we started does not run a draft.
+            if (stillWanted != null && !stillWanted())
+                return "";
+            if (owned && Volatile.Read(ref _kill) != seen)
+                return "";
+            DisarmTerminate();
+            if (owned) Volatile.Write(ref _ownedRun, 1);
+            try
+            {
+                return TranscribeCore(samples, rate);
+            }
+            catch (OnnxRuntimeException ex) when (owned && (Volatile.Read(ref _kill) != seen || _terminateSet || IsTerminate(ex)))
+            {
+                return "";
+            }
+            finally
+            {
+                if (owned) Volatile.Write(ref _ownedRun, 0);
+                if (_terminateSet) DisarmTerminate();
+            }
+        }
+    }
+
+    private void DisarmTerminate()
+    {
+        _terminateSet = false;
+        try
+        {
+            if (_runOptions.Terminate)
+                _runOptions.Terminate = false;
+        }
+        catch
+        {
+            try { _runOptions.Dispose(); } catch { }
+            _runOptions = new RunOptions();
+        }
+    }
+
+    private static bool IsTerminate(OnnxRuntimeException ex) =>
+        ex.Message.Contains("terminate", StringComparison.OrdinalIgnoreCase);
+
     /// <summary>Recognizes a recording of any length; long ones are split at pauses.</summary>
-    public string Transcribe(float[] samples, int rate)
+    private string TranscribeCore(float[] samples, int rate)
     {
         if (rate != SampleRate)
             samples = AudioUtils.Resample(samples, rate, SampleRate);

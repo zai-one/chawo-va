@@ -23,6 +23,9 @@ public partial class SettingsWindow : Window
     private readonly Func<Task>? _toggleLan;
     private readonly Action? _keepAwakeChanged;
     private readonly Action? _checkUpdates;
+    private readonly Action? _stop;
+    private string _phaseText = "";
+    private bool _stopEnabled;
     private bool _loading = true;
     /// <summary>Last open section, kept while Pisar runs.</summary>
     private static int _lastPage;
@@ -32,7 +35,7 @@ public partial class SettingsWindow : Window
     public SettingsWindow(Settings settings, Action apply, Action unpin, Func<BrainSource, Task> selectBrain,
         Func<Task>? downloadSpeech = null, Action? speechChanged = null, Func<string>? speechStatus = null,
         Func<string>? hermesStatus = null, Func<Task>? toggleLan = null, Action? keepAwakeChanged = null,
-        Action? checkUpdates = null)
+        Action? checkUpdates = null, Action? stop = null)
     {
         _settings = settings;
         _apply = apply;
@@ -45,6 +48,7 @@ public partial class SettingsWindow : Window
         _toggleLan = toggleLan;
         _keepAwakeChanged = keepAwakeChanged;
         _checkUpdates = checkUpdates;
+        _stop = stop;
         InitializeComponent();
         ServerPanel.Saved += UpdateBrainTexts;   // the panel has already applied and saved
         Localize();
@@ -96,7 +100,23 @@ public partial class SettingsWindow : Window
         LanguageBox.Items.Add(new ComboBoxItem { Content = "English", Tag = UiLanguage.English });
         LanguageBox.SelectedIndex = (int)_settings.Language;
 
-        OverlayBox.Content = L.T("Показывать плашку с волной во время записи", "Show the wave panel while recording");
+        OverlayBox.Content = L.T("Показывать плашку: волна и черновик текста", "Show the pill: wave and the draft text");
+        StopButton.Content = L.T("Стоп", "Stop");
+        StopButton.IsEnabled = _stopEnabled;
+        StopButton.ToolTip = L.T("Остановить запись или распознавание. То же делает Escape. Готовая фраза при этом не вставляется.",
+                                 "Stop recording or recognition. Escape does the same. The phrase is not inserted.");
+        if (_phaseText.Length > 0) PhaseLine.Text = _phaseText;
+        else PhaseLine.Text = L.T("Сейчас: …", "Now: …");
+        CopyClipBox.Content = L.T("Копировать готовую фразу в буфер", "Copy the finished phrase to the clipboard");
+        CopyClipBox.IsChecked = _settings.CopyPhraseToClipboard;
+        CopyClipBox.ToolTip = L.T("Окончательный текст, тот же что вставляется, ещё и кладётся в буфер. Если поле не поймало вставку, его можно вставить через Ctrl+V или найти в Win+V.",
+                                  "The final text, the same one that is inserted, is also copied. If the field missed it, paste with Ctrl+V or find it in Win+V.");
+        RestoreClipBox.Content = L.T("После копирования вернуть прежний буфер, фразу оставить в Win+V",
+                                     "After copying, restore the previous clipboard and keep the phrase in Win+V");
+        RestoreClipBox.IsChecked = _settings.RestoreClipboardAfterCopy;
+        RestoreClipBox.IsEnabled = _settings.CopyPhraseToClipboard;
+        RestoreClipBox.ToolTip = L.T("Сначала фраза становится текущим буфером, поэтому история Win+V её запоминает, если история включена. Потом возвращается то, что лежало раньше. Если история выключена или фраза из неё пропадёт, прежний буфер не возвращается: фраза остаётся текущей, чтобы не потеряться.",
+                                     "The phrase is put on the clipboard first, so Win+V records it when history is on. Then the previous clipboard comes back. If history is off, or the phrase would leave history, the previous clipboard is not restored and the phrase stays current.");
         SimpleSyntaxBox.Content = L.T("Упрощать синтаксис: одно предложение без заглавной буквы и точки",
                                       "Simplify punctuation: a single sentence without a capital and a period");
         SimpleSyntaxBox.ToolTip = L.T("Как реплика в переписке: «ок, буду в пять». Вопрос и восклицательный знак остаются.",
@@ -107,8 +127,8 @@ public partial class SettingsWindow : Window
                             "The close button does not quit: the window hides and Pisar stays by the clock. Quit is in the tray menu.");
         KeepBox.Content = L.T("Сохранять последнюю запись для разбора ошибок", "Keep the last recording for troubleshooting");
         OverlayBox.IsChecked = _settings.ShowOverlay;
-        OverlayBox.ToolTip = L.T("Плашку можно перетащить мышью, пока она видна: она запомнит место.",
-                                 "Drag the pill with the mouse while it is visible and it will stay there.");
+        OverlayBox.ToolTip = L.T("Пока клавиша зажата, на плашке волна и черновик. Вставляется не он, а окончательный проход после отпускания. Плашку можно перетащить мышью.",
+                                 "While the key is held the pill shows the wave and a draft. What is inserted is the final pass after release, not the draft. Drag the pill to pin it.");
         UnpinButton.Content = L.T("Вернуть к курсору", "Back to the caret");
         UnpinButton.ToolTip = L.T("Плашка снова будет появляться у курсора", "The pill follows the caret again");
         UnpinButton.IsEnabled = _settings.OverlayX != null;
@@ -148,9 +168,20 @@ public partial class SettingsWindow : Window
         });
         foreach (ComboBoxItem it in DeviceBox.Items)
             if ((SpeechDeviceKind)it.Tag == _settings.SpeechDevice) DeviceBox.SelectedItem = it;
-        bool have = Recognizer.ModelExists(Settings.ModelDirectory(_settings.SpeechModel), _settings.SpeechModel);
+        int cores = Math.Max(1, Environment.ProcessorCount);
+        ThreadsLabel.Text = L.T("Потоки процессора", "Processor threads");
+        ThreadsHint.Text = L.T($"Только когда считает процессор. «Все ядра» — это {cores}. На видеокарте выбор не действует: там по-прежнему не больше 4 потоков внутри ONNX. Раньше и процессор был ограничен четырьмя.",
+                                $"Only when the processor does the work. All cores means {cores}. The video card ignores this and still uses at most 4 ONNX threads. The processor used to be capped at four as well.");
+        ThreadsBox.Items.Clear();
+        ThreadsBox.Items.Add(new ComboBoxItem { Content = L.T($"Все ядра ({cores})", $"All cores ({cores})"), Tag = 0 });
+        for (int n = 1; n <= cores; n++)
+            ThreadsBox.Items.Add(new ComboBoxItem { Content = n.ToString(), Tag = n });
+        int want = _settings.CpuThreads <= 0 || _settings.CpuThreads > cores ? 0 : _settings.CpuThreads;
+        foreach (ComboBoxItem it in ThreadsBox.Items)
+            if ((int)it.Tag == want) ThreadsBox.SelectedItem = it;
+        bool have = SpeechModelStore.FindComplete(_settings.SpeechModel) != null;
         DownloadModelButton.Content = have
-            ? L.T("Скачать выбранную модель ещё раз", "Download the selected model again")
+            ? L.T("Уже на диске, не скачивать", "Already on disk, do not download")
             : L.T("Скачать выбранную модель", "Download the selected model");
         SpeechStatus.Text = _speechStatus?.Invoke()
             ?? (have
@@ -212,7 +243,10 @@ public partial class SettingsWindow : Window
         VersionLine.Text = L.T($"Версия {PisarApp.Version}. Кнопка ниже сравнивает её с последним релизом github.com/zai-one/giga-pisar-win. Другие адреса не спрашиваются, обновление само не скачивается.",
                                $"Version {PisarApp.Version}. The button below compares it with the latest release of github.com/zai-one/giga-pisar-win. No other address is asked, and the update is not downloaded.");
         CheckUpdatesButton.Content = L.T("Проверить обновления", "Check for updates");
-        ModelPath.Text = L.T("Папка модели: ", "Model folder: ") + Settings.ModelDirectory(_settings.SpeechModel);
+        var onDisk = SpeechModelStore.FindComplete(_settings.SpeechModel);
+        ModelPath.Text = onDisk == null
+            ? L.T("Выбранная модель на диске не найдена. Смотрел здесь:\n", "The selected model was not found on disk. Looked here:\n") + SpeechModelStore.SearchSummary()
+            : L.T("Модель уже на диске:\n", "Model is already on disk:\n") + onDisk;
         HermesLine.Text = _hermesStatus?.Invoke()
             ?? L.T($"Hermes: порт {SpeechModels.HermesPort}.", $"Hermes: port {SpeechModels.HermesPort}.");
         CodeLink.Text = L.T("исходный код", "source code");
@@ -247,6 +281,30 @@ public partial class SettingsWindow : Window
     {
         _settings.ShowOverlay = OverlayBox.IsChecked == true;
         _apply();
+    }
+
+    private void CopyClip_Click(object sender, RoutedEventArgs e)
+    {
+        _settings.CopyPhraseToClipboard = CopyClipBox.IsChecked == true;
+        RestoreClipBox.IsEnabled = _settings.CopyPhraseToClipboard;
+        _apply();
+    }
+
+    private void RestoreClip_Click(object sender, RoutedEventArgs e)
+    {
+        _settings.RestoreClipboardAfterCopy = RestoreClipBox.IsChecked == true;
+        _apply();
+    }
+
+    private void Stop_Click(object sender, RoutedEventArgs e) => _stop?.Invoke();
+
+    /// <summary>Idle / listening / recognizing, and whether Stop should be clickable.</summary>
+    public void SetPhase(string text, bool stopEnabled)
+    {
+        _phaseText = text;
+        _stopEnabled = stopEnabled;
+        PhaseLine.Text = text;
+        StopButton.IsEnabled = stopEnabled;
     }
 
     private void Autostart_Click(object sender, RoutedEventArgs e) => Autostart.Set(AutostartBox.IsChecked == true);
@@ -287,6 +345,16 @@ public partial class SettingsWindow : Window
         var device = (SpeechDeviceKind)item.Tag;
         if (device == _settings.SpeechDevice) return;
         _settings.SpeechDevice = device;
+        _apply();
+        _speechChanged?.Invoke();
+    }
+
+    private void CpuThreads_Changed(object sender, SelectionChangedEventArgs e)
+    {
+        if (_loading || ThreadsBox.SelectedItem is not ComboBoxItem item) return;
+        int n = (int)item.Tag;
+        if (n == _settings.CpuThreads) return;
+        _settings.CpuThreads = n;
         _apply();
         _speechChanged?.Invoke();
     }

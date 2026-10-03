@@ -19,7 +19,15 @@ Closing the window hides it; the app stays in the notification area until
 
 ## По-русски: что добавлено и зачем
 
-Это форк обычного Гига Писаря для Windows (ветка `gpu-mimo-hermes`, версия 1.2.0). Ниже не список галочек, а зачем каждая правка.
+Это форк обычного Гига Писаря для Windows (ветка `gpu-mimo-hermes`, версия 1.3.0). Ниже не список галочек, а зачем каждая правка.
+
+**Живая строка, пока клавиша зажата.** Модель GigaAM в этой программе не потоковая: она не выдаёт слова по одному, как Google. Пока вы держите клавишу диктовки, раз в секунду (и только если прошлый проход уже закончился) программа прогоняет уже записанный кусок и показывает черновик на плашке у курсора. Плашка поверх всех окон и не забирает фокус. Отпустили клавишу — черновик выбрасывается, по всей записи делается один окончательный проход, и вставляется только он, одним разом, как раньше. Черновик в текст не печатается и второй вставки не делает. Если к моменту отпускания черновик ещё считается, этот проход прерывается и не задерживает окончательный. Плашка пропадает, когда диктовка кончилась. Галочка плашки по-прежнему её прячет целиком.
+
+**Уже скачанная модель не качается снова.** При старте и по кнопке «Скачать» программа ищет файлы выбранной модели и, если они целые, просто их грузит. Смотрит папку этого форка `%LOCALAPPDATA%\GigaPisar\models\…`, папку оригинального Гига Писаря `%LOCALAPPDATA%\GigaPisar\model` (там лежит v3), те же имена в `%APPDATA%\GigaPisar`, и папки `model` / `models` рядом с EXE. В окне написано «уже на диске» и полный путь. Пока файла нет, сама она ничего не скачивает.
+
+**Старт и стоп видно.** В окне «Диктовка» строка состояния: модель не загружена, готово и жду клавишу, слушаю, распознаю. Диктовка по-прежнему с зажатой клавиши. Остановить запись или уже идущее распознавание: кнопка «Стоп» или Escape. Остановленное не вставляется. Скачивание само не начинается.
+
+**Готовая фраза в буфере.** По умолчанию включено «Копировать готовую фразу в буфер»: в буфер кладётся тот же окончательный текст, который вставляется. Если поле не поймало вставку, его можно вставить Ctrl+V или найти в Win+V. Вторая галочка, тоже по умолчанию: после этого вернуть в буфер то, что было раньше. Отдельного вызова «положи в историю, но не делай текущим» у Windows нет: история запоминает то, что стало текущим буфером. Поэтому фраза сначала становится текущей (так она попадает в Win+V, если история включена), и только после проверки, что история её держит, возвращается прежний буфер. Если история выключена, или после возврата фразы в истории нет, прежний буфер не остаётся: фраза снова кладётся текущей и не теряется.
 
 **Сначала окно, не скачивание.** В 1.1.0 при запуске сразу вылезало окно «скачайте модель», и до обычных настроек было не добраться. Теперь при старте открывается то же окно, что у Гига Писаря: слева «Диктовка», «Мозг», «Правка выделенного», «О программе». Модель, процессор или видеокарта выбираются здесь, до любой загрузки. Веса сами не качаются. Кнопка «Скачать выбранную модель» по-прежнему отдельно: пока её не нажать, в сеть за весами ничего не уходит.
 
@@ -28,6 +36,8 @@ Closing the window hides it; the app stays in the notification area until
 **Проверка обновлений только этого форка.** В «О программе» написана текущая версия и есть кнопка «Проверить обновления». Тот же пункт есть в меню трея. Кнопка один раз спрашивает последний релиз `https://github.com/zai-one/giga-pisar-win/releases` (API `https://api.github.com/repos/zai-one/giga-pisar-win/releases/latest`). Адрес оригинала и любые другие сайты не опрашиваются. По таймеру проверка не ходит. Если версия новее, программа показывает номер и ссылку на страницу релиза и спрашивает, открыть ли её в браузере. Сама она архив не скачивает и не ставит.
 
 **Выбор модели и кнопка «Скачать».** В оригинале модель качается сама при первом запуске, и это одна русская GigaAM v3. Здесь две модели, и файл не уходит в сеть, пока вы сами не нажмёте кнопку. Большая — Multilingual Large CTC, около 600 миллионов параметров: это самая крупная модель Сбера, у которой есть готовый ONNX и которая умеет именно распознавать речь (русский, английский и ещё языки из её словаря). Ещё крупнее опубликован только энкодер `large_ssl`, им нельзя диктовать: у него нет головы распознавания. RNN-T на 600M в ONNX никто не выложил. Вторая модель — прежняя v3 e2e RNN-T: меньше, только русский, зато сама ставит точки и запятые. Кнопка нужна, чтобы свежая установка ничего не скачивала молча: веса большие (у большой модели около 2,4 ГБ), и вы сами решаете, когда и какую брать.
+
+**Потоки процессора.** И в оригинале, и в этом форке ONNX Runtime был ограничен программой, не файлом модели: `IntraOpNumThreads = min(4, число логических процессоров)` и для большой CTC, и для v3 RNN-T. `InterOpNumThreads` и раньше был 1, потому что сессия последовательная: это не потолок по ядрам. Потолка в самих графах нет. Для процессора потолок снят. По умолчанию «Все ядра», то есть `Environment.ProcessorCount`. В «Диктовке» список «Потоки процессора» позволяет поставить меньше. На видеокарту (DirectML) это не действует: там сессия по-прежнему с не больше чем 4 потоками, больше потоков CPU её не ускоряет. Скорость я не мерил. У RNN-T жадный разбор идёт кадр за кадром, дополнительные ядра работают внутри каждого вызова ONNX (матрицы), а не между шагами. У CTC один проход, ему ядра обычно полезнее, но цифр нет.
 
 **Процессор или видеокарта.** Оригинал всегда считает на CPU. Здесь можно выбрать видеокарту. Это DirectML, а не отдельный CUDA: библиотека лежит рядом с программой и использует карту NVIDIA (в том числе RTX 3070), AMD или Intel без установки CUDA. Если карта не поднялась, распознавание само переходит на процессор и пишет об этом. Звук при этом всё равно остаётся на компьютере. fp32, а не int8, потому что целочисленную модель видеокарта часто не принимает.
 
@@ -69,6 +79,16 @@ Settings → Dictation → **Where it runs**:
 
 If you pick the video card and DirectML fails to start, recognition falls
 back to the CPU and Settings says so. Audio is still not uploaded.
+
+The CPU session used to set ONNX `IntraOpNumThreads` to `min(4, logical processors)`
+for both the large CTC graph and v3 RNN-T. That cap lived in the program, the
+same as upstream; the model files do not set a pool size. `InterOpNumThreads`
+was already 1 because the session is sequential. CPU now defaults to every
+logical processor (`Environment.ProcessorCount`). Settings → Dictation →
+**Processor threads** can lower it, or choose **All cores**. DirectML keeps
+the old cap of at most 4 intra-op threads; the setting does not touch a GPU
+session. No timing was measured. RNN-T still decodes frame by frame, so extra
+cores apply inside each ONNX call, not across those steps.
 
 CUDA was not bundled. The CUDA build of ONNX Runtime replaces the DirectML
 one and expects a CUDA 12 runtime on the machine. DirectML is the GPU path
@@ -142,6 +162,21 @@ After that, anyone on the local network can.
   other apps do. It compares every key event with the configured key and
   swallows only that key; nothing is stored or logged.
 - Captures the default microphone only while the key is held.
+- While the key is held, and only if the wave pill is on, runs the recognizer
+  about once a second on the audio so far and shows that draft on the pill.
+  The model is not streaming. The draft is not inserted. Releasing the key
+  cancels a draft that is still running and inserts one final pass, same as before.
+- On startup and on the download button, uses a complete copy of the selected
+  model if one is already in this fork's folder, the original
+  `%LOCALAPPDATA%\GigaPisar\model` folder, roaming AppData, or next to the EXE.
+  It does not download again. The window shows the path.
+- Escape or the Stop button drops the current take. Nothing is inserted.
+- By default the finished phrase is also placed on the clipboard. A second
+  option, on by default, restores the previous clipboard afterwards only when
+  Windows clipboard history still contains the phrase (Win+V). There is no API
+  that adds to history without making the text current, so the phrase is set
+  current first. If history is off, or the phrase would leave history, it stays
+  current and the previous clipboard is not restored.
 - Holds the recognition weights under `%LOCALAPPDATA%\GigaPisar\models\`.
   The download runs only after you press the button.
 - Keeps settings in `%APPDATA%\GigaPisar\settings.json` and a small log

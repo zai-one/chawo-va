@@ -218,6 +218,12 @@ public sealed class Recorder : IDisposable
         if (hitCap) TakeTooLong?.Invoke();
     }
 
+    /// <summary>A copy of the samples so far. Does not stop the take. The caller must not write into the recorder's buffer.</summary>
+    public float[] Snapshot()
+    {
+        lock (_gate) return _samples.ToArray();
+    }
+
     /// <summary>Stops capture and returns everything recorded since StartAsync().</summary>
     public Task<float[]> StopAsync()
     {
