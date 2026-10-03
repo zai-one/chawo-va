@@ -19,6 +19,8 @@ public sealed class ModelConfig
     public FeatureConfig Features { get; } = new();
     public int PredHidden { get; set; } = 320;
     public int PredLayers { get; set; } = 1;
+    /// <summary>Encoder time is this many feature frames, for CTC models.</summary>
+    public int SubsamplingFactor { get; set; } = 4;
 
     public static ModelConfig Load(string path)
     {
@@ -50,6 +52,8 @@ public sealed class ModelConfig
         cfg.Features.Center = Bool("center", cfg.Features.Center);
         cfg.PredHidden = Int("pred_hidden", cfg.PredHidden);
         cfg.PredLayers = Int("pred_rnn_layers", cfg.PredLayers);
+        cfg.SubsamplingFactor = Int("subsampling_factor", cfg.SubsamplingFactor);
+        if (cfg.SubsamplingFactor < 1) cfg.SubsamplingFactor = 4;
         return cfg;
     }
 }

@@ -5,11 +5,13 @@ namespace GigaPisar.Core;
 public static class AudioUtils
 {
     /// <summary>Reads a 16-bit PCM WAV; takes the first channel.</summary>
-    public static (float[] samples, int rate) ReadWav(string path)
+    public static (float[] samples, int rate) ReadWav(string path) => ReadWav(File.ReadAllBytes(path), path);
+
+    /// <summary>Reads a 16-bit PCM WAV from memory; takes the first channel.</summary>
+    public static (float[] samples, int rate) ReadWav(byte[] d, string label = "wav")
     {
-        var d = File.ReadAllBytes(path);
         if (d.Length < 44 || BitConverter.ToUInt32(d, 0) != 0x46464952u)
-            throw new InvalidDataException($"Not a WAV file: {path}");
+            throw new InvalidDataException($"Not a WAV file: {label}");
 
         int rate = 16000, channels = 1, bits = 16;
         int i = 12;
@@ -18,19 +20,19 @@ public static class AudioUtils
             uint id = BitConverter.ToUInt32(d, i);
             uint size32 = BitConverter.ToUInt32(d, i + 4);
             int body = i + 8;
-            if (size32 > (uint)(d.Length - body)) throw new InvalidDataException($"Truncated WAV: {path}");
+            if (size32 > (uint)(d.Length - body)) throw new InvalidDataException($"Truncated WAV: {label}");
             int size = (int)size32;
             if (id == 0x20746D66u) // "fmt "
             {
-                if (body + 16 > d.Length) throw new InvalidDataException($"Truncated WAV header: {path}");
-                if (BitConverter.ToUInt16(d, body) != 1) throw new InvalidDataException($"Expected PCM WAV: {path}");
+                if (body + 16 > d.Length) throw new InvalidDataException($"Truncated WAV header: {label}");
+                if (BitConverter.ToUInt16(d, body) != 1) throw new InvalidDataException($"Expected PCM WAV: {label}");
                 channels = BitConverter.ToUInt16(d, body + 2);
                 rate = (int)BitConverter.ToUInt32(d, body + 4);
                 bits = BitConverter.ToUInt16(d, body + 14);
             }
             else if (id == 0x61746164u) // "data"
             {
-                if (bits != 16) throw new InvalidDataException($"Expected 16-bit WAV, got {bits}-bit: {path}");
+                if (bits != 16) throw new InvalidDataException($"Expected 16-bit WAV, got {bits}-bit: {label}");
                 int end = Math.Min(body + size, d.Length);
                 var outp = new List<float>((end - body) / 2 / Math.Max(1, channels));
                 for (int p = body; p + 2 * channels <= end; p += 2 * channels)
@@ -39,7 +41,7 @@ public static class AudioUtils
             }
             i = body + size + (size & 1);
         }
-        throw new InvalidDataException($"No data chunk in WAV: {path}");
+        throw new InvalidDataException($"No data chunk in WAV: {label}");
     }
 
     /// <summary>Writes a 16-bit mono WAV. Used to keep the last dictation for debugging.</summary>
@@ -55,6 +57,26 @@ public static class AudioUtils
         w.Write("data"u8); w.Write(body);
         foreach (var x in samples)
             w.Write((short)Math.Clamp((int)(x * 32767f), -32768, 32767));
+    }
+
+    /// <summary>Linear resample. Hermes and dictation both feed the model 16 kHz.</summary>
+    public static float[] Resample(float[] src, int srcRate, int dstRate)
+    {
+        if (srcRate == dstRate) return src;
+        if (srcRate <= 0 || dstRate <= 0 || src.Length == 0) return src;
+        int dstLen = Math.Max(1, (int)((long)src.Length * dstRate / srcRate));
+        var dst = new float[dstLen];
+        double step = (double)srcRate / dstRate;
+        for (int i = 0; i < dstLen; i++)
+        {
+            double x = (i + 0.5) * step - 0.5;
+            int i0 = (int)Math.Floor(x);
+            double f = x - i0;
+            float a = src[Math.Clamp(i0, 0, src.Length - 1)];
+            float b = src[Math.Clamp(i0 + 1, 0, src.Length - 1)];
+            dst[i] = (float)(a + (b - a) * f);
+        }
+        return dst;
     }
 
     /// <summary>Midpoints of pauses, candidates for cut points. Mirrors ffmpeg silencedetect.</summary>

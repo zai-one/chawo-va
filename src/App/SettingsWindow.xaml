@@ -76,8 +76,14 @@
                     </StackPanel>
                     <CheckBox x:Name="SimpleSyntaxBox" Margin="0,10,0,0" Click="SimpleSyntax_Click"/>
                     <CheckBox x:Name="AutostartBox" Margin="0,10,0,0" Click="Autostart_Click"/>
-                    <CheckBox x:Name="UpdatesBox" Margin="0,10,0,0" Click="Updates_Click"/>
+                    <CheckBox x:Name="UpdatesBox" Margin="0,10,0,0" Click="Updates_Click" Visibility="Collapsed"/>
                     <CheckBox x:Name="KeepBox" Margin="0,10,0,0" Click="Keep_Click"/>
+                    <TextBlock x:Name="ModelLabel" Margin="0,18,0,4" FontWeight="SemiBold"/>
+                    <ComboBox x:Name="ModelBox" MinWidth="360" HorizontalAlignment="Left" SelectionChanged="SpeechModel_Changed"/>
+                    <TextBlock x:Name="DeviceLabel" Margin="0,12,0,4" FontWeight="SemiBold"/>
+                    <ComboBox x:Name="DeviceBox" MinWidth="360" HorizontalAlignment="Left" SelectionChanged="SpeechDevice_Changed"/>
+                    <TextBlock x:Name="SpeechStatus" Margin="0,8,0,0" Opacity="0.75" TextWrapping="Wrap"/>
+                    <Button x:Name="DownloadModelButton" HorizontalAlignment="Left" Margin="0,10,0,0" Padding="12,4" Click="DownloadModel_Click"/>
                 </StackPanel>
 
                 <!-- Brain -->
@@ -125,10 +131,11 @@
                     <TextBlock x:Name="About" Margin="0,8,0,0" Opacity="0.85" TextWrapping="Wrap"/>
                     <TextBlock x:Name="MicLine" Margin="0,8,0,0" Opacity="0.85" TextWrapping="Wrap"/>
                     <TextBlock x:Name="ModelPath" Margin="0,8,0,0" FontSize="12" Opacity="0.65" TextWrapping="Wrap"/>
+                    <TextBlock x:Name="HermesLine" Margin="0,8,0,0" FontSize="12" Opacity="0.75" TextWrapping="Wrap"/>
                     <TextBlock Margin="0,14,0,0">
                         <Hyperlink NavigateUri="https://gigapisar.github.io" RequestNavigate="Link_Click">gigapisar.github.io</Hyperlink>
                         <Run Text="  ·  "/>
-                        <Hyperlink NavigateUri="https://github.com/moznoazachem/giga-pisar-win" RequestNavigate="Link_Click"><Run x:Name="CodeLink"/></Hyperlink>
+                        <Hyperlink NavigateUri="https://github.com/zai-one/giga-pisar-win" RequestNavigate="Link_Click"><Run x:Name="CodeLink"/></Hyperlink>
                         <Run Text="  ·  "/>
                         <Hyperlink NavigateUri="https://github.com/salute-developers/GigaAM" RequestNavigate="Link_Click"><Run x:Name="ModelLink"/></Hyperlink>
                     </TextBlock>

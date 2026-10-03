@@ -128,8 +128,9 @@ public static class SpeechCleanup
     private static async Task<string> CleanCoreAsync(string text, Uri url, string apiKey, string model, string prompt,
         IDictionary<string, object>? extra, CancellationToken cancellationToken)
     {
-        bool withReasoning = _sendReasoningEffort;
-        using var response = await PostAsync(url!, apiKey, model, prompt, text, withReasoning, extra, cancellationToken);
+        bool xiaomi = url.Host.EndsWith("xiaomimimo.com", StringComparison.OrdinalIgnoreCase);
+        bool withReasoning = _sendReasoningEffort && !xiaomi;
+        using var response = await PostAsync(url!, apiKey, model, prompt, text, withReasoning, extra, cancellationToken, xiaomi);
         if (withReasoning && response.StatusCode is HttpStatusCode.BadRequest or HttpStatusCode.UnprocessableEntity)
         {
             // Only drop the parameter when the server complains about it; a wrong model name is a real error.
@@ -138,7 +139,7 @@ public static class SpeechCleanup
             {
                 Log.Write("cleanup server rejected reasoning_effort; retrying without it");
                 _sendReasoningEffort = false;
-                using var retry = await PostAsync(url!, apiKey, model, prompt, text, false, extra, cancellationToken);
+                using var retry = await PostAsync(url!, apiKey, model, prompt, text, false, extra, cancellationToken, xiaomi);
                 return await ReadContentAsync(retry, cancellationToken);
             }
         }
@@ -146,7 +147,7 @@ public static class SpeechCleanup
     }
 
     private static async Task<HttpResponseMessage> PostAsync(Uri url, string apiKey, string model, string prompt, string text,
-        bool withReasoning, IDictionary<string, object>? extra, CancellationToken cancellationToken)
+        bool withReasoning, IDictionary<string, object>? extra, CancellationToken cancellationToken, bool xiaomi = false)
     {
         var body = new Dictionary<string, object>
         {
@@ -158,6 +159,8 @@ public static class SpeechCleanup
             },
         };
         if (withReasoning) body["reasoning_effort"] = "none";
+        // MiMo Flash thinks out loud unless this is set. Text only; never audio.
+        if (xiaomi) body["thinking"] = new Dictionary<string, object> { ["type"] = "disabled" };
         if (extra != null) foreach (var (k, v) in extra) body[k] = v;
 
         // Serialized up front so the request carries Content-Length; some small self-hosted servers do not accept chunked bodies.
@@ -166,7 +169,11 @@ public static class SpeechCleanup
             Content = new StringContent(JsonSerializer.Serialize(body), System.Text.Encoding.UTF8, "application/json"),
         };
         if (!string.IsNullOrWhiteSpace(apiKey))
+        {
             request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey.Trim());
+            // Token Plan's own examples send api-key. Bearer is the OpenAI-compatible form; both go, the key stays local until this call.
+            if (xiaomi) request.Headers.TryAddWithoutValidation("api-key", apiKey.Trim());
+        }
         // The response body is buffered (ResponseContentRead), so the request can go right after.
         return await Client.SendAsync(request, cancellationToken);
     }
@@ -242,7 +249,11 @@ public static class SpeechCleanup
         var modelsUrl = new Uri(completionsUrl!, "../models");
         using var request = new HttpRequestMessage(HttpMethod.Get, modelsUrl);
         if (!string.IsNullOrWhiteSpace(apiKey))
+        {
             request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey.Trim());
+            if (modelsUrl.Host.EndsWith("xiaomimimo.com", StringComparison.OrdinalIgnoreCase))
+                request.Headers.TryAddWithoutValidation("api-key", apiKey.Trim());
+        }
         using var response = await Client.SendAsync(request, cancellationToken);
         response.EnsureSuccessStatusCode();
         await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);

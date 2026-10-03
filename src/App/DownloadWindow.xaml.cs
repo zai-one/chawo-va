@@ -1,6 +1,7 @@
 // Progress window for one-time downloads: the speech model on first run, the local Brain on request.
 
 using System.Windows;
+using GigaPisar.Core;
 
 namespace GigaPisar.App;
 
@@ -10,38 +11,57 @@ public partial class DownloadWindow : Window
     private TaskCompletionSource<bool>? _done;
     private readonly Func<IProgress<ModelDownloader.Progress>, CancellationToken, Task> _work;
     private readonly string _spaceNeeded;
+    private readonly bool _manualStart;
 
-    /// <summary>The speech model download into targetDir.</summary>
-    public DownloadWindow(string targetDir)
-        : this(L.T("Скачиваю модель распознавания", "Downloading the speech model"),
-               L.T("Это делается один раз. Модель GigaAM от Сбера, около 300 МБ. После загрузки Писарь работает без интернета: звук никуда не отправляется.",
-                   "A one-time step. Sber's GigaAM model, about 300 MB. Afterwards Pisar works offline: audio never leaves your computer."),
-               (progress, ct) => ModelDownloader.DownloadAsync(targetDir, progress, ct),
-               L.T("1 ГБ", "1 GB"))
+    /// <summary>Speech-model download. When manualStart is set, nothing is fetched until the button is pressed.</summary>
+    public DownloadWindow(SpeechModelKind kind, bool manualStart)
+        : this(L.T("Модель распознавания", "Speech model"),
+               kind == SpeechModelKind.V3E2eRnnt
+                   ? L.T("GigaAM v3 e2e RNN-T, русский, с пунктуацией, около 220 МБ. Звук остаётся на этом компьютере. Само ничего не скачивается.",
+                         "GigaAM v3 e2e RNN-T, Russian, with punctuation, about 220 MB. Audio stays on this computer. Nothing downloads by itself.")
+                   : L.T("GigaAM Multilingual Large CTC, 600 миллионов параметров, русский и английский, около 2,4 ГБ. Звук остаётся на этом компьютере. Само ничего не скачивается.",
+                         "GigaAM Multilingual Large CTC, 600 million parameters, Russian and English, about 2.4 GB. Audio stays on this computer. Nothing downloads by itself."),
+               (progress, ct) => ModelDownloader.DownloadAsync(kind, Settings.ModelDirectory(kind), progress, ct),
+               kind == SpeechModelKind.V3E2eRnnt ? L.T("1 ГБ", "1 GB") : L.T("4 ГБ", "4 GB"),
+               manualStart)
     {
     }
 
     public DownloadWindow(string heading, string intro, Func<IProgress<ModelDownloader.Progress>, CancellationToken, Task> work,
-        string spaceNeeded)
+        string spaceNeeded, bool manualStart = false)
     {
         _work = work;
         _spaceNeeded = spaceNeeded;
+        _manualStart = manualStart;
         InitializeComponent();
         Title = L.T("Гига Писарь", "Giga Pisar");
         Heading.Text = heading;
         Intro.Text = intro;
+        DownloadButton.Content = L.T("Скачать", "Download");
         RetryButton.Content = L.T("Повторить", "Retry");
-        CancelButton.Content = L.T("Отмена", "Cancel");
+        CancelButton.Content = manualStart ? L.T("Не сейчас", "Not now") : L.T("Отмена", "Cancel");
+        if (manualStart) DownloadButton.Visibility = Visibility.Visible;
     }
 
-    /// <summary>Shows the window, runs the download, returns true on success.</summary>
+    /// <summary>Shows the window. Downloads immediately unless this is the button-first speech prompt.</summary>
     public Task<bool> RunAsync()
     {
         _done = new TaskCompletionSource<bool>();
         Closed += (_, _) => _done.TrySetResult(false);
         Show();
-        _ = StartAsync();
+        if (_manualStart)
+            Status.Text = L.T("Нажмите «Скачать». Пока кнопка не нажата, в сеть ничего не уходит.",
+                              "Press Download. Nothing goes out on the network until you do.");
+        else
+            _ = StartAsync();
         return _done.Task;
+    }
+
+    private void Download_Click(object sender, RoutedEventArgs e)
+    {
+        DownloadButton.Visibility = Visibility.Collapsed;
+        CancelButton.Content = L.T("Отмена", "Cancel");
+        _ = StartAsync();
     }
 
     private async Task StartAsync()

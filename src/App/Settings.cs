@@ -5,6 +5,8 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
+using GigaPisar.Core;
+
 namespace GigaPisar.App;
 
 public enum InsertMode { Type, Paste }
@@ -20,9 +22,14 @@ public sealed class Settings
     public bool KeepLastRecording { get; set; } = false;
     public bool FirstRunDone { get; set; } = false;
     public UiLanguage Language { get; set; } = UiLanguage.Auto;
-    public bool CheckUpdates { get; set; } = true;
+    /// <summary>Kept for old settings files. This build never checks upstream for updates.</summary>
+    public bool CheckUpdates { get; set; } = false;
     /// <summary>Where the Brain thinks; Off by default.</summary>
     public BrainSource Brain { get; set; } = BrainSource.Off;
+    /// <summary>Which GigaAM weights to run. Nothing is downloaded until the user asks.</summary>
+    public SpeechModelKind SpeechModel { get; set; } = SpeechModelKind.MultilingualLargeCtc;
+    /// <summary>Video card (DirectML) or CPU. GPU falls back to CPU if DirectML cannot start.</summary>
+    public SpeechDeviceKind SpeechDevice { get; set; } = SpeechDeviceKind.Gpu;
     /// <summary>Send every take through the Brain, not only those ending with "Pisar, …".</summary>
     public bool BrainEveryTake { get; set; }
     /// <summary>With text selected at the key press, the take is a command on the selection. On by default, as on macOS.</summary>
@@ -100,7 +107,8 @@ public sealed class Settings
         Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "GigaPisar");
     public static string LocalDataDir =>
         Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "GigaPisar");
-    public static string ModelDir => Path.Combine(LocalDataDir, "model");
+    public static string ModelDirectory(SpeechModelKind kind) =>
+        Path.Combine(LocalDataDir, "models", SpeechModels.Folder(kind));
     public static string SettingsPath => Path.Combine(AppDataDir, "settings.json");
     public static string LogPath => Path.Combine(LocalDataDir, "pisar.log");
     public static string LastTakePath => Path.Combine(LocalDataDir, "last.wav");
@@ -130,6 +138,7 @@ public sealed class Settings
                     s._plainKeyOnDisk = true;   // write the new layout at once
                 }
                 if (s._plainKeyOnDisk) s.Save();   // the plain-text key from 1.0.3 leaves the disk at once, encrypted
+                s.CheckUpdates = false;
                 return s;
             }
         }

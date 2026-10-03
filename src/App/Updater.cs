@@ -22,11 +22,8 @@ public sealed class UpdateInfo
 
 public static class Updater
 {
-    /// <summary>Manifest locations, tried in order. Add mirrors here.</summary>
-    private static readonly string[] ManifestUrls =
-    {
-        "https://raw.githubusercontent.com/moznoazachem/giga-pisar-win/main/update.json",
-    };
+    /// <summary>Update checks against the upstream repo are disabled in this fork. The list stays empty on purpose.</summary>
+    private static readonly string[] ManifestUrls = [];
 
     /// <summary>Test aid: PISAR_UPDATE_URL overrides the manifest location and makes the first check immediate.</summary>
     private static readonly string? OverrideUrl = Environment.GetEnvironmentVariable("PISAR_UPDATE_URL") is { Length: > 0 } u ? u : null;
@@ -38,8 +35,11 @@ public static class Updater
     public static string UpdatesDir => Path.Combine(Settings.LocalDataDir, "updates");
 
     /// <summary>Returns the manifest when it advertises a version newer than ours, otherwise null.</summary>
-    public static async Task<UpdateInfo?> CheckAsync(CancellationToken ct)
+    public static Task<UpdateInfo?> CheckAsync(CancellationToken ct)
     {
+        // This fork does not phone home to moznoazachem, or anywhere else, for updates.
+        return Task.FromResult<UpdateInfo?>(null);
+#if false
         using var http = NewClient();
         foreach (var url in OverrideUrl != null ? new[] { OverrideUrl } : ManifestUrls)
         {
@@ -61,6 +61,7 @@ public static class Updater
             }
         }
         return null;
+#endif
     }
 
     /// <summary>Downloads the installer next to the app data, verifies it, returns its path.</summary>

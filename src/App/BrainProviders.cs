@@ -25,9 +25,12 @@ public static partial class BrainProviders
         ["gemini-2.5-flash", "gemini-2.0-flash"], "https://aistudio.google.com/apikey");
     public static readonly BrainProvider Anthropic = new("anthropic", "Anthropic (Claude)", "https://api.anthropic.com/v1",
         ["claude-haiku-4-5"], "https://console.anthropic.com/settings/keys");
+    /// <summary>Xiaomi MiMo Token Plan, Singapore cluster. Off until the user picks this service and pastes a key.</summary>
+    public static readonly BrainProvider Xiaomi = new("xiaomi", "Xiaomi MiMo", "https://token-plan-sgp.xiaomimimo.com/v1",
+        ["mimo-v2.6-flash"], "https://platform.xiaomimimo.com/");
     public static readonly BrainProvider Custom = new("custom", "", "", [], "");
 
-    public static readonly BrainProvider[] All = [DeepSeek, OpenRouter, OpenAI, Groq, Gemini, Anthropic, Custom];
+    public static readonly BrainProvider[] All = [DeepSeek, OpenRouter, OpenAI, Groq, Gemini, Anthropic, Xiaomi, Custom];
 
     public static string Title(BrainProvider p) => p.IsCustom ? L.T("Свой сервер (LM Studio, Ollama…)", "Own server (LM Studio, Ollama…)") : p.Name;
 
@@ -38,6 +41,7 @@ public static partial class BrainProviders
     public static BrainProvider? FromKey(string key)
     {
         key = key.Trim();
+        if (key.StartsWith("tp-") || key.StartsWith("ttp-")) return Xiaomi;
         if (key.StartsWith("sk-or-")) return OpenRouter;
         if (key.StartsWith("sk-ant-")) return Anthropic;
         if (key.StartsWith("gsk_")) return Groq;

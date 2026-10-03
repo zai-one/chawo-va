@@ -1,8 +1,8 @@
 // Application entry: tray icon, push-to-talk wiring, model bootstrap.
 //
-// Flow: single-instance check -> settings -> tray icon -> model (download on
-// first run) -> recognizer warm-up -> keyboard hook. Hold the key: record.
-// Release: recognize and insert the text where the caret is.
+// Flow: single-instance check -> settings -> tray icon -> recognizer if the
+// chosen model is already on disk (never downloaded on its own) -> keyboard hook.
+// Hold the key: record. Release: recognize and insert the text where the caret is.
 
 using System.Diagnostics;
 using System.Reflection;
@@ -16,7 +16,7 @@ public partial class PisarApp : Application
 {
     public static readonly string Version = ReadVersion();
     public const string SiteUrl = "https://gigapisar.github.io";
-    public const string RepoUrl = "https://github.com/moznoazachem/giga-pisar-win";
+    public const string RepoUrl = "https://github.com/zai-one/giga-pisar-win";
 
     private static Mutex? _instanceMutex;
     /// <summary>A second launch (Start menu, desktop shortcut) signals the running instance to open Settings.</summary>
@@ -40,6 +40,9 @@ public partial class PisarApp : Application
     private System.Drawing.Icon? _iconBusy;
     private IntPtr _busyIconHandle;
     private Core.Recognizer? _recognizer;
+    private readonly object _recogLock = new();
+    private string _speechNote = "";
+    private HermesServer? _hermes;
     private KeyboardHook? _hook;
     private readonly Recorder _recorder = new();
     private OverlayWindow? _overlay;
@@ -256,16 +259,20 @@ public partial class PisarApp : Application
     {
         try
         {
-            var modelDir = Environment.GetEnvironmentVariable("PISAR_MODEL_DIR") is { Length: > 0 } env ? env : Settings.ModelDir;
+            var kind = Environment.GetEnvironmentVariable("PISAR_MODEL") == "v3"
+                ? Core.SpeechModelKind.V3E2eRnnt : Core.SpeechModelKind.MultilingualLargeCtc;
+            var device = Environment.GetEnvironmentVariable("PISAR_DEVICE") == "cpu"
+                ? Core.SpeechDeviceKind.Cpu : Core.SpeechDeviceKind.Gpu;
+            var modelDir = Environment.GetEnvironmentVariable("PISAR_MODEL_DIR") is { Length: > 0 } env ? env : Settings.ModelDirectory(kind);
             var sw = Stopwatch.StartNew();
-            using var rec = new Core.Recognizer(modelDir);
+            using var rec = new Core.Recognizer(modelDir, kind, device);
             var load = sw.Elapsed.TotalSeconds;
             var (samples, rate) = Core.AudioUtils.ReadWav(wavPath);
             sw.Restart();
             var text = rec.Transcribe(samples, rate);
             var run = sw.Elapsed.TotalSeconds;
             File.WriteAllText(outPath,
-                $"load={load:F2}s recognize={run:F2}s audio={(double)samples.Length / rate:F1}s rss={Process.GetCurrentProcess().WorkingSet64 / 1048576}MB\n{text}\n");
+                $"load={load:F2}s recognize={run:F2}s audio={(double)samples.Length / rate:F1}s device={rec.DeviceActual} provider={rec.Provider} model={rec.ModelId} rss={Process.GetCurrentProcess().WorkingSet64 / 1048576}MB\n{text}\n");
             return 0;
         }
         catch (Exception e)
@@ -297,29 +304,10 @@ public partial class PisarApp : Application
                 Dispatcher.BeginInvoke(ShowSettings);
         }) { IsBackground = true, Name = "show-settings-signal" }.Start();
 
-        if (!Core.Recognizer.ModelExists(Settings.ModelDir))
-        {
-            var ok = await new DownloadWindow(Settings.ModelDir).RunAsync();
-            if (!ok) { Quit(); return; }
-        }
-
-        SetStatus(L.T("Загружаю модель…", "Loading the model…"));
-        try
-        {
-            _recognizer = await Task.Run(() => new Core.Recognizer(Settings.ModelDir));
-        }
-        catch (Exception ex)
-        {
-            Log.Write($"model load failed: {ex}");
-            string why = ex.ToString().Contains("NativeMethods", StringComparison.Ordinal) || ex is DllNotFoundException
-                ? L.T("Не загрузилась библиотека распознавания ONNX Runtime. Обычно это значит, что в Windows нет библиотек Visual C++. Поставьте их с сайта Microsoft (aka.ms/vs/17/release/vc_redist.x64.exe) и запустите Писаря снова.",
-                      "The ONNX Runtime library did not load. Usually Windows is missing the Visual C++ runtime. Install it from Microsoft (aka.ms/vs/17/release/vc_redist.x64.exe) and start Pisar again.")
-                : ex.Message;
-            MessageBox.Show(L.T("Не удалось загрузить модель распознавания.", "Could not load the speech model.") + "\n\n" + why,
-                L.T("Гига Писарь", "Giga Pisar"), MessageBoxButton.OK, MessageBoxImage.Error);
-            Quit();
-            return;
-        }
+        if (!Core.Recognizer.ModelExists(Settings.ModelDirectory(_settings.SpeechModel), _settings.SpeechModel))
+            await OfferSpeechDownloadAsync();
+        await ReloadSpeechAsync();
+        StartHermes();
 
         _recorder.TakeTooLong += () => Dispatcher.BeginInvoke(() => _ = HandleReleaseAsync());
         try
@@ -340,11 +328,17 @@ public partial class PisarApp : Application
             _tray.ShowBalloonTip(6000, L.T($"Гига Писарь обновлён до {Version}", $"Giga Pisar updated to {Version}"),
                 L.T("Всё готово, можно диктовать.", "All set, dictate away."), Forms.ToolTipIcon.None);
         }
-        _ = UpdateLoopAsync();
+        // Update checks against the upstream repository are disabled.
         if (!_settings.FirstRunDone)
         {
             _settings.FirstRunDone = true;
             _settings.Save();
+            if (_recognizer == null)
+                _tray.ShowBalloonTip(8000, L.T("Модель не скачана", "Speech model is not downloaded"),
+                    L.T("Откройте настройки и нажмите «Скачать выбранную модель». Сама она не скачивается.",
+                        "Open Settings and press Download the selected model. It does not download by itself."),
+                    Forms.ToolTipIcon.None);
+            else
             _tray.ShowBalloonTip(8000, L.T("Гига Писарь готов", "Giga Pisar is ready"),
                 L.T($"Поставьте курсор в любой текст, зажмите {Settings.HotkeyTitle(_settings.HotkeyVk)} и говорите. Отпустите, и текст появится сам.",
                     $"Put the cursor in any text, hold {Settings.HotkeyTitle(_settings.HotkeyVk)} and speak. Release, and the text appears by itself."),
@@ -722,7 +716,7 @@ public partial class PisarApp : Application
         menu.Items.Add(language);
 
         menu.Items.Add(new Forms.ToolStripSeparator());
-        menu.Items.Add(L.T("Проверить обновления", "Check for updates"), null, (_, _) => _ = CheckForUpdatesAsync(silent: false));
+        menu.Items.Add(L.T("Скачать модель распознавания…", "Download the speech model…"), null, (_, _) => _ = DownloadSpeechAsync(manualStart: false));
         menu.Items.Add(L.T("Сайт проекта", "Project website"), null, (_, _) => Open(SiteUrl));
         menu.Items.Add(L.T("Исходный код", "Source code"), null, (_, _) => Open(RepoUrl));
         menu.Items.Add(new Forms.ToolStripSeparator());
@@ -748,10 +742,135 @@ public partial class PisarApp : Application
             brainServer.Text = Brain.ServerConfigured(_settings)
                 ? L.T($"В облаке ({host})", $"In the cloud ({host})")
                 : L.T("В облаке…", "In the cloud…");
-            hint.Text = _recognizer == null ? L.T("Модель ещё не загружена", "Model not loaded yet")
-                : L.T($"Зажмите {Settings.HotkeyTitle(_settings.HotkeyVk)} и говорите", $"Hold {Settings.HotkeyTitle(_settings.HotkeyVk)} and speak");
+            hint.Text = _recognizer == null ? L.T("Модель не скачана", "Speech model is not downloaded")
+                : L.T($"Зажмите {Settings.HotkeyTitle(_settings.HotkeyVk)} и говорите ({_recognizer.DeviceActual})",
+                      $"Hold {Settings.HotkeyTitle(_settings.HotkeyVk)} and speak ({_recognizer.DeviceActual})");
         };
         return menu;
+    }
+
+    private async Task OfferSpeechDownloadAsync()
+    {
+        var window = new DownloadWindow(_settings.SpeechModel, manualStart: true);
+        await window.RunAsync();
+    }
+
+    private Task DownloadSpeechAsync(bool manualStart)
+    {
+        var window = new DownloadWindow(_settings.SpeechModel, manualStart);
+        return DownloadAndReloadAsync(window);
+    }
+
+    private async Task DownloadAndReloadAsync(DownloadWindow window)
+    {
+        if (!await window.RunAsync()) return;
+        await ReloadSpeechAsync();
+        _settingsWindow?.Localize();
+    }
+
+    private async Task ReloadSpeechAsync()
+    {
+        var kind = _settings.SpeechModel;
+        var device = _settings.SpeechDevice;
+        var dir = Settings.ModelDirectory(kind);
+        Core.Recognizer? next = null;
+        string note = "";
+        if (Core.Recognizer.ModelExists(dir, kind))
+        {
+            SetStatus(L.T("Загружаю модель…", "Loading the model…"));
+            try
+            {
+                next = await Task.Run(() => new Core.Recognizer(dir, kind, device));
+                if (next.DeviceNote != null)
+                    note = next.DeviceActual == "cpu"
+                        ? L.T("Видеокарта не поднялась, считаю на процессоре.", "The video card did not start, running on the processor.")
+                        : "";
+                Log.Write($"model {next.ModelId} on {next.DeviceActual}/{next.Provider}" + (next.DeviceNote == null ? "" : $" note={next.DeviceNote}"));
+            }
+            catch (Exception ex)
+            {
+                Log.Write($"model load failed: {ex}");
+                note = ex.Message;
+                next = null;
+            }
+        }
+        else note = "";
+        Core.Recognizer? old;
+        lock (_recogLock)
+        {
+            old = _recognizer;
+            _recognizer = next;
+            _speechNote = note;
+        }
+        old?.Dispose();
+        SetStatus(null);
+        _settingsWindow?.Localize();
+    }
+
+    private string SpeechStatusText()
+    {
+        var kind = _settings.SpeechModel;
+        var dir = Settings.ModelDirectory(kind);
+        if (!Core.Recognizer.ModelExists(dir, kind))
+            return L.T("Эта модель ещё не скачана. Нажмите кнопку ниже. Пока не нажмёте, в сеть ничего не уходит.",
+                       "This model is not downloaded yet. Press the button below. Nothing goes out on the network until you do.");
+        Core.Recognizer? rec;
+        string note;
+        lock (_recogLock) { rec = _recognizer; note = _speechNote; }
+        if (rec == null || rec.Kind != kind)
+            return L.T("Файлы на месте, но модель не загрузилась. ", "The files are there, but the model did not load. ") + note;
+        string where = rec.DeviceActual == "gpu"
+            ? L.T("видеокарте (DirectML)", "the video card (DirectML)")
+            : L.T("процессоре", "the processor");
+        return L.T($"Загружена {rec.ModelId}, считает на {where}. ", $"Loaded {rec.ModelId}, running on {where}. ") + note;
+    }
+
+    private void StartHermes()
+    {
+        try
+        {
+            _hermes = new HermesServer(Core.SpeechModels.HermesPort, HermesTranscribe);
+            _hermes.Start();
+        }
+        catch (Exception ex)
+        {
+            Log.Write($"hermes failed: {ex.Message}");
+        }
+    }
+
+    private HermesResult HermesTranscribe(byte[] audio)
+    {
+        lock (_recogLock)
+        {
+            var rec = _recognizer;
+            if (audio.Length == 0)
+                return new HermesResult(rec != null, null, rec?.ModelId ?? _settings.SpeechModel.ToString(), rec?.DeviceActual ?? "", rec?.Provider ?? "", 0, null);
+            if (rec == null)
+                return new HermesResult(false, null, "", "", "", 0, null);
+            try
+            {
+                float[] samples;
+                int rate;
+                if (audio.Length >= 4 && audio[0] == (byte)'R' && audio[1] == (byte)'I' && audio[2] == (byte)'F' && audio[3] == (byte)'F')
+                    (samples, rate) = Core.AudioUtils.ReadWav(audio);
+                else if (audio.Length >= 4 && audio[0] == (byte)'O' && audio[1] == (byte)'g' && audio[2] == (byte)'g' && audio[3] == (byte)'S')
+                {
+                    samples = Core.OggOpus.DecodeTo16kMono(audio);
+                    rate = 16000;
+                }
+                else
+                    return new HermesResult(true, null, rec.ModelId, rec.DeviceActual, rec.Provider, 0, "need a wav or ogg/opus file");
+                if (rate != 16000) samples = Core.AudioUtils.Resample(samples, rate, 16000);
+                var text = rec.Transcribe(samples, 16000);
+                Log.Write($"hermes {samples.Length / 16000.0:F1}s -> {text.Length} chars");
+                return new HermesResult(true, text, rec.ModelId, rec.DeviceActual, rec.Provider, samples.Length / 16000.0, null);
+            }
+            catch (Exception ex)
+            {
+                Log.Write($"hermes decode failed: {ex.GetType().Name}");
+                return new HermesResult(true, null, rec.ModelId, rec.DeviceActual, rec.Provider, 0, ex.Message);
+            }
+        }
     }
 
     private void SetStatus(string? status)
@@ -764,7 +883,8 @@ public partial class PisarApp : Application
     {
         if (_settingsWindow == null)
         {
-            _settingsWindow = new SettingsWindow(_settings, ApplySettings, () => { _overlay?.Unpin(); _settings.OverlayX = null; _settings.OverlayY = null; _settings.Save(); }, SelectBrainAsync);
+            _settingsWindow = new SettingsWindow(_settings, ApplySettings, () => { _overlay?.Unpin(); _settings.OverlayX = null; _settings.OverlayY = null; _settings.Save(); }, SelectBrainAsync,
+                () => DownloadSpeechAsync(manualStart: false), () => _ = ReloadSpeechAsync(), SpeechStatusText);
             _settingsWindow.Closed += (_, _) => _settingsWindow = null;
         }
         _settingsWindow.Show();
@@ -800,6 +920,7 @@ public partial class PisarApp : Application
     private void Quit()
     {
         _lifetime.Cancel();
+        _hermes?.Dispose();
         LocalBrain.Stop();
         _hook?.Dispose();
         _recorder.Dispose();

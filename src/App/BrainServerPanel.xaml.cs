@@ -121,6 +121,12 @@ public partial class BrainServerPanel : UserControl
         ClearModels();
         var savedModel = _settings.ProviderModels.GetValueOrDefault(Provider.Id, "");
         if (savedModel.Length > 0) { _init = true; ModelBox.Text = savedModel; _init = false; }
+        else if (!Provider.IsCustom && Provider.PreferredModels.Length > 0)
+        {
+            _init = true;
+            ModelBox.Text = Provider.PreferredModels[0];
+            _init = false;
+        }
         Status.Text = "";
         if (!Provider.IsCustom && KeyBox.Password.Length > 0) _ = LoadModelsAsync(pickDefault: savedModel.Length == 0);
     }

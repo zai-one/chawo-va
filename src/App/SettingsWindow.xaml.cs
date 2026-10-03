@@ -6,6 +6,7 @@ using System.Diagnostics;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Navigation;
+using GigaPisar.Core;
 
 namespace GigaPisar.App;
 
@@ -15,18 +16,25 @@ public partial class SettingsWindow : Window
     private readonly Action _apply;
     private readonly Action _unpin;
     private readonly Func<BrainSource, Task> _selectBrain;
+    private readonly Func<Task>? _downloadSpeech;
+    private readonly Action? _speechChanged;
+    private readonly Func<string>? _speechStatus;
     private bool _loading = true;
     /// <summary>Last open section, kept while Pisar runs.</summary>
     private static int _lastPage;
 
     public enum Page { Dictation, Brain, Edit, About }
 
-    public SettingsWindow(Settings settings, Action apply, Action unpin, Func<BrainSource, Task> selectBrain)
+    public SettingsWindow(Settings settings, Action apply, Action unpin, Func<BrainSource, Task> selectBrain,
+        Func<Task>? downloadSpeech = null, Action? speechChanged = null, Func<string>? speechStatus = null)
     {
         _settings = settings;
         _apply = apply;
         _unpin = unpin;
         _selectBrain = selectBrain;
+        _downloadSpeech = downloadSpeech;
+        _speechChanged = speechChanged;
+        _speechStatus = speechStatus;
         InitializeComponent();
         ServerPanel.Saved += UpdateBrainTexts;   // the panel has already applied and saved
         Localize();
@@ -94,8 +102,49 @@ public partial class SettingsWindow : Window
         UnpinButton.IsEnabled = _settings.OverlayX != null;
         AutostartBox.IsChecked = Autostart.IsEnabled();
         KeepBox.IsChecked = _settings.KeepLastRecording;
-        UpdatesBox.Content = L.T("Проверять обновления и предлагать их", "Check for updates and offer them");
-        UpdatesBox.IsChecked = _settings.CheckUpdates;
+        UpdatesBox.Content = L.T("Проверка обновлений отключена", "Update checks are off");
+        UpdatesBox.IsChecked = false;
+        UpdatesBox.IsEnabled = false;
+
+        ModelLabel.Text = L.T("Модель распознавания", "Speech model");
+        DeviceLabel.Text = L.T("Где считать", "Where it runs");
+        ModelBox.Items.Clear();
+        ModelBox.Items.Add(new ComboBoxItem
+        {
+            Content = L.T("GigaAM Multilingual Large CTC — 600M, русский и английский, ~2,4 ГБ",
+                          "GigaAM Multilingual Large CTC — 600M, Russian and English, ~2.4 GB"),
+            Tag = SpeechModelKind.MultilingualLargeCtc,
+        });
+        ModelBox.Items.Add(new ComboBoxItem
+        {
+            Content = L.T("GigaAM v3 e2e RNN-T — русский, с пунктуацией, ~220 МБ",
+                          "GigaAM v3 e2e RNN-T — Russian, with punctuation, ~220 MB"),
+            Tag = SpeechModelKind.V3E2eRnnt,
+        });
+        foreach (ComboBoxItem it in ModelBox.Items)
+            if ((SpeechModelKind)it.Tag == _settings.SpeechModel) ModelBox.SelectedItem = it;
+        DeviceBox.Items.Clear();
+        DeviceBox.Items.Add(new ComboBoxItem
+        {
+            Content = L.T("Видеокарта (DirectML)", "Video card (DirectML)"),
+            Tag = SpeechDeviceKind.Gpu,
+        });
+        DeviceBox.Items.Add(new ComboBoxItem
+        {
+            Content = L.T("Процессор (CPU)", "Processor (CPU)"),
+            Tag = SpeechDeviceKind.Cpu,
+        });
+        foreach (ComboBoxItem it in DeviceBox.Items)
+            if ((SpeechDeviceKind)it.Tag == _settings.SpeechDevice) DeviceBox.SelectedItem = it;
+        bool have = Recognizer.ModelExists(Settings.ModelDirectory(_settings.SpeechModel), _settings.SpeechModel);
+        DownloadModelButton.Content = have
+            ? L.T("Скачать выбранную модель ещё раз", "Download the selected model again")
+            : L.T("Скачать выбранную модель", "Download the selected model");
+        SpeechStatus.Text = _speechStatus?.Invoke()
+            ?? (have
+                ? L.T("Файлы модели на месте.", "The model files are on disk.")
+                : L.T("Модель не скачана. Нажмите кнопку. Сама она не скачивается.",
+                      "The model is not downloaded. Press the button. It does not download by itself."));
 
         CleanupHeading.Text = L.T("Мозг", "Brain");
         CleanupHint.Text = L.T("Нейросеть правит надиктованное по команде. Скажите в конце: «Писарь, исправь», «Писарь, сократи» или «Писарь, переведи на английский». Без обращения текст вставляется сразу.",
@@ -136,7 +185,10 @@ public partial class SettingsWindow : Window
         AboutHeading.Text = L.T("О программе", "About");
         About.Text = L.T($"Гига Писарь {PisarApp.Version}. Распознавание идёт на вашем компьютере моделью GigaAM от Сбера, звук никуда не отправляется.",
                          $"Giga Pisar {PisarApp.Version}. Speech is recognized on your computer by Sber's GigaAM model; audio never leaves it.");
-        ModelPath.Text = L.T("Модель: ", "Model: ") + Settings.ModelDir;
+        ModelPath.Text = L.T("Папка модели: ", "Model folder: ") + Settings.ModelDirectory(_settings.SpeechModel);
+        HermesLine.Text = L.T(
+            $"Hermes: POST http://127.0.0.1:{SpeechModels.HermesPort}/v1/transcribe — только этот компьютер, звук никуда не уходит.",
+            $"Hermes: POST http://127.0.0.1:{SpeechModels.HermesPort}/v1/transcribe — this computer only, audio is not uploaded.");
         CodeLink.Text = L.T("исходный код", "source code");
         MicLine.Text = L.T("Микрофон: ", "Microphone: ") + Recorder.DefaultDeviceName();
         ModelLink.Text = L.T("модель GigaAM от Сбера", "GigaAM model by Sber");
@@ -175,8 +227,40 @@ public partial class SettingsWindow : Window
 
     private void Updates_Click(object sender, RoutedEventArgs e)
     {
-        _settings.CheckUpdates = UpdatesBox.IsChecked == true;
+        UpdatesBox.IsChecked = false;
+        _settings.CheckUpdates = false;
+    }
+
+    private void SpeechModel_Changed(object sender, SelectionChangedEventArgs e)
+    {
+        if (_loading || ModelBox.SelectedItem is not ComboBoxItem item) return;
+        var kind = (SpeechModelKind)item.Tag;
+        if (kind == _settings.SpeechModel) return;
+        _settings.SpeechModel = kind;
         _apply();
+        _speechChanged?.Invoke();
+    }
+
+    private void SpeechDevice_Changed(object sender, SelectionChangedEventArgs e)
+    {
+        if (_loading || DeviceBox.SelectedItem is not ComboBoxItem item) return;
+        var device = (SpeechDeviceKind)item.Tag;
+        if (device == _settings.SpeechDevice) return;
+        _settings.SpeechDevice = device;
+        _apply();
+        _speechChanged?.Invoke();
+    }
+
+    private async void DownloadModel_Click(object sender, RoutedEventArgs e)
+    {
+        if (_downloadSpeech == null) return;
+        DownloadModelButton.IsEnabled = false;
+        try { await _downloadSpeech(); }
+        finally
+        {
+            DownloadModelButton.IsEnabled = true;
+            Localize();
+        }
     }
 
     private void Unpin_Click(object sender, RoutedEventArgs e)
