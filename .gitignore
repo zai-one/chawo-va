@@ -9,3 +9,6 @@ obj/
 
 # Telegram bot token, not the example
 tools/hermes-telegram-bot/bot-config.json
+
+__pycache__/
+*.pyc
