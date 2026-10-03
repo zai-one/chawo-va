@@ -55,6 +55,7 @@ public partial class PisarApp : Application
     private KeyboardHook? _hook;
     private readonly Recorder _recorder = new();
     private OverlayWindow? _overlay;
+    private SalesCardWindow? _salesCard;
     private SettingsWindow? _settingsWindow;
     private readonly CancellationTokenSource _lifetime = new();
     private bool _busy;
@@ -489,8 +490,10 @@ public partial class PisarApp : Application
         {
             _overlay ??= new OverlayWindow(_settings, _settings.Save);
             _overlay.ShowListening(_recorder);
-            StartPartials();
         }
+        // Sales needs the live draft even when the pill is hidden. Dictation does not.
+        if (_settings.ShowOverlay || _settings.Mode == AppMode.Sales)
+            StartPartials();
         SetPhase(DictatePhase.Listening);
     }
 
@@ -528,7 +531,8 @@ public partial class PisarApp : Application
     /// </summary>
     private async Task PartialTickAsync()
     {
-        if (!_recorder.IsRecording || !_settings.ShowOverlay) return;
+        if (!_recorder.IsRecording) return;
+        if (!_settings.ShowOverlay && _settings.Mode != AppMode.Sales) return;
         if (!SpeechIsRemote && _recognizer == null) return;
         if (Interlocked.CompareExchange(ref _partialBusy, 1, 0) != 0) return;
         int epoch = Volatile.Read(ref _partialEpoch);
@@ -560,8 +564,11 @@ public partial class PisarApp : Application
         try
         {
             string text = await task;
-            if (epoch == Volatile.Read(ref _partialEpoch) && _recorder.IsRecording && !_abandonTake && text.Length > 0 && _settings.ShowOverlay)
-                _overlay?.ShowPartial(text);
+            if (epoch == Volatile.Read(ref _partialEpoch) && _recorder.IsRecording && !_abandonTake && text.Length > 0)
+            {
+                if (_settings.ShowOverlay) _overlay?.ShowPartial(text);
+                if (_settings.Mode == AppMode.Sales) ShowSales(text);
+            }
             if (text.Length > 0)
                 Log.Write($"partial {text.Length} chars");
         }
@@ -674,6 +681,7 @@ public partial class PisarApp : Application
                 else
                     text = await Task.Run(() => _recognizer!.TranscribeCancelable(samples, Recorder.SampleRate, () => !_abandonTake));
                 if (_abandonTake) { overlay?.HideNow(); Log.Write("recognize cancelled"); return; }
+                if (text.Length > 0 && _settings.Mode == AppMode.Sales) ShowSales(text);
                 // Dictionary on the finished recognition only, before the Brain sees the phrase. Not the live draft.
                 if (text.Length > 0)
                 {
@@ -1509,6 +1517,16 @@ public partial class PisarApp : Application
         _settingsWindow.Topmost = false;
     }
 
+    /// <summary>Local catalog card only. Does not download a model and does not call the network.</summary>
+    private void ShowSales(string transcript)
+    {
+        if (_settings.Mode != AppMode.Sales) return;
+        var hit = SalesCatalog.Match(transcript, _settings.SalesCatalog);
+        if (hit == null) return;
+        _salesCard ??= new SalesCardWindow();
+        _salesCard.ShowHit(hit.Value);
+    }
+
     private void ApplySettings()
     {
         _settings.Save();
@@ -1518,6 +1536,7 @@ public partial class PisarApp : Application
         }
         if (_hook != null) _hook.HotkeyVk = _settings.HotkeyVk;
         if (!_settings.ShowOverlay) _overlay?.HideNow();
+        if (_settings.Mode != AppMode.Sales) _salesCard?.HideNow();
 
         bool wasRussian = L.Russian;
         L.Apply(_settings.Language);
@@ -1546,6 +1565,7 @@ public partial class PisarApp : Application
         _hook?.Dispose();
         _recorder.Dispose();
         _overlay?.Close();
+        _salesCard?.Close();
         if (_tray != null) { _tray.Visible = false; _tray.Dispose(); }
         _recognizer?.Dispose();
         _iconBusy?.Dispose();

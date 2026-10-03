@@ -2,7 +2,7 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:app="clr-namespace:GigaPisar.App"
-        Width="760" Height="540" MinWidth="660" MinHeight="420"
+        Width="920" Height="560" MinWidth="820" MinHeight="420"
         ResizeMode="CanResize" WindowStartupLocation="CenterScreen"
         FontFamily="Segoe UI Variable, Segoe UI" FontSize="13">
     <Window.Resources>
@@ -39,6 +39,12 @@
             </ListBoxItem>
             <ListBoxItem>
                 <StackPanel Orientation="Horizontal">
+                    <TextBlock Text="&#xE719;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="16" VerticalAlignment="Center"/>
+                    <TextBlock x:Name="NavSales" Margin="12,0,0,0" VerticalAlignment="Center"/>
+                </StackPanel>
+            </ListBoxItem>
+            <ListBoxItem>
+                <StackPanel Orientation="Horizontal">
                     <TextBlock Text="&#xEA80;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="16" VerticalAlignment="Center"/>
                     <TextBlock x:Name="NavBrain" Margin="12,0,0,0" VerticalAlignment="Center"/>
                 </StackPanel>
@@ -57,6 +63,9 @@
                 <StackPanel x:Name="DictationPage">
                     <TextBlock x:Name="Heading" FontSize="20" FontWeight="SemiBold"/>
                     <TextBlock x:Name="Intro" Margin="0,4,0,0" Opacity="0.75" TextWrapping="Wrap"/>
+                    <TextBlock x:Name="ModeLabel" Margin="0,14,0,4" FontWeight="SemiBold"/>
+                    <ComboBox x:Name="ModeBox" MinWidth="240" HorizontalAlignment="Left" SelectionChanged="Mode_Changed"/>
+                    <TextBlock x:Name="ModeHint" Margin="0,4,0,0" Opacity="0.7" TextWrapping="Wrap"/>
                     <Border Margin="0,14,0,0" Padding="10,8" CornerRadius="6" BorderThickness="1" BorderBrush="#40808080">
                         <DockPanel>
                             <Button x:Name="StopButton" DockPanel.Dock="Right" MinWidth="96" Padding="14,5" Margin="12,0,0,0"
@@ -132,6 +141,26 @@
                     </Grid>
                     <StackPanel x:Name="DictionaryRows"/>
                     <Button x:Name="AddDictionaryButton" HorizontalAlignment="Left" Margin="0,10,0,0" Padding="12,4" Click="AddDictionary_Click"/>
+                </StackPanel>
+
+                <StackPanel x:Name="SalesPage" Visibility="Collapsed">
+                    <TextBlock x:Name="SalesHeading" FontSize="20" FontWeight="SemiBold"/>
+                    <TextBlock x:Name="SalesIntro" Margin="0,4,0,8" Opacity="0.75" TextWrapping="Wrap"/>
+                    <Grid Margin="0,8,0,2">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="110"/>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="110"/>
+                            <ColumnDefinition Width="90"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock x:Name="CodeHeader" FontWeight="SemiBold"/>
+                        <TextBlock x:Name="NameHeader" Grid.Column="1" Margin="8,0,0,0" FontWeight="SemiBold"/>
+                        <TextBlock x:Name="LineHeader" Grid.Column="2" Margin="8,0,0,0" FontWeight="SemiBold"/>
+                        <TextBlock x:Name="SimilarHeader" Grid.Column="3" Margin="8,0,0,0" FontWeight="SemiBold"/>
+                    </Grid>
+                    <StackPanel x:Name="SalesRows"/>
+                    <Button x:Name="AddSalesButton" HorizontalAlignment="Left" Margin="0,10,0,0" Padding="12,4" Click="AddSales_Click"/>
                 </StackPanel>
 
                 <StackPanel x:Name="BrainPage" Visibility="Collapsed">

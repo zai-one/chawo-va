@@ -14,6 +14,9 @@ public enum InsertMode { Type, Paste }
 /// <summary>This PC is the Hermes host, or a client of another PC.</summary>
 public enum NetworkRole { Host, Client }
 
+/// <summary>Dictation is the normal app. Sales is a local catalog card, no cloud.</summary>
+public enum AppMode { Dictation, Sales }
+
 public sealed class Settings
 {
     public const int LeftCtrlWinHotkey = 0x10000;
@@ -60,6 +63,10 @@ public sealed class Settings
     public bool HermesOnLan { get; set; }
     /// <summary>Host recognizes on this PC and still accepts connections. Client sends audio to another PC and does not download a speech model.</summary>
     public NetworkRole NetworkRole { get; set; } = NetworkRole.Host;
+    /// <summary>Dictation leaves insertion alone. Sales only adds a local card on the live transcript.</summary>
+    public AppMode Mode { get; set; } = AppMode.Dictation;
+    /// <summary>Local sales catalog. Empty until the user types rows. Never downloaded.</summary>
+    public List<SalesCatalogItem> SalesCatalog { get; set; } = new();
     /// <summary>Client only. IP or name of the PC that listens on Hermes. Not a download URL.</summary>
     public string RemoteHost { get; set; } = "";
     /// <summary>Client only. Hermes port on that PC.</summary>

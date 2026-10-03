@@ -38,7 +38,7 @@ public partial class SettingsWindow : Window
     /// <summary>Last open section, kept while Pisar runs.</summary>
     private static int _lastPage;
 
-    public enum Page { Dictation, Speech, Dictionary, Brain, Network }
+    public enum Page { Dictation, Speech, Dictionary, Sales, Brain, Network }
 
     public SettingsWindow(Settings settings, Action apply, Action unpin, Func<BrainSource, Task> selectBrain,
         Func<Task>? downloadSpeech = null, Action? speechChanged = null, Func<string>? speechStatus = null,
@@ -77,7 +77,7 @@ public partial class SettingsWindow : Window
         if (Nav.SelectedIndex < 0) { Nav.SelectedIndex = _lastPage; return; }
         _lastPage = Nav.SelectedIndex;
         if (_lastPage > (int)Page.Network) _lastPage = 0;
-        UIElement[] pages = { DictationPage, SpeechPage, DictionaryPage, BrainPage, NetworkPage };
+        UIElement[] pages = { DictationPage, SpeechPage, DictionaryPage, SalesPage, BrainPage, NetworkPage };
         for (int i = 0; i < pages.Length; i++)
             pages[i].Visibility = i == _lastPage ? Visibility.Visible : Visibility.Collapsed;
         if (_lastPage == (int)Page.Brain && _settings.Brain == BrainSource.Server) ServerPanel.FocusKey();
@@ -91,11 +91,23 @@ public partial class SettingsWindow : Window
         NavDictation.Text = L.T("Диктовка", "Dictation");
         NavSpeech.Text = L.T("Распознавание", "Speech");
         NavDictionary.Text = L.T("Словарь", "Dictionary");
+        NavSales.Text = "Продажи";
         NavBrain.Text = L.T("Мозг", "Brain");
         NavNetwork.Text = L.T("Сеть", "Network");
         Heading.Text = L.T("Диктовка", "Dictation");
         Intro.Text = L.T("Курсор в любой текст, зажмите клавишу и говорите. Отпустите, и текст появится сам.",
                          "Cursor in any text, hold the key and speak. Release and the text appears by itself.");
+        ModeLabel.Text = L.T("Режим", "Mode");
+        ModeBox.Items.Clear();
+        ModeBox.Items.Add(new ComboBoxItem { Content = "Диктовка", Tag = AppMode.Dictation });
+        ModeBox.Items.Add(new ComboBoxItem { Content = "Продажи", Tag = AppMode.Sales });
+        foreach (ComboBoxItem it in ModeBox.Items)
+            if ((AppMode)it.Tag == _settings.Mode) ModeBox.SelectedItem = it;
+        ModeHint.Text = _settings.Mode == AppMode.Sales
+            ? L.T("Карточка только из каталога на этом компьютере. Сеть и модель для неё не нужны, веса не скачиваются. Диктовка вставляет текст как раньше.",
+                  "The card comes only from the catalog on this PC. It needs no network and no model, and it does not download weights. Dictation still inserts text as before.")
+            : L.T("Обычная диктовка. Карточка продаж не показывается.",
+                  "Ordinary dictation. The sales card stays hidden.");
         HotkeyLabel.Text = L.T("Клавиша диктовки", "Dictation key");
         InsertLabel.Text = L.T("Как вставлять текст", "How to insert text");
         LanguageLabel.Text = L.T("Язык интерфейса", "Interface language");
@@ -213,6 +225,16 @@ public partial class SettingsWindow : Window
         WrittenHeader.Text = L.T("Как писать", "Written");
         AddDictionaryButton.Content = L.T("Добавить", "Add");
         FillDictionaryRows();
+        SalesHeading.Text = "Продажи";
+        SalesIntro.Text = L.T(
+            "Каталог на этом компьютере. Код в живом черновике открывает карточку с короткой строкой. Если кода нет, берётся ближайшее название по буквам и на карточке пишется «похоже». Облака нет.",
+            "A catalog on this PC. A code in the live draft opens a card with the short line. If the code is missing, the nearest name by letters is shown and the card says «похоже». No cloud.");
+        CodeHeader.Text = L.T("Код", "Code");
+        NameHeader.Text = L.T("Название", "Name");
+        LineHeader.Text = L.T("Строка", "Line");
+        SimilarHeader.Text = L.T("Похожий код", "Similar code");
+        AddSalesButton.Content = L.T("Добавить", "Add");
+        FillSalesRows();
 
 
         NetworkHeading.Text = L.T("Сеть", "Network");
@@ -589,6 +611,116 @@ public partial class SettingsWindow : Window
         if (id == _settings.MicrophoneId) return;
         _settings.MicrophoneId = id;
         _apply();
+    }
+
+    private void Mode_Changed(object sender, SelectionChangedEventArgs e)
+    {
+        if (_loading || ModeBox.SelectedItem is not ComboBoxItem item) return;
+        var mode = (AppMode)item.Tag;
+        if (mode == _settings.Mode) return;
+        _settings.Mode = mode;
+        _apply();
+        ModeHint.Text = mode == AppMode.Sales
+            ? L.T("Карточка только из каталога на этом компьютере. Сеть и модель для неё не нужны, веса не скачиваются. Диктовка вставляет текст как раньше.",
+                  "The card comes only from the catalog on this PC. It needs no network and no model, and it does not download weights. Dictation still inserts text as before.")
+            : L.T("Обычная диктовка. Карточка продаж не показывается.",
+                  "Ordinary dictation. The sales card stays hidden.");
+    }
+
+    private readonly List<(TextBox Code, TextBox Name, TextBox Line, TextBox Similar)> _salesRows = new();
+
+    private void FillSalesRows()
+    {
+        SalesRows.Children.Clear();
+        _salesRows.Clear();
+        foreach (var item in _settings.SalesCatalog)
+            AddSalesRow(item.Code, item.Name, item.Line, item.SimilarCode, focus: false);
+    }
+
+    private void AddSalesRow(string code, string name, string line, string similar, bool focus)
+    {
+        var grid = new Grid { Margin = new Thickness(0, 4, 0, 0) };
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(110) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition());
+        grid.ColumnDefinitions.Add(new ColumnDefinition());
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(110) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(90) });
+        TextBox Box(string text, int col)
+        {
+            var box = new TextBox
+            {
+                Text = text,
+                Padding = new Thickness(7, 5, 7, 5),
+                Margin = new Thickness(0, 0, 8, 0),
+                VerticalContentAlignment = VerticalAlignment.Center,
+            };
+            Grid.SetColumn(box, col);
+            box.TextChanged += SalesField_Changed;
+            grid.Children.Add(box);
+            return box;
+        }
+        var codeBox = Box(code, 0);
+        var nameBox = Box(name, 1);
+        var lineBox = Box(line, 2);
+        var similarBox = Box(similar, 3);
+        var delete = new Button
+        {
+            Content = L.T("Удалить", "Delete"),
+            Padding = new Thickness(8, 4, 8, 4),
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        Grid.SetColumn(delete, 4);
+        delete.Click += DeleteSales_Click;
+        grid.Children.Add(delete);
+        SalesRows.Children.Add(grid);
+        _salesRows.Add((codeBox, nameBox, lineBox, similarBox));
+        if (focus) codeBox.Focus();
+    }
+
+    private void AddSales_Click(object sender, RoutedEventArgs e) => AddSalesRow("", "", "", "", focus: true);
+
+    private void DeleteSales_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button button || button.Parent is not Grid grid) return;
+        int at = SalesRows.Children.IndexOf(grid);
+        if (at < 0 || at >= _salesRows.Count) return;
+        SalesRows.Children.RemoveAt(at);
+        _salesRows.RemoveAt(at);
+        PersistSales();
+    }
+
+    private void SalesField_Changed(object sender, TextChangedEventArgs e)
+    {
+        if (_loading) return;
+        PersistSales();
+    }
+
+    private void PersistSales()
+    {
+        var rows = _salesRows
+            .Select(r => new SalesCatalogItem
+            {
+                Code = r.Code.Text.Trim(),
+                Name = r.Name.Text.Trim(),
+                Line = r.Line.Text.Trim(),
+                SimilarCode = r.Similar.Text.Trim(),
+            })
+            .Where(r => r.Code.Length > 0 || r.Name.Length > 0 || r.Line.Length > 0 || r.SimilarCode.Length > 0)
+            .ToList();
+        if (SameCatalog(rows, _settings.SalesCatalog)) return;
+        _settings.SalesCatalog = rows;
+        _apply();
+    }
+
+    private static bool SameCatalog(List<SalesCatalogItem> a, List<SalesCatalogItem> b)
+    {
+        if (a.Count != b.Count) return false;
+        for (int i = 0; i < a.Count; i++)
+        {
+            if (a[i].Code != b[i].Code || a[i].Name != b[i].Name || a[i].Line != b[i].Line || a[i].SimilarCode != b[i].SimilarCode)
+                return false;
+        }
+        return true;
     }
 
     private readonly List<(TextBox Heard, TextBox Written)> _dictRows = new();
