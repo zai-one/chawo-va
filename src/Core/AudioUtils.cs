@@ -47,8 +47,14 @@ public static class AudioUtils
     /// <summary>Writes a 16-bit mono WAV. Used to keep the last dictation for debugging.</summary>
     public static void WriteWav(ReadOnlySpan<float> samples, int rate, string path)
     {
-        using var fs = File.Create(path);
-        using var w = new BinaryWriter(fs);
+        File.WriteAllBytes(path, WavBytes(samples, rate));
+    }
+
+    /// <summary>16-bit mono WAV in memory. The network client posts this to another PC.</summary>
+    public static byte[] WavBytes(ReadOnlySpan<float> samples, int rate)
+    {
+        using var ms = new MemoryStream();
+        using var w = new BinaryWriter(ms, System.Text.Encoding.UTF8, leaveOpen: true);
         int body = samples.Length * 2;
         w.Write("RIFF"u8); w.Write(36 + body);
         w.Write("WAVE"u8);
@@ -57,6 +63,8 @@ public static class AudioUtils
         w.Write("data"u8); w.Write(body);
         foreach (var x in samples)
             w.Write((short)Math.Clamp((int)(x * 32767f), -32768, 32767));
+        w.Flush();
+        return ms.ToArray();
     }
 
     /// <summary>Linear resample. Hermes and dictation both feed the model 16 kHz.</summary>

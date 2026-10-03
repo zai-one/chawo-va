@@ -26,6 +26,7 @@ public partial class SettingsWindow : Window
     private readonly Func<SpeechModelKind, Task>? _deleteSpeech;
     private readonly Func<Task>? _toggleGpuWarmup;
     private readonly Func<bool>? _gpuWarmed;
+    private readonly Action? _networkChanged;
     private string _phaseText = "";
     private bool _stopEnabled;
     private bool _loading = true;
@@ -39,7 +40,7 @@ public partial class SettingsWindow : Window
         Func<Task>? downloadSpeech = null, Action? speechChanged = null, Func<string>? speechStatus = null,
         Func<string>? hermesStatus = null, Func<Task>? toggleLan = null,
         Action? checkUpdates = null, Action? stop = null, Func<SpeechModelKind, Task>? deleteSpeech = null,
-        Func<Task>? toggleGpuWarmup = null, Func<bool>? gpuWarmed = null)
+        Func<Task>? toggleGpuWarmup = null, Func<bool>? gpuWarmed = null, Action? networkChanged = null)
     {
         _settings = settings;
         _apply = apply;
@@ -55,6 +56,7 @@ public partial class SettingsWindow : Window
         _deleteSpeech = deleteSpeech;
         _toggleGpuWarmup = toggleGpuWarmup;
         _gpuWarmed = gpuWarmed;
+        _networkChanged = networkChanged;
         InitializeComponent();
         ServerPanel.Saved += UpdateBrainTexts;   // the panel has already applied and saved
         Localize();
@@ -156,8 +158,11 @@ public partial class SettingsWindow : Window
         CheckUpdatesButton.Content = L.T("Проверить обновления", "Check for updates");
 
         SpeechHeading.Text = L.T("Распознавание", "Speech");
-        SpeechIntro.Text = L.T("Модель, которая слушает микрофон. Сама ничего не скачивает: кнопка в строке модели.",
-                               "The model that listens to the microphone. Nothing downloads until you press the button on that model's row.");
+        SpeechIntro.Text = _settings.NetworkRole == NetworkRole.Client
+            ? L.T("Сейчас этот ПК — клиент. Речевая модель здесь не скачивается и не запускается. Адрес хоста — в разделе «Сеть».",
+                  "This PC is a client. The speech model is not downloaded or started here. The host address is under Network.")
+            : L.T("Модель, которая слушает микрофон. Сама ничего не скачивает: кнопка в строке модели.",
+                  "The model that listens to the microphone. Nothing downloads until you press the button on that model's row.");
         ModelLabel.Text = L.T("Речевые модели", "Speech models");
         ModelNote.Text = L.T("Русская v3 ставит запятые и заглавные. Большая пишет слова без знаков.",
                              "Russian v3 adds commas and capitals. The large model writes words without punctuation.");
@@ -204,8 +209,20 @@ public partial class SettingsWindow : Window
 
 
         NetworkHeading.Text = L.T("Сеть", "Network");
-        NetworkIntro.Text = L.T("Порт для других компьютеров. Пока кнопку не нажать, слушает только этот ПК.",
-                                "A port for other computers. Until you press the button, only this PC can connect.");
+        NetworkIntro.Text = L.T("Этот компьютер — хост или клиент другого Писаря. Клиент модель не скачивает.",
+                                "This computer is a host, or a client of another Pisar. A client does not download a model.");
+        RoleLabel.Text = L.T("Роль", "Role");
+        RoleBox.Items.Clear();
+        RoleBox.Items.Add(new ComboBoxItem { Content = L.T("Хост: расшифровка на этом ПК", "Host: transcribe on this PC"), Tag = NetworkRole.Host });
+        RoleBox.Items.Add(new ComboBoxItem { Content = L.T("Клиент: звук на другой компьютер", "Client: send audio to another PC"), Tag = NetworkRole.Client });
+        foreach (ComboBoxItem it in RoleBox.Items)
+            if ((NetworkRole)it.Tag == _settings.NetworkRole) RoleBox.SelectedItem = it;
+        bool client = _settings.NetworkRole == NetworkRole.Client;
+        HostPanel.Visibility = client ? Visibility.Collapsed : Visibility.Visible;
+        ClientPanel.Visibility = client ? Visibility.Visible : Visibility.Collapsed;
+        HostNote.Text = L.T(
+            $"Это хост. Параметры уже настроены: порт {SpeechModels.HermesPort}. Пока кнопку ниже не нажать, слушает только 127.0.0.1. После кнопки — все адреса этого ПК (0.0.0.0), тот же порт.",
+            $"This is the host. The parameters are already set: port {SpeechModels.HermesPort}. Until you press the button below it listens on 127.0.0.1 only. After the button, every address of this PC (0.0.0.0), same port.");
         HermesHeading.Text = L.T("Порт расшифровки", "Transcription port");
         HermesListenStatus.Text = _hermesStatus?.Invoke()
             ?? L.T($"Сейчас только этот компьютер, порт {SpeechModels.HermesPort}.",
@@ -213,6 +230,18 @@ public partial class SettingsWindow : Window
         LanButton.Content = _settings.HermesOnLan
             ? L.T("Снова слушать только этот компьютер", "Listen on this PC only again")
             : L.T("Открыть порт в брандмауэре и слушать сеть", "Open the firewall port and listen on the network");
+        ClientNote.Text = L.T(
+            "Клиент отправляет запись на http://адрес:порт/v1/transcribe и не запускает местную речевую модель. Если хост молчит, будет короткая ошибка. Скачивание само не начнётся.",
+            "The client posts the recording to http://address:port/v1/transcribe and does not run a local speech model. If the host is down, you get a short error. Nothing starts a download.");
+        RemoteHostLabel.Text = L.T("Адрес хоста", "Host address");
+        RemotePortLabel.Text = L.T("Порт", "Port");
+        RemoteHostBox.Text = _settings.RemoteHost;
+        int port = _settings.RemotePort is >= 1 and <= 65535 ? _settings.RemotePort : SpeechModels.HermesPort;
+        RemotePortBox.Text = port.ToString();
+        CheckHostButton.Content = L.T("Проверить хост", "Check the host");
+        if (string.IsNullOrWhiteSpace(HostCheckStatus.Text))
+            HostCheckStatus.Text = L.T("Проверка только спрашивает /v1/health. Модель не скачивается.",
+                                       "The check only asks /v1/health. No model is downloaded.");
 
         CleanupHeading.Text = L.T("Мозг", "Brain");
         CleanupHint.Text = L.T("Выключен: текст вставляется как распознан. Можно сказать «Писарь, исправь». Чтобы править каждую фразу, включите переписывание ниже.",
@@ -365,6 +394,43 @@ public partial class SettingsWindow : Window
         _settings.CpuThreads = n;
         _apply();
         _speechChanged?.Invoke();
+    }
+
+    private void Role_Changed(object sender, SelectionChangedEventArgs e)
+    {
+        if (_loading || RoleBox.SelectedItem is not ComboBoxItem item) return;
+        var role = (NetworkRole)item.Tag;
+        if (role == _settings.NetworkRole) return;
+        _settings.NetworkRole = role;
+        _apply();
+        _networkChanged?.Invoke();
+        Localize();
+    }
+
+    private void Remote_LostFocus(object sender, RoutedEventArgs e)
+    {
+        if (_loading) return;
+        var host = RemoteHostBox.Text.Trim();
+        if (!int.TryParse(RemotePortBox.Text.Trim(), out int port) || port is < 1 or > 65535)
+            port = SpeechModels.HermesPort;
+        RemotePortBox.Text = port.ToString();
+        if (host == _settings.RemoteHost && port == _settings.RemotePort) return;
+        _settings.RemoteHost = host;
+        _settings.RemotePort = port;
+        _apply();
+    }
+
+    private async void CheckHost_Click(object sender, RoutedEventArgs e)
+    {
+        Remote_LostFocus(sender, e);
+        CheckHostButton.IsEnabled = false;
+        HostCheckStatus.Text = L.T("Проверяю хост…", "Checking the host…");
+        try
+        {
+            var line = await Task.Run(() => RemoteSpeech.Check(_settings));
+            HostCheckStatus.Text = line;
+        }
+        finally { CheckHostButton.IsEnabled = true; }
     }
 
     private async void Lan_Click(object sender, RoutedEventArgs e)
@@ -569,6 +635,9 @@ public partial class SettingsWindow : Window
                 Margin = new Thickness(8, 0, 0, 0),
                 IsEnabled = !onDisk,
             };
+            download.IsEnabled = download.IsEnabled && _settings.NetworkRole != NetworkRole.Client;
+            if (_settings.NetworkRole == NetworkRole.Client)
+                download.ToolTip = L.T("Клиент не скачивает модель.", "A client does not download a model.");
             download.Click += DownloadSpeechRow_Click;
             buttons.Children.Add(download);
             var delete = new Button

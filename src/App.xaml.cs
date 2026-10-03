@@ -62,6 +62,7 @@ public partial class PisarApp : Application
     private int _partialEpoch;
     private int _partialBusy;
     private Task? _partialTask;
+    private CancellationTokenSource? _remotePartialCts;
     private DispatcherTimer? _partialTimer;
     private CancellationTokenSource? _takeCts;
     private DictatePhase _phase = DictatePhase.NoModel;
@@ -69,6 +70,11 @@ public partial class PisarApp : Application
     private Task<string?>? _selectionAtPress;
 
     /// <summary>The Brain can work right now: chosen, and set up (downloaded or configured).</summary>
+    private bool SpeechIsRemote => _settings.NetworkRole == NetworkRole.Client;
+
+    private DictatePhase ReadyPhase() =>
+        SpeechIsRemote || _recognizer != null ? DictatePhase.Idle : DictatePhase.NoModel;
+
     private bool BrainUsable => _settings.Brain switch
     {
         BrainSource.Local => LocalBrain.IsReady(_settings),
@@ -358,7 +364,12 @@ public partial class PisarApp : Application
         {
             _settings.FirstRunDone = true;
             _settings.Save();
-            if (_recognizer == null)
+            if (SpeechIsRemote)
+                _tray.ShowBalloonTip(8000, L.T("Гига Писарь — клиент", "Giga Pisar is a client"),
+                    L.T("Укажите адрес хоста в разделе «Сеть». Модель на этом компьютере не скачивается.",
+                        "Set the host address under Network. This PC does not download a model."),
+                    Forms.ToolTipIcon.None);
+            else if (_recognizer == null)
                 _tray.ShowBalloonTip(8000, L.T("Модель не скачана", "Speech model is not downloaded"),
                     L.T("Откройте настройки и нажмите «Скачать выбранную модель». Сама она не скачивается.",
                         "Open Settings and press Download the selected model. It does not download by itself."),
@@ -428,7 +439,16 @@ public partial class PisarApp : Application
     private async Task HandlePressAsync()
     {
         if (_busy || _recorder.IsRecording) return;
-        if (_recognizer == null)
+        if (SpeechIsRemote)
+        {
+            if (!RemoteSpeech.TryEndpoint(_settings, out _, out var ru, out var en))
+            {
+                SetPhase(DictatePhase.Idle);
+                Hint(L.T(ru, en));
+                return;
+            }
+        }
+        else if (_recognizer == null)
         {
             SetPhase(DictatePhase.NoModel);
             bool onDisk = SpeechModelStore.FindComplete(_settings.SpeechModel) != null;
@@ -458,7 +478,7 @@ public partial class PisarApp : Application
                       "Windows denies microphone access. Settings, Privacy and security, Microphone: turn on microphone access and let desktop apps use the microphone.")
                 : L.T($"Не удалось открыть микрофон: {ex.Message}", $"Could not open the microphone: {ex.Message}");
             _tray?.ShowBalloonTip(8000, L.T("Микрофон недоступен", "Microphone unavailable"), why, Forms.ToolTipIcon.Warning);
-            SetPhase(_recognizer == null ? DictatePhase.NoModel : DictatePhase.Idle);
+            SetPhase(ReadyPhase());
             return;
         }
         if (_tray != null) _tray.Icon = _iconBusy;
@@ -477,6 +497,7 @@ public partial class PisarApp : Application
         if (!_recorder.IsRecording && !_busy) return;
         _abandonTake = true;
         Interlocked.Increment(ref _partialEpoch);
+        try { _remotePartialCts?.Cancel(); } catch (ObjectDisposedException) { }
         _recognizer?.CancelOwned();
         try { _takeCts?.Cancel(); } catch (ObjectDisposedException) { }
         if (_recorder.IsRecording)
@@ -504,10 +525,15 @@ public partial class PisarApp : Application
     /// </summary>
     private async Task PartialTickAsync()
     {
-        if (!_recorder.IsRecording || _recognizer == null || !_settings.ShowOverlay) return;
+        if (!_recorder.IsRecording || !_settings.ShowOverlay) return;
+        if (!SpeechIsRemote && _recognizer == null) return;
         if (Interlocked.CompareExchange(ref _partialBusy, 1, 0) != 0) return;
         int epoch = Volatile.Read(ref _partialEpoch);
         var rec = _recognizer;
+        bool remote = SpeechIsRemote;
+        var settings = _settings;
+        var remoteCts = remote ? new CancellationTokenSource() : null;
+        if (remote) _remotePartialCts = remoteCts;
         var task = Task.Run(() =>
         {
             if (Volatile.Read(ref _partialEpoch) != epoch || _abandonTake) return "";
@@ -523,7 +549,9 @@ public partial class PisarApp : Application
                 for (int i = 0; i < samples.Length; i++) samples[i] *= gain;
             }
             if (Volatile.Read(ref _partialEpoch) != epoch || _abandonTake) return "";
-            return rec.TranscribeCancelable(samples, Recorder.SampleRate, () => Volatile.Read(ref _partialEpoch) == epoch && !_abandonTake);
+            if (remote)
+                return RemoteSpeech.Transcribe(settings, samples, Recorder.SampleRate, remoteCts!.Token);
+            return rec!.TranscribeCancelable(samples, Recorder.SampleRate, () => Volatile.Read(ref _partialEpoch) == epoch && !_abandonTake);
         });
         _partialTask = task;
         try
@@ -534,12 +562,22 @@ public partial class PisarApp : Application
             if (text.Length > 0)
                 Log.Write($"partial {text.Length} chars");
         }
+        catch (RemoteHostException ex)
+        {
+            Log.Write($"partial remote: {ex.English}");
+        }
+        catch (OperationCanceledException) { }
         catch (Exception ex)
         {
             Log.Write($"partial: {ex.GetType().Name}: {ex.Message}");
         }
         finally
         {
+            if (remoteCts != null)
+            {
+                if (ReferenceEquals(_remotePartialCts, remoteCts)) _remotePartialCts = null;
+                remoteCts.Dispose();
+            }
             Interlocked.Exchange(ref _partialBusy, 0);
         }
     }
@@ -565,7 +603,10 @@ public partial class PisarApp : Application
         Interlocked.Increment(ref _partialEpoch);
         StopPartials();
         if (Volatile.Read(ref _partialBusy) != 0)
+        {
+            try { _remotePartialCts?.Cancel(); } catch (ObjectDisposedException) { }
             _recognizer?.CancelOwned();
+        }
         var partialTask = _partialTask;
         _takeCts?.Dispose();
         _takeCts = CancellationTokenSource.CreateLinkedTokenSource(_lifetime.Token);
@@ -613,7 +654,22 @@ public partial class PisarApp : Application
                     float gain = Math.Min(TargetPeak / peak, MaxGain);
                     for (int i = 0; i < samples.Length; i++) samples[i] *= gain;
                 }
-                text = await Task.Run(() => _recognizer!.TranscribeCancelable(samples, Recorder.SampleRate, () => !_abandonTake));
+                if (SpeechIsRemote)
+                {
+                    try
+                    {
+                        text = await Task.Run(() => RemoteSpeech.Transcribe(_settings, samples, Recorder.SampleRate, _takeCts?.Token ?? CancellationToken.None));
+                    }
+                    catch (RemoteHostException ex)
+                    {
+                        overlay?.HideNow();
+                        Log.Write("remote host: " + ex.English);
+                        Hint(L.T(ex.Russian, ex.English));
+                        return;
+                    }
+                }
+                else
+                    text = await Task.Run(() => _recognizer!.TranscribeCancelable(samples, Recorder.SampleRate, () => !_abandonTake));
                 if (_abandonTake) { overlay?.HideNow(); Log.Write("recognize cancelled"); return; }
                 // Dictionary on the finished recognition only, before the Brain sees the phrase. Not the live draft.
                 if (text.Length > 0)
@@ -711,7 +767,7 @@ public partial class PisarApp : Application
             _busy = false;
             _abandonTake = false;
             if (_tray != null) _tray.Icon = _iconIdle;
-            SetPhase(_recognizer == null ? DictatePhase.NoModel : DictatePhase.Idle);
+            SetPhase(ReadyPhase());
         }
     }
 
@@ -835,6 +891,15 @@ public partial class PisarApp : Application
 
     private Task DownloadSpeechAsync(bool manualStart)
     {
+        if (SpeechIsRemote)
+        {
+            System.Windows.MessageBox.Show(
+                L.T("Этот компьютер — клиент. Речевая модель не скачивается. Адрес хоста задаётся в разделе «Сеть».",
+                    "This PC is a client. The speech model is not downloaded. Set the host under Network."),
+                L.T("Сеть", "Network"),
+                System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Information);
+            return Task.CompletedTask;
+        }
         var existing = SpeechModelStore.FindComplete(_settings.SpeechModel);
         if (existing != null)
         {
@@ -886,6 +951,22 @@ public partial class PisarApp : Application
 
     private async Task ReloadSpeechAsync()
     {
+        if (SpeechIsRemote)
+        {
+            Core.Recognizer? parked;
+            lock (_recogLock)
+            {
+                parked = _recognizer;
+                _recognizer = null;
+                _speechNote = "";
+                _gpuWarmed = false;
+            }
+            parked?.Dispose();
+            SetStatus(null);
+            SetPhase(DictatePhase.Idle);
+            _settingsWindow?.Localize();
+            return;
+        }
         var kind = _settings.SpeechModel;
         var device = _settings.SpeechDevice;
         var dir = SpeechModelStore.FindComplete(kind);
@@ -930,7 +1011,7 @@ public partial class PisarApp : Application
         }
         old?.Dispose();
         SetStatus(null);
-        SetPhase(next == null ? DictatePhase.NoModel : DictatePhase.Idle);
+        SetPhase(ReadyPhase());
         _settingsWindow?.Localize();
     }
 
@@ -951,6 +1032,13 @@ public partial class PisarApp : Application
 
     private string SpeechStatusText()
     {
+        if (SpeechIsRemote)
+        {
+            if (!RemoteSpeech.TryEndpoint(_settings, out var uri, out var ru, out var en))
+                return L.T(ru, en);
+            return L.T($"Клиент. Звук уходит на {uri}. Местная речевая модель не запускается и не скачивается.",
+                       $"Client. Audio goes to {uri}. The local speech model is not started and is not downloaded.");
+        }
         var kind = _settings.SpeechModel;
         var found = SpeechModelStore.FindComplete(kind);
         if (found == null)
@@ -1136,6 +1224,15 @@ public partial class PisarApp : Application
 
     private async Task StartGpuWarmupAsync()
     {
+        if (SpeechIsRemote)
+        {
+            System.Windows.MessageBox.Show(
+                L.T("Этот компьютер — клиент. Местная модель не запускается и не скачивается.",
+                    "This PC is a client. The local model is not started and is not downloaded."),
+                L.T("Прогрев видеокарты", "Video card warmup"),
+                System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Information);
+            return;
+        }
         if (_settings.SpeechDevice != Core.SpeechDeviceKind.Gpu)
             return;
         var kind = _settings.SpeechModel;
@@ -1202,7 +1299,7 @@ public partial class PisarApp : Application
                 System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Warning);
         }
         SetStatus(null);
-        SetPhase(_recognizer == null ? DictatePhase.NoModel : DictatePhase.Idle);
+        SetPhase(ReadyPhase());
         _settingsWindow?.Localize();
     }
 
@@ -1239,7 +1336,7 @@ public partial class PisarApp : Application
                 () => DownloadSpeechAsync(manualStart: false), () => _ = ReloadSpeechAsync(), SpeechStatusText,
                 HermesStatusText, ToggleLanAsync,
                 () => _ = CheckForUpdatesAsync(silent: false), RequestStop, DeleteSpeechModelAsync,
-                ToggleGpuWarmupAsync, GpuWarmActive);
+                ToggleGpuWarmupAsync, GpuWarmActive, () => _ = ReloadSpeechAsync());
             SetPhase(_phase);
             _settingsWindow.Closed += (_, _) => _settingsWindow = null;
         }

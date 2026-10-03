@@ -11,6 +11,9 @@ namespace GigaPisar.App;
 
 public enum InsertMode { Type, Paste }
 
+/// <summary>This PC is the Hermes host, or a client of another PC.</summary>
+public enum NetworkRole { Host, Client }
+
 public sealed class Settings
 {
     public const int LeftCtrlWinHotkey = 0x10000;
@@ -55,6 +58,12 @@ public sealed class Settings
     public CtcScript CtcScript { get; set; } = CtcScript.Auto;
     /// <summary>Hermes accepts connections from the LAN (0.0.0.0). Off until the user opens the firewall port.</summary>
     public bool HermesOnLan { get; set; }
+    /// <summary>Host transcribes here. Client sends the microphone to another PC and does not download a speech model.</summary>
+    public NetworkRole NetworkRole { get; set; } = NetworkRole.Host;
+    /// <summary>Client only. IP or name of the PC that listens on Hermes. Not a download URL.</summary>
+    public string RemoteHost { get; set; } = "";
+    /// <summary>Client only. Hermes port on that PC.</summary>
+    public int RemotePort { get; set; } = SpeechModels.HermesPort;
     /// <summary>While the Hermes listener is running, ask Windows not to idle-sleep. Off by default.</summary>
     public bool KeepAwakeWhileListening { get; set; }
     /// <summary>Send every take through the Brain, not only those ending with "Pisar, …".</summary>

@@ -1,0 +1,39 @@
+# Self-contained win-x64 folder, DirectML, no speech weights. Started by hand.
+name: Zip
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  zip:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Publish the app
+        run: dotnet publish src/GigaPisar.csproj -c Release -r win-x64 --self-contained true -o dist/app -nologo
+
+      - name: Bundle runtime and the Telegram bot, then zip
+        shell: pwsh
+        run: |
+          foreach ($dll in 'msvcp140.dll', 'msvcp140_1.dll', 'vcruntime140.dll', 'vcruntime140_1.dll') {
+            Copy-Item "$env:WINDIR\System32\$dll" dist/app/
+          }
+          New-Item -ItemType Directory -Force dist/app/hermes-telegram-bot | Out-Null
+          Copy-Item tools/hermes-telegram-bot/bot.py dist/app/hermes-telegram-bot/
+          Copy-Item tools/hermes-telegram-bot/bot-config.example.json dist/app/hermes-telegram-bot/
+          Compress-Archive -Path dist/app/* -DestinationPath dist/GigaPisar-win-x64.zip -Force
+          Get-Item dist/GigaPisar-win-x64.zip | Select-Object FullName, Length
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: GigaPisar-win-x64
+          path: dist/GigaPisar-win-x64.zip
+          if-no-files-found: error

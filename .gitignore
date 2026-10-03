@@ -6,3 +6,6 @@ bin/
 build.local
 dist/
 obj/
+
+# Telegram bot token, not the example
+tools/hermes-telegram-bot/bot-config.json

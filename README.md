@@ -19,7 +19,12 @@ Closing the window hides it; the app stays in the notification area until
 
 ## По-русски: что добавлено и зачем
 
-Это форк обычного Гига Писаря для Windows (ветка `gpu-mimo-hermes`, версия 1.9.0). Ниже не список галочек, а зачем каждая правка.
+Это форк обычного Гига Писаря для Windows (ветка `gpu-mimo-hermes`, версия 1.10.0). Ниже не список галочек, а зачем каждая правка.
+
+**1.10.0: хост или клиент.** В разделе «Сеть» выбирается роль. Хост — этот компьютер, параметры уже стоят: порт 17831, слушает только 127.0.0.1, пока не нажать «Открыть порт в брандмауэре и слушать сеть», после этого 0.0.0.0 и тот же порт. Клиент пишет адрес и порт (по умолчанию 17831) и шлёт запись на `http://адрес:порт/v1/transcribe`. Местную речевую модель клиент не качает и не запускает. Если хост молчит, не открылся или ответил без модели, на экране короткое сообщение и скачивание само не начинается. Кнопка «Проверить хост» только спрашивает `/v1/health`.
+
+**Голос из Telegram, без приложения на телефоне.** В архиве рядом с программой лежит `hermes-telegram-bot`. Это маленький бот на Python, без чужих библиотек. Его запускают на этом же ПК (или на любом, который достучится до хоста). В телефон ставится обычный Telegram: голосовое пересылают боту, бот скачивает файл у Telegram и делает тот же `POST /v1/transcribe`. Ответ — текст. Форка Android у zai-one нет, новый репозиторий под телефон не заводился. Qwen 3.5 на телефон не ставится: файл около 2,3 ГБ, телефон его не тянет. Мозг остаётся в Писаре на компьютере-хосте. Бот мозг не вызывает, чтобы голосовое превращалось в текст сразу.
+
 
 **1.9.0: прогрев видеокарты.** На «Распознавании», и только когда речь считается на видеокарте (DirectML), есть кнопка «Запустить прогрев». Она грузит выбранную речевую модель в сессию DirectML, если та ещё не загружена, и один раз прогоняет короткий тихий звук: DirectML компилирует граф на первом проходе, не в момент создания сессии. «Остановить» выгружает эту сессию. Если файлов модели на диске нет, программа пишет об этом и не качает веса. Мозг не прогревается.
 
@@ -167,6 +172,11 @@ spend the answer on a reasoning trace. The brain stays **off** until you
 select a service in Settings.
 
 ## Hermes
+
+**1.10.0 role.** Settings → Network: Host or Client. Host keeps the listener above (127.0.0.1 until the firewall button, then 0.0.0.0, port 17831). Client posts the take to `http://address:port/v1/transcribe` and does not download or start a local speech model. A dead host shows a short error and does not fall through to a download.
+
+**Telegram voice.** `tools/hermes-telegram-bot` (also copied next to the EXE in the zip) is a stdlib Python bot. Run it beside the host. Forward a voice note from the phone. It POSTs the ogg to the same `/v1/transcribe`. There is no zai-one Android fork and none was created. Qwen 3.5 stays on the Windows host: a phone does not run that 2.3 GB model. The bot does not call the brain.
+
 
 While Pisar is running it listens on `127.0.0.1:17831` only. Audio posted
 there is decoded in this process and is not uploaded.
