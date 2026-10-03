@@ -35,7 +35,7 @@ public sealed class Settings
     /// <summary>Where the Brain thinks; Off by default.</summary>
     public BrainSource Brain { get; set; } = BrainSource.Off;
     /// <summary>Which GigaAM weights to run. Nothing is downloaded until the user asks.</summary>
-    public SpeechModelKind SpeechModel { get; set; } = SpeechModelKind.MultilingualLargeCtc;
+    public SpeechModelKind SpeechModel { get; set; } = SpeechModelKind.V3E2eRnnt;
     /// <summary>Video card (DirectML) or CPU. GPU falls back to CPU if DirectML cannot start.</summary>
     public SpeechDeviceKind SpeechDevice { get; set; } = SpeechDeviceKind.Gpu;
     /// <summary>CPU intra-op threads. 0 means every logical processor. Not applied to a DirectML session.</summary>
@@ -50,6 +50,10 @@ public sealed class Settings
     public bool BrainOnSelection { get; set; } = true;
     /// <summary>A single dictated sentence goes in lowercase and without the closing period, like a chat reply.</summary>
     public bool SimpleSyntax { get; set; }
+    /// <summary>After recognition, replace a few spoken spellings (цпу -> CPU). On by default. Not applied to the live draft.</summary>
+    public bool WordReplacements { get; set; } = true;
+    /// <summary>One "heard -> written" rule per line. Empty uses <see cref="WordReplace.DefaultRules"/>.</summary>
+    public string WordReplacementRules { get; set; } = "";
 
     /// <summary>Read-only migration from 1.0.3, where the server Brain had a single on/off switch and cleaned every take.</summary>
     [JsonPropertyName("CleanupEnabled")]
@@ -112,6 +116,15 @@ public sealed class Settings
     [JsonIgnore]
     public string EffectiveCleanupPrompt => CleanupPrompt.Trim().Length == 0 || SpeechCleanup.IsDefaultPrompt(CleanupPrompt)
         ? SpeechCleanup.DefaultPrompt : CleanupPrompt;
+
+    /// <summary>Blank rules mean the built-in IT list, so an old settings file still gets them. "#" means the user cleared the list.</summary>
+    public string EffectiveWordReplacementRules =>
+        string.IsNullOrWhiteSpace(WordReplacementRules) ? WordReplace.DefaultRules : WordReplacementRules;
+
+    public string WordReplacementRulesForEditor =>
+        string.IsNullOrWhiteSpace(WordReplacementRules) ? WordReplace.DefaultRules
+        : WordReplacementRules.Trim() == "#" ? ""
+        : WordReplacementRules;
 
     /// <summary>Where the user dragged the overlay to (screen pixels, window top-left); null means "follow the caret".</summary>
     public int? OverlayX { get; set; }

@@ -84,12 +84,17 @@
                     <CheckBox x:Name="CopyClipBox" Margin="0,10,0,0" Click="CopyClip_Click"/>
                     <CheckBox x:Name="RestoreClipBox" Margin="18,4,0,0" Click="RestoreClip_Click"/>
                     <CheckBox x:Name="SimpleSyntaxBox" Margin="0,10,0,0" Click="SimpleSyntax_Click"/>
+                    <CheckBox x:Name="ReplaceBox" Margin="0,10,0,0" Click="Replace_Click"/>
+                    <TextBox x:Name="ReplaceList" Margin="0,4,0,0" Padding="7" Height="96" AcceptsReturn="True"
+                             TextWrapping="Wrap" VerticalScrollBarVisibility="Auto" LostFocus="ReplaceList_LostFocus"
+                             FontFamily="Cascadia Mono, Consolas, Segoe UI"/>
                     <CheckBox x:Name="AutostartBox" Margin="0,10,0,0" Click="Autostart_Click"/>
                     <TextBlock x:Name="TrayHint" Margin="0,8,0,0" Opacity="0.7" TextWrapping="Wrap"/>
                     <CheckBox x:Name="UpdatesBox" Margin="0,10,0,0" Click="Updates_Click" Visibility="Collapsed"/>
                     <CheckBox x:Name="KeepBox" Margin="0,10,0,0" Click="Keep_Click"/>
                     <TextBlock x:Name="ModelLabel" Margin="0,18,0,4" FontWeight="SemiBold"/>
                     <ComboBox x:Name="ModelBox" MinWidth="360" HorizontalAlignment="Left" SelectionChanged="SpeechModel_Changed"/>
+                    <TextBlock x:Name="ModelNote" Margin="0,4,0,0" Opacity="0.75" TextWrapping="Wrap"/>
                     <TextBlock x:Name="DeviceLabel" Margin="0,12,0,4" FontWeight="SemiBold"/>
                     <ComboBox x:Name="DeviceBox" MinWidth="360" HorizontalAlignment="Left" SelectionChanged="SpeechDevice_Changed"/>
                     <TextBlock x:Name="ThreadsLabel" Margin="0,12,0,4" FontWeight="SemiBold"/>

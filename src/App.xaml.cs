@@ -651,6 +651,15 @@ public partial class PisarApp : Application
             else if (text.Length > 0)
                 Log.Write($"insert as is: simple={_settings.SimpleSyntax} selection={editedSelection} command={brainCommand}");
 
+            // After the final phrase exists, including a Brain answer. Not the live draft.
+            if (text.Length > 0 && _settings.WordReplacements)
+            {
+                var replaced = WordReplace.Apply(text, _settings.EffectiveWordReplacementRules);
+                if (!string.Equals(replaced, text, StringComparison.Ordinal))
+                    Log.Write($"word replace: {text.Length} -> {replaced.Length} chars");
+                text = replaced;
+            }
+
             if (_abandonTake)
             {
                 overlay?.HideNow();

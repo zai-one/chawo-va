@@ -122,6 +122,14 @@ public partial class SettingsWindow : Window
         SimpleSyntaxBox.ToolTip = L.T("Как реплика в переписке: «ок, буду в пять». Вопрос и восклицательный знак остаются.",
                                       "Like a chat reply: \"ok, see you at five\". Question and exclamation marks stay.");
         SimpleSyntaxBox.IsChecked = _settings.SimpleSyntax;
+        ReplaceBox.Content = L.T("Заменять слова в готовой фразе", "Replace words in the finished phrase");
+        ReplaceBox.IsChecked = _settings.WordReplacements;
+        ReplaceBox.ToolTip = L.T("Словарь нейросети так не поменять. Это обычная замена уже готового текста: цпу становится CPU. Черновик на плашке не трогается.",
+                                 "The neural vocabulary cannot be edited. This replaces the finished text only, so цпу becomes CPU. The live draft is left alone.");
+        ReplaceList.Text = _settings.EffectiveWordReplacementRules;
+        ReplaceList.IsEnabled = _settings.WordReplacements;
+        ReplaceList.ToolTip = L.T("Одна замена в строке: как слышится -> как писать. Пустой список вернёт встроенный набор после перезапуска окна, если стереть всё и оставить поле пустым при сохранении.",
+                                 "One replacement per line: heard -> written.");
         AutostartBox.Content = L.T("Запускать при входе в Windows", "Start when I sign in to Windows");
         TrayHint.Text = L.T("Крестик не выключает программу: окно прячется, Писарь остаётся в трее у часов. Полный выход — пункт «Выход» в меню трея.",
                             "The close button does not quit: the window hides and Pisar stays by the clock. Quit is in the tray menu.");
@@ -155,6 +163,8 @@ public partial class SettingsWindow : Window
         });
         foreach (ComboBoxItem it in ModelBox.Items)
             if ((SpeechModelKind)it.Tag == _settings.SpeechModel) ModelBox.SelectedItem = it;
+        ModelNote.Text = L.T("v3 e2e RNN-T ставит русские запятые, точки и заглавные. Большая мультиязычная модель этого не умеет: она для смеси языков, отдельной модели пунктуации нет. Переключателя языка у неё нет: на вход только звук, и английскую фразу она может записать русскими буквами.",
+                             "v3 e2e RNN-T adds Russian commas, periods and capitals. The large multilingual model does not: it is for mixed languages, and there is no separate punctuation model. It has no language switch: the input is only audio, so an English phrase can come out in Russian letters.");
         DeviceBox.Items.Clear();
         DeviceBox.Items.Add(new ComboBoxItem
         {
@@ -400,6 +410,29 @@ public partial class SettingsWindow : Window
     {
         _settings.SimpleSyntax = SimpleSyntaxBox.IsChecked == true;
         _apply();
+    }
+
+    private void Replace_Click(object sender, RoutedEventArgs e)
+    {
+        _settings.WordReplacements = ReplaceBox.IsChecked == true;
+        ReplaceList.IsEnabled = _settings.WordReplacements;
+        SaveReplaceList();
+        _apply();
+    }
+
+    private void ReplaceList_LostFocus(object sender, RoutedEventArgs e)
+    {
+        if (_loading) return;
+        SaveReplaceList();
+        _apply();
+    }
+
+    private void SaveReplaceList()
+    {
+        var text = ReplaceList.Text.Replace("\r\n", "\n").Replace('\r', '\n').Trim();
+        if (text.Length == 0) _settings.WordReplacementRules = "#";
+        else if (text == WordReplace.DefaultRules.Trim()) _settings.WordReplacementRules = "";
+        else _settings.WordReplacementRules = text + "\n";
     }
 
     private void Keep_Click(object sender, RoutedEventArgs e)
