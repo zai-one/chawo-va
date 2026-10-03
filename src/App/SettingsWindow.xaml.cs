@@ -163,8 +163,17 @@ public partial class SettingsWindow : Window
         });
         foreach (ComboBoxItem it in ModelBox.Items)
             if ((SpeechModelKind)it.Tag == _settings.SpeechModel) ModelBox.SelectedItem = it;
-        ModelNote.Text = L.T("v3 e2e RNN-T ставит русские запятые, точки и заглавные. Большая мультиязычная модель этого не умеет: она для смеси языков, отдельной модели пунктуации нет. Переключателя языка у неё нет: на вход только звук, и английскую фразу она может записать русскими буквами.",
-                             "v3 e2e RNN-T adds Russian commas, periods and capitals. The large multilingual model does not: it is for mixed languages, and there is no separate punctuation model. It has no language switch: the input is only audio, so an English phrase can come out in Russian letters.");
+        ModelNote.Text = L.T("v3 e2e RNN-T ставит русские запятые, точки и заглавные. Большая мультиязычная модель этого не умеет: отдельной модели пунктуации нет. Список «Язык» ниже читает только она, и в граф язык не передаётся.",
+                             "v3 e2e RNN-T adds Russian commas, periods and capitals. The large multilingual model does not: there is no separate punctuation model. The Language list below is read only by that model, and no language is passed into the graph.");
+        ScriptLabel.Text = L.T("Язык большой модели", "Language of the large model");
+        ScriptBox.Items.Clear();
+        ScriptBox.Items.Add(new ComboBoxItem { Content = L.T("Авто (русский в приоритете)", "Auto (Russian first)"), Tag = CtcScript.Auto });
+        ScriptBox.Items.Add(new ComboBoxItem { Content = L.T("Русский", "Russian"), Tag = CtcScript.Russian });
+        ScriptBox.Items.Add(new ComboBoxItem { Content = "English", Tag = CtcScript.English });
+        foreach (ComboBoxItem it in ScriptBox.Items)
+            if ((CtcScript)it.Tag == _settings.CtcScript) ScriptBox.SelectedItem = it;
+        ScriptHint.Text = L.T("В файл модели язык не входит. «English» при выборе буквы CTC пропускает кириллицу, «Русский» пропускает латиницу, пробел и апостроф остаются. «Авто» оставляет текст, если он уже латинский. Если он кириллический, второй проход по тем же оценкам берётся, только когда он почти не хуже: уверенное «хелло» не станет hello. На весах 2,4 ГБ это не проверялось. v3 список не читает.",
+                              "The model file has no language input. English skips Cyrillic letters in the CTC choice, Russian skips Latin letters, and space and the apostrophe stay. Auto keeps text that is already Latin. If it is Cyrillic, a second pass on the same scores is used only when it is almost as good: a confident «хелло» does not become hello. This was not tried on the 2.4 GB weights. v3 does not read this list.");
         DeviceBox.Items.Clear();
         DeviceBox.Items.Add(new ComboBoxItem
         {
@@ -347,6 +356,15 @@ public partial class SettingsWindow : Window
         _settings.SpeechModel = kind;
         _apply();
         _speechChanged?.Invoke();
+    }
+
+    private void Script_Changed(object sender, SelectionChangedEventArgs e)
+    {
+        if (_loading || ScriptBox.SelectedItem is not ComboBoxItem item) return;
+        var script = (CtcScript)item.Tag;
+        if (script == _settings.CtcScript) return;
+        _settings.CtcScript = script;
+        _apply();
     }
 
     private void SpeechDevice_Changed(object sender, SelectionChangedEventArgs e)

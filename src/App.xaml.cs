@@ -944,7 +944,13 @@ public partial class PisarApp : Application
             SetStatus(L.T("Загружаю модель…", "Loading the model…"));
             try
             {
-                next = await Task.Run(() => new Core.Recognizer(dir, kind, device, _settings.CpuThreads));
+                var script = _settings.CtcScript;
+                next = await Task.Run(() =>
+                {
+                    var rec = new Core.Recognizer(dir, kind, device, _settings.CpuThreads);
+                    rec.Script = script;
+                    return rec;
+                });
                 if (next.DeviceNote != null)
                     note = next.DeviceActual == "cpu"
                         ? L.T("Видеокарта не поднялась, считаю на процессоре.", "The video card did not start, running on the processor.")
@@ -1172,6 +1178,10 @@ public partial class PisarApp : Application
     private void ApplySettings()
     {
         _settings.Save();
+        lock (_recogLock)
+        {
+            if (_recognizer != null) _recognizer.Script = _settings.CtcScript;
+        }
         if (_hook != null) _hook.HotkeyVk = _settings.HotkeyVk;
         if (!_settings.ShowOverlay) _overlay?.HideNow();
 

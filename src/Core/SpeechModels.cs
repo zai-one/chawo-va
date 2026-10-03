@@ -32,3 +32,17 @@ public static class SpeechModels
         _ => "multilingual-large-ctc",
     };
 }
+
+/// <summary>
+/// Letter script for the multilingual CTC argmax. The ONNX graph has no language input.
+/// v3 RNN-T ignores this.
+/// </summary>
+public enum CtcScript
+{
+    /// <summary>Keep a Latin hypothesis only when it is already Latin, or a Latin-only argmax is close.</summary>
+    Auto,
+    /// <summary>Do not pick Latin letter tokens.</summary>
+    Russian,
+    /// <summary>Do not pick Cyrillic letter tokens.</summary>
+    English,
+}

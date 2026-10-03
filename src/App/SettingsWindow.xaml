@@ -95,6 +95,9 @@
                     <TextBlock x:Name="ModelLabel" Margin="0,18,0,4" FontWeight="SemiBold"/>
                     <ComboBox x:Name="ModelBox" MinWidth="360" HorizontalAlignment="Left" SelectionChanged="SpeechModel_Changed"/>
                     <TextBlock x:Name="ModelNote" Margin="0,4,0,0" Opacity="0.75" TextWrapping="Wrap"/>
+                    <TextBlock x:Name="ScriptLabel" Margin="0,12,0,4" FontWeight="SemiBold"/>
+                    <ComboBox x:Name="ScriptBox" MinWidth="360" HorizontalAlignment="Left" SelectionChanged="Script_Changed"/>
+                    <TextBlock x:Name="ScriptHint" Margin="0,4,0,0" Opacity="0.7" TextWrapping="Wrap"/>
                     <TextBlock x:Name="DeviceLabel" Margin="0,12,0,4" FontWeight="SemiBold"/>
                     <ComboBox x:Name="DeviceBox" MinWidth="360" HorizontalAlignment="Left" SelectionChanged="SpeechDevice_Changed"/>
                     <TextBlock x:Name="ThreadsLabel" Margin="0,12,0,4" FontWeight="SemiBold"/>

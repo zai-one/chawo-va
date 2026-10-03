@@ -40,6 +40,12 @@ public sealed class Settings
     public SpeechDeviceKind SpeechDevice { get; set; } = SpeechDeviceKind.Gpu;
     /// <summary>CPU intra-op threads. 0 means every logical processor. Not applied to a DirectML session.</summary>
     public int CpuThreads { get; set; }
+
+    /// <summary>
+    /// Letter script for the large CTC model. Auto keeps Latin when the model already wrote Latin,
+    /// and only replaces Cyrillic when a Latin-only argmax is close. v3 ignores this. Default Auto.
+    /// </summary>
+    public CtcScript CtcScript { get; set; } = CtcScript.Auto;
     /// <summary>Hermes accepts connections from the LAN (0.0.0.0). Off until the user opens the firewall port.</summary>
     public bool HermesOnLan { get; set; }
     /// <summary>While the Hermes listener is running, ask Windows not to idle-sleep. Off by default.</summary>

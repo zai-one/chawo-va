@@ -47,6 +47,13 @@ public sealed class Recognizer : IDisposable
     /// <summary>Intra-op threads of the session that is actually running. GPU stays at the old cap of 4.</summary>
     public int IntraOpThreads { get; private set; }
     public int SampleRate => _cfg.Features.SampleRate;
+    /// <summary>CTC letter mask. Read at the start of each CTC decode. v3 does not read it.</summary>
+    private volatile int _script;
+    public CtcScript Script
+    {
+        get => (CtcScript)_script;
+        set => _script = (int)value;
+    }
 
     public static bool ModelExists(string dir, SpeechModelKind kind)
     {
@@ -280,21 +287,36 @@ public sealed class Recognizer : IDisposable
 
         int limit = Math.Min(time, (frames - 1) / _cfg.SubsamplingFactor + 1);
         int blank = _ctcVocab.BlankId;
-        int prev = -1;
-        var ids = new List<int>();
-        for (int t = 0; t < limit; t++)
+        var kinds = _ctcVocab.Kinds;
+        var script = Script;
+        // A delegate cannot capture the OrtValue span, so the logits are copied before the argmax.
+        var scores = data.ToArray();
+
+        CtcScriptDecoder.Path Greedy(bool allowLatin, bool allowCyrillic)
         {
-            int best = 0;
-            float bestValue = float.NegativeInfinity;
-            for (int c = 0; c < classes; c++)
+            int prev = -1;
+            var ids = new List<int>();
+            double sum = 0;
+            for (int t = 0; t < limit; t++)
             {
-                float v = classesLast ? data[t * classes + c] : data[c * time + t];
-                if (v > bestValue) { bestValue = v; best = c; }
+                int best = blank;
+                float bestValue = float.NegativeInfinity;
+                for (int c = 0; c < classes; c++)
+                {
+                    var kind = c < kinds.Length ? kinds[c] : CtcScriptDecoder.TokenKind.Neutral;
+                    if (kind == CtcScriptDecoder.TokenKind.Latin && !allowLatin) continue;
+                    if (kind == CtcScriptDecoder.TokenKind.Cyrillic && !allowCyrillic) continue;
+                    float v = classesLast ? scores[t * classes + c] : scores[c * time + t];
+                    if (v > bestValue) { bestValue = v; best = c; }
+                }
+                if (bestValue > float.NegativeInfinity) sum += bestValue;
+                if (best != blank && best != prev) ids.Add(best);
+                prev = best;
             }
-            if (best != blank && best != prev) ids.Add(best);
-            prev = best;
+            return new CtcScriptDecoder.Path(_ctcVocab.Decode(ids), sum, limit);
         }
-        return _ctcVocab.Decode(ids);
+
+        return CtcScriptDecoder.Choose(script, Greedy);
     }
 
     private string DecodeRnnt(float[] feats, int frames, int samples)
@@ -380,11 +402,15 @@ public sealed class Recognizer : IDisposable
         private readonly string[] _tokens;
         public int BlankId { get; }
         public int Count => _tokens.Length;
+        public CtcScriptDecoder.TokenKind[] Kinds { get; }
 
         private CtcVocab(string[] tokens, int blank)
         {
             _tokens = tokens;
             BlankId = blank;
+            Kinds = new CtcScriptDecoder.TokenKind[tokens.Length];
+            for (int i = 0; i < tokens.Length; i++)
+                Kinds[i] = CtcScriptDecoder.Classify(tokens[i]);
         }
 
         public static CtcVocab Load(string path)

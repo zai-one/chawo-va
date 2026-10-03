@@ -19,7 +19,7 @@ Closing the window hides it; the app stays in the notification area until
 
 ## По-русски: что добавлено и зачем
 
-Это форк обычного Гига Писаря для Windows (ветка `gpu-mimo-hermes`, версия 1.3.0). Ниже не список галочек, а зачем каждая правка.
+Это форк обычного Гига Писаря для Windows (ветка `gpu-mimo-hermes`, версия 1.4.0). Ниже не список галочек, а зачем каждая правка.
 
 **Живая строка, пока клавиша зажата.** Модель GigaAM в этой программе не потоковая: она не выдаёт слова по одному, как Google. Пока вы держите клавишу диктовки, раз в секунду (и только если прошлый проход уже закончился) программа прогоняет уже записанный кусок и показывает черновик на плашке у курсора. Плашка поверх всех окон и не забирает фокус. Отпустили клавишу — черновик выбрасывается, по всей записи делается один окончательный проход, и вставляется только он, одним разом, как раньше. Черновик в текст не печатается и второй вставки не делает. Если к моменту отпускания черновик ещё считается, этот проход прерывается и не задерживает окончательный. Плашка пропадает, когда диктовка кончилась. Галочка плашки по-прежнему её прячет целиком.
 
@@ -35,7 +35,11 @@ Closing the window hides it; the app stays in the notification area until
 
 **Проверка обновлений только этого форка.** В «О программе» написана текущая версия и есть кнопка «Проверить обновления». Тот же пункт есть в меню трея. Кнопка один раз спрашивает последний релиз `https://github.com/zai-one/giga-pisar-win/releases` (API `https://api.github.com/repos/zai-one/giga-pisar-win/releases/latest`). Адрес оригинала и любые другие сайты не опрашиваются. По таймеру проверка не ходит. Если версия новее, программа показывает номер и ссылку на страницу релиза и спрашивает, открыть ли её в браузере. Сама она архив не скачивает и не ставит.
 
-**Язык большой модели.** У ONNX `multilingual_large_ctc` нет входа «язык». Карточка istupakov и сам граф принимают только `features` (лог-мел) и `feature_lengths`. Пример onnx-asr тоже вызывает `recognize` без кода языка. В словаре есть и латиница (a–z), и кириллица, модель сама выбирает буквы по звуку. Поэтому английская фраза вроде «hello my friend» может выйти как «хелло май френд». Это не забытый переключатель. Отдельный режим «только английский» в граф не добавить. Для русской диктовки с запятыми берите v3 e2e RNN-T.
+**Язык большой модели.** У ONNX `multilingual_large_ctc` нет входа «язык». Карточка istupakov, yaml и сам граф принимают только `features` (лог-мел) и `feature_lengths`. Пример onnx-asr вызывает `recognize` без кода языка. Словаря языка тоже нет: `multilingual_vocab.txt` — это символы, не токен `<en>` или `<ru>`. Там `▁`, апостроф, латинские a–z, кириллица (русские буквы и несколько среднеазиатских) и `<blk>`. Горячих слов и второго прохода с кодом языка у этого экспорта нет. Поэтому английская фраза может выйти как «хелло май френд»: модель выбрала кириллические буквы, а не потому что переключатель забыли.
+
+В 1.4.0 в «Диктовке» есть список «Язык»: Авто (русский в приоритете), Русский, English. Он не кладёт язык в граф. После одного прогона ONNX программа смотрит оценки CTC (логиты) и при жадном выборе буквы может пропустить часть словаря. «English» не рассматривает кириллические id, «Русский» не рассматривает латинские a–z. Пробел (`▁`), апостроф и blank остаются. «Авто» делает свободный проход. Если букв латиницы уже не меньше, чем кириллицы, текст остаётся. Если текст кириллический, считается второй выбор по тем же оценкам, уже без кириллицы, и он берётся только когда средняя оценка кадра хуже свободной не больше чем на 0,75. Это порог в программе, его не подбирали на файле 2,4 ГБ. Если модель уверена в «хелло», разница больше, и Авто оставляет кириллицу. Громкость записи языком не считается: тихий английский от громкого русского по энергии не отличить.
+
+Чего переключатель не делает. Он не восстанавливает английское написание. Если на кадре лучшая буква «х», а лучшая латинская совсем другая, «English» напечатает ту латинскую, а не слово hello. На весах 2,4 ГБ это не запускалось, так что я не утверждаю, что «hello my friend I like to see you» выйдет латиницей правильно. v3 e2e RNN-T этот список не читает: у неё свой словарь и нет такого выбора. Для русской диктовки с запятыми по-прежнему v3.
 
 **Пунктуация и замена слов.** Запятые, точки и заглавные буквы ставит сама русская модель v3 e2e RNN-T. Отдельной маленькой модели пунктуации Сбера в программе нет, и облако для запятых не подключается. Большая мультиязычная CTC запятых не добавит: у неё нет такой головы, поэтому фраза выглядит слитно. На чистой установке по умолчанию выбирается v3. Если в настройках уже записана другая модель, она не переключается. Слова вроде CPU нейросеть словарём не умеет. После окончательного распознавания, уже в тексте, и только в том тексте, который вставляется и копируется в буфер, можно заменить написание: «цпу» и «сипиу» → CPU, «гпу» и «джипию» → GPU, «таптейн» и «таптэйн» → Taptain, «чаво» → Chawo. Список включается галочкой и правится в «Диктовке», одна замена в строке. Черновик на плашке этим не прогоняется. Это не часть словаря модели.
 
@@ -61,8 +65,8 @@ Two published Sber GigaAM graphs:
 
 | Choice | What it is | Download |
 | --- | --- | --- |
-| **Multilingual Large CTC** (default) | Largest GigaAM **ASR** with a usable ONNX file: `multilingual_large_ctc`, about 600M parameters, fp32. Russian, English and the other languages in that vocabulary. No punctuation model. | about 2.4 GB from [istupakov/gigaam-multilingual-large-ctc-onnx](https://huggingface.co/istupakov/gigaam-multilingual-large-ctc-onnx) |
-| **v3 e2e RNN-T** | Smaller Russian end-to-end model with punctuation (the original Pisar weights, int8). | about 220 MB |
+| **Multilingual Large CTC** | Largest GigaAM **ASR** with a usable ONNX file: `multilingual_large_ctc`, about 600M parameters, fp32. Russian, English and the other languages in that vocabulary. No punctuation model. No language input. | about 2.4 GB from [istupakov/gigaam-multilingual-large-ctc-onnx](https://huggingface.co/istupakov/gigaam-multilingual-large-ctc-onnx) |
+| **v3 e2e RNN-T** (fresh-install default) | Smaller Russian end-to-end model with punctuation (the original Pisar weights, int8). Ignores the language list. | about 220 MB |
 
 Why not something larger: Sber's `multilingual_large` line is the 600M model.
 `multilingual_large_ssl` is an encoder only, not a speech-to-text head, so it
@@ -70,6 +74,19 @@ cannot dictate. There is no published RNN-T ONNX for the 600M model. The fp32
 CTC graph is the one a video card can run; the int8 copy of the same model is
 smaller but a poor fit for DirectML, so this fork downloads fp32. Each file is
 checked against a known SHA-256 before it is kept.
+
+**Language of the large model** (Dictation, 1.4.0). The CTC graph cannot be
+told a language. Settings offers Auto (Russian first), Russian, and English.
+English skips Cyrillic letter ids in the CTC argmax, Russian skips Latin
+letter ids, and blank, `▁` and the apostrophe stay. Auto keeps text that is
+already mostly Latin. If the free decode is Cyrillic, a second argmax on the
+same logits (no second ONNX run) is kept only when its mean chosen score is
+within 0.75 per frame of the free path. That margin is not tuned on the
+2.4 GB file. A confident Cyrillic transliteration such as «хелло» stays
+Cyrillic in Auto. English mode does not reconstruct the English spelling;
+it only refuses Cyrillic letters. This was not run on the weights, so it is
+not a claim that spoken English comes out as "hello". v3 ignores the list.
+Audio energy is not used: loudness is not a language.
 
 ## CPU or video card
 
