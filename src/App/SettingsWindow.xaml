@@ -104,6 +104,12 @@
                     <TextBlock x:Name="ModelNote" Margin="0,8,0,0" Opacity="0.75" TextWrapping="Wrap"/>
                     <TextBlock x:Name="DeviceLabel" Margin="0,14,0,4" FontWeight="SemiBold"/>
                     <ComboBox x:Name="DeviceBox" MinWidth="360" HorizontalAlignment="Left" SelectionChanged="SpeechDevice_Changed"/>
+                    <StackPanel x:Name="WarmupPanel" Margin="0,12,0,0" Visibility="Collapsed">
+                        <TextBlock x:Name="WarmupLabel" FontWeight="SemiBold"/>
+                        <TextBlock x:Name="WarmupHint" Margin="0,4,0,8" Opacity="0.7" TextWrapping="Wrap"/>
+                        <Button x:Name="WarmupButton" HorizontalAlignment="Left" Padding="12,4" Click="Warmup_Click"/>
+                        <TextBlock x:Name="WarmupStatus" Margin="0,6,0,0" Opacity="0.75" TextWrapping="Wrap"/>
+                    </StackPanel>
                     <StackPanel x:Name="ThreadsPanel">
                         <TextBlock x:Name="ThreadsLabel" Margin="0,12,0,4" FontWeight="SemiBold"/>
                         <ComboBox x:Name="ThreadsBox" MinWidth="360" HorizontalAlignment="Left" SelectionChanged="CpuThreads_Changed"/>

@@ -24,9 +24,12 @@ public partial class SettingsWindow : Window
     private readonly Action? _checkUpdates;
     private readonly Action? _stop;
     private readonly Func<SpeechModelKind, Task>? _deleteSpeech;
+    private readonly Func<Task>? _toggleGpuWarmup;
+    private readonly Func<bool>? _gpuWarmed;
     private string _phaseText = "";
     private bool _stopEnabled;
     private bool _loading = true;
+    private bool _warmupBusy;
     /// <summary>Last open section, kept while Pisar runs.</summary>
     private static int _lastPage;
 
@@ -35,7 +38,8 @@ public partial class SettingsWindow : Window
     public SettingsWindow(Settings settings, Action apply, Action unpin, Func<BrainSource, Task> selectBrain,
         Func<Task>? downloadSpeech = null, Action? speechChanged = null, Func<string>? speechStatus = null,
         Func<string>? hermesStatus = null, Func<Task>? toggleLan = null,
-        Action? checkUpdates = null, Action? stop = null, Func<SpeechModelKind, Task>? deleteSpeech = null)
+        Action? checkUpdates = null, Action? stop = null, Func<SpeechModelKind, Task>? deleteSpeech = null,
+        Func<Task>? toggleGpuWarmup = null, Func<bool>? gpuWarmed = null)
     {
         _settings = settings;
         _apply = apply;
@@ -49,6 +53,8 @@ public partial class SettingsWindow : Window
         _checkUpdates = checkUpdates;
         _stop = stop;
         _deleteSpeech = deleteSpeech;
+        _toggleGpuWarmup = toggleGpuWarmup;
+        _gpuWarmed = gpuWarmed;
         InitializeComponent();
         ServerPanel.Saved += UpdateBrainTexts;   // the panel has already applied and saved
         Localize();
@@ -166,6 +172,17 @@ public partial class SettingsWindow : Window
         ThreadsHint.Text = L.T($"Список виден только на процессоре. «Все ядра» — это {cores}. На видеокарте потоки не меняются.",
                                 $"Shown only for the processor. All cores means {cores}. The video card ignores this.");
         ThreadsPanel.Visibility = _settings.SpeechDevice == SpeechDeviceKind.Cpu ? Visibility.Visible : Visibility.Collapsed;
+        bool gpu = _settings.SpeechDevice == SpeechDeviceKind.Gpu;
+        WarmupPanel.Visibility = gpu ? Visibility.Visible : Visibility.Collapsed;
+        WarmupLabel.Text = L.T("Прогрев видеокарты", "Video card warmup");
+        WarmupHint.Text = L.T("Держит выбранную речевую модель на видеокарте и один раз прогоняет короткий тихий звук, чтобы первая фраза не ждала компиляцию DirectML. Мозг не трогает. Если модели нет на диске, ничего не качает.",
+                               "Keeps the selected speech model on the video card and runs one short silent pass so the first phrase does not wait for DirectML to compile. The Brain is not touched. If the model is not on disk, nothing is downloaded.");
+        bool warmed = gpu && _gpuWarmed?.Invoke() == true;
+        WarmupButton.Content = warmed ? L.T("Остановить", "Stop") : L.T("Запустить прогрев", "Start warmup");
+        WarmupButton.IsEnabled = !_warmupBusy;
+        WarmupStatus.Text = warmed
+            ? L.T("Прогрев включён: сессия речи на видеокарте.", "Warmup is on: the speech session is on the video card.")
+            : L.T("Прогрев выключен.", "Warmup is off.");
         ThreadsBox.Items.Clear();
         ThreadsBox.Items.Add(new ComboBoxItem { Content = L.T($"Все ядра ({cores})", $"All cores ({cores})"), Tag = 0 });
         for (int n = 1; n <= cores; n++)
@@ -322,8 +339,22 @@ public partial class SettingsWindow : Window
         if (device == _settings.SpeechDevice) return;
         _settings.SpeechDevice = device;
         ThreadsPanel.Visibility = device == SpeechDeviceKind.Cpu ? Visibility.Visible : Visibility.Collapsed;
+        WarmupPanel.Visibility = device == SpeechDeviceKind.Gpu ? Visibility.Visible : Visibility.Collapsed;
         _apply();
         _speechChanged?.Invoke();
+    }
+
+    private async void Warmup_Click(object sender, RoutedEventArgs e)
+    {
+        if (_toggleGpuWarmup == null || _warmupBusy) return;
+        _warmupBusy = true;
+        WarmupButton.IsEnabled = false;
+        try { await _toggleGpuWarmup(); }
+        finally
+        {
+            _warmupBusy = false;
+            Localize();
+        }
     }
 
     private void CpuThreads_Changed(object sender, SelectionChangedEventArgs e)

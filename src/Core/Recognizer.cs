@@ -160,6 +160,17 @@ public sealed class Recognizer : IDisposable
         return new InferenceSession(path, options);
     }
 
+    /// <summary>
+    /// One silent pass, just long enough for a frame. DirectML compiles the graph on the first
+    /// <c>Run</c>, not when the session is created, so this is what makes the next phrase fast.
+    /// The text is discarded. Does not download anything.
+    /// </summary>
+    public void Warmup()
+    {
+        int n = Math.Max(_cfg.Features.WinLength, 1);
+        Execute(new float[n], SampleRate, owned: false, null);
+    }
+
     /// <summary>Recognizes a recording. Not cancelled by <see cref="CancelOwned"/> (Hermes).</summary>
     public string Transcribe(float[] samples, int rate) => Execute(samples, rate, owned: false, null);
 
@@ -390,11 +401,17 @@ public sealed class Recognizer : IDisposable
 
     public void Dispose()
     {
-        _runOptions.Dispose();
-        _ctc?.Dispose();
-        _encoder?.Dispose();
-        _decoder?.Dispose();
-        _joint?.Dispose();
+        // Same lock as a pass, so a warmup or a dictation run finishes before the session goes away.
+        lock (_runLock)
+        {
+            _runOptions.Dispose();
+            _ctc?.Dispose();
+            _encoder?.Dispose();
+            _decoder?.Dispose();
+            _joint?.Dispose();
+            _ctc = null;
+            _encoder = _decoder = _joint = null;
+        }
     }
 
     private sealed class CtcVocab

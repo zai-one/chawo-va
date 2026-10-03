@@ -49,6 +49,8 @@ public partial class PisarApp : Application
     private Core.Recognizer? _recognizer;
     private readonly object _recogLock = new();
     private string _speechNote = "";
+    /// <summary>True after a DirectML dummy pass on the recognizer that is still loaded.</summary>
+    private bool _gpuWarmed;
     private HermesServer? _hermes;
     private KeyboardHook? _hook;
     private readonly Recorder _recorder = new();
@@ -429,8 +431,13 @@ public partial class PisarApp : Application
         if (_recognizer == null)
         {
             SetPhase(DictatePhase.NoModel);
-            Hint(L.T("Модель не скачана. Откройте окно и нажмите «Скачать выбранную модель». Сама она не скачивается.",
-                     "The model is not downloaded. Open the window and press Download the selected model. It does not download by itself."));
+            bool onDisk = SpeechModelStore.FindComplete(_settings.SpeechModel) != null;
+            if (onDisk)
+                Hint(L.T("Модель на диске, но сессия не загружена. На «Распознавании» нажмите «Запустить прогрев», если выбрана видеокарта. Веса сами не скачиваются.",
+                         "The model is on disk, but the session is not loaded. On Speech, press Start warmup when the video card is selected. Weights are not downloaded by themselves."));
+            else
+                Hint(L.T("Модель не скачана. Откройте окно и нажмите «Скачать выбранную модель». Сама она не скачивается.",
+                         "The model is not downloaded. Open the window and press Download the selected model. It does not download by itself."));
             return;
         }
         _abandonTake = false;
@@ -884,6 +891,8 @@ public partial class PisarApp : Application
         var dir = SpeechModelStore.FindComplete(kind);
         Core.Recognizer? next = null;
         string note = "";
+        // A reloaded session has not had the dummy pass. The warmup button sets the flag after that.
+        _gpuWarmed = false;
         if (dir != null)
         {
             SetStatus(L.T("Загружаю модель…", "Loading the model…"));
@@ -916,6 +925,8 @@ public partial class PisarApp : Application
             old = _recognizer;
             _recognizer = next;
             _speechNote = note;
+            // The new session has not had the dummy pass, even if a warmup finished on the old one.
+            _gpuWarmed = false;
         }
         old?.Dispose();
         SetStatus(null);
@@ -950,14 +961,19 @@ public partial class PisarApp : Application
         string note;
         lock (_recogLock) { rec = _recognizer; note = _speechNote; }
         if (rec == null || rec.Kind != kind)
-            return whereFile + L.T("Файлы на месте, но модель не загрузилась. ", "The files are there, but the model did not load. ") + note;
+            return whereFile + L.T("Файлы на месте, но сессия не загружена. ", "The files are there, but the session is not loaded. ") + note;
         string where = rec.DeviceActual == "gpu"
             ? L.T("видеокарте (DirectML)", "the video card (DirectML)")
             : L.T("процессоре", "the processor");
         string threads = rec.DeviceActual == "cpu"
             ? L.T($" Потоков процессора: {rec.IntraOpThreads}.", $" Processor threads: {rec.IntraOpThreads}.")
             : L.T(" Настройка потоков процессор не трогает, пока считает видеокарта.", " The processor-thread setting is idle while the video card runs.");
-        return whereFile + L.T($"Загружена {rec.ModelId}, считает на {where}. ", $"Loaded {rec.ModelId}, running on {where}. ") + note + threads;
+        string warm = "";
+        if (rec.DeviceActual == "gpu")
+            warm = _gpuWarmed
+                ? L.T(" Прогрев включён.", " Warmup is on.")
+                : L.T(" Прогрев не запускали.", " Warmup has not been run.");
+        return whereFile + L.T($"Загружена {rec.ModelId}, считает на {where}. ", $"Loaded {rec.ModelId}, running on {where}. ") + note + threads + warm;
     }
 
     private void StartHermes() => RestartHermes(_settings.HermesOnLan);
@@ -1101,6 +1117,120 @@ public partial class PisarApp : Application
         _tray.Text = status == null ? L.T("Гига Писарь", "Giga Pisar") : L.T($"Гига Писарь: {status}", $"Giga Pisar: {status}");
     }
 
+    private bool GpuWarmActive()
+    {
+        lock (_recogLock)
+            return _gpuWarmed && _recognizer != null && _recognizer.DeviceActual == "gpu" && _recognizer.Kind == _settings.SpeechModel;
+    }
+
+    /// <summary>Start keeps the speech session on DirectML and runs one tiny pass. Stop disposes it. The Brain is not touched.</summary>
+    private async Task ToggleGpuWarmupAsync()
+    {
+        if (GpuWarmActive())
+        {
+            await StopGpuWarmupAsync();
+            return;
+        }
+        await StartGpuWarmupAsync();
+    }
+
+    private async Task StartGpuWarmupAsync()
+    {
+        if (_settings.SpeechDevice != Core.SpeechDeviceKind.Gpu)
+            return;
+        var kind = _settings.SpeechModel;
+        var dir = SpeechModelStore.FindComplete(kind);
+        if (dir == null)
+        {
+            _gpuWarmed = false;
+            System.Windows.MessageBox.Show(
+                L.T("Выбранная речевая модель на диске не найдена. Прогрев не запущен. Веса сами не скачиваются.",
+                    "The selected speech model was not found on disk. Warmup did not start. Weights are not downloaded."),
+                L.T("Прогрев видеокарты", "Video card warmup"),
+                System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Information);
+            _settingsWindow?.Localize();
+            return;
+        }
+        if (_recorder.IsRecording || _busy)
+        {
+            System.Windows.MessageBox.Show(
+                L.T("Сначала нажмите Стоп. Пока идёт диктовка, сессию не трогаю.",
+                    "Press Stop first. The session is left alone while dictation is running."),
+                L.T("Прогрев видеокарты", "Video card warmup"),
+                System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Information);
+            return;
+        }
+        Core.Recognizer? rec;
+        lock (_recogLock) rec = _recognizer;
+        bool reusable = rec != null && rec.Kind == kind && rec.DeviceActual == "gpu" && rec.ModelDir == dir;
+        if (!reusable)
+        {
+            await ReloadSpeechAsync();
+            lock (_recogLock) rec = _recognizer;
+        }
+        if (rec == null || rec.Kind != kind || rec.DeviceActual != "gpu")
+        {
+            _gpuWarmed = false;
+            System.Windows.MessageBox.Show(
+                L.T("Видеокарта не поднялась, прогрев не запущен.",
+                    "The video card did not start, so warmup did not start."),
+                L.T("Прогрев видеокарты", "Video card warmup"),
+                System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Warning);
+            _settingsWindow?.Localize();
+            return;
+        }
+        SetStatus(L.T("Прогреваю видеокарту…", "Warming up the video card…"));
+        try
+        {
+            await Task.Run(rec.Warmup);
+            lock (_recogLock)
+            {
+                if (ReferenceEquals(_recognizer, rec) && rec.DeviceActual == "gpu" && rec.Kind == kind)
+                    _gpuWarmed = true;
+                else
+                    _gpuWarmed = false;
+            }
+            Log.Write($"gpu warmup {(_gpuWarmed ? "ok" : "dropped")} model={rec.ModelId}");
+        }
+        catch (Exception ex)
+        {
+            _gpuWarmed = false;
+            Log.Write($"gpu warmup failed: {ex.GetType().Name}: {ex.Message}");
+            System.Windows.MessageBox.Show(
+                L.T($"Прогрев не запущен.\n{ex.Message}", $"Warmup did not start.\n{ex.Message}"),
+                L.T("Прогрев видеокарты", "Video card warmup"),
+                System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Warning);
+        }
+        SetStatus(null);
+        SetPhase(_recognizer == null ? DictatePhase.NoModel : DictatePhase.Idle);
+        _settingsWindow?.Localize();
+    }
+
+    private Task StopGpuWarmupAsync()
+    {
+        if (_recorder.IsRecording || _busy)
+        {
+            System.Windows.MessageBox.Show(
+                L.T("Сначала нажмите Стоп. Пока идёт диктовка, сессию не выгружаю.",
+                    "Press Stop first. The session stays loaded while dictation is running."),
+                L.T("Прогрев видеокарты", "Video card warmup"),
+                System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Information);
+            return Task.CompletedTask;
+        }
+        Core.Recognizer? old;
+        lock (_recogLock)
+        {
+            old = _recognizer;
+            _recognizer = null;
+            _gpuWarmed = false;
+        }
+        old?.Dispose();
+        Log.Write("gpu warmup stopped, speech session disposed");
+        SetPhase(DictatePhase.NoModel);
+        _settingsWindow?.Localize();
+        return Task.CompletedTask;
+    }
+
     public void ShowSettings()
     {
         if (_settingsWindow == null)
@@ -1108,7 +1238,8 @@ public partial class PisarApp : Application
             _settingsWindow = new SettingsWindow(_settings, ApplySettings, () => { _overlay?.Unpin(); _settings.OverlayX = null; _settings.OverlayY = null; _settings.Save(); }, SelectBrainAsync,
                 () => DownloadSpeechAsync(manualStart: false), () => _ = ReloadSpeechAsync(), SpeechStatusText,
                 HermesStatusText, ToggleLanAsync,
-                () => _ = CheckForUpdatesAsync(silent: false), RequestStop, DeleteSpeechModelAsync);
+                () => _ = CheckForUpdatesAsync(silent: false), RequestStop, DeleteSpeechModelAsync,
+                ToggleGpuWarmupAsync, GpuWarmActive);
             SetPhase(_phase);
             _settingsWindow.Closed += (_, _) => _settingsWindow = null;
         }
