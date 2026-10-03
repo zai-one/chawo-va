@@ -186,6 +186,15 @@
                         <Button x:Name="CheckHostButton" HorizontalAlignment="Left" Margin="0,12,0,0" Padding="12,4" Click="CheckHost_Click"/>
                         <TextBlock x:Name="HostCheckStatus" Margin="0,6,0,0" Opacity="0.75" TextWrapping="Wrap"/>
                     </StackPanel>
+                    <StackPanel x:Name="FilePanel" Margin="0,18,0,0">
+                        <TextBlock x:Name="FileHeading" FontWeight="SemiBold"/>
+                        <TextBlock x:Name="FileNote" Margin="0,4,0,0" Opacity="0.75" TextWrapping="Wrap"/>
+                        <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
+                            <Button x:Name="FilePickButton" Padding="12,4" Click="FilePick_Click"/>
+                            <Button x:Name="FileStopButton" Margin="8,0,0,0" Padding="12,4" Click="FileStop_Click" Visibility="Collapsed"/>
+                        </StackPanel>
+                        <TextBlock x:Name="FileStatus" Margin="0,6,0,0" Opacity="0.85" TextWrapping="Wrap"/>
+                    </StackPanel>
                 </StackPanel>
             </Grid>
         </ScrollViewer>

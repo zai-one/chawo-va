@@ -27,10 +27,14 @@ public partial class SettingsWindow : Window
     private readonly Func<Task>? _toggleGpuWarmup;
     private readonly Func<bool>? _gpuWarmed;
     private readonly Action? _networkChanged;
+    private readonly Func<string, Task>? _transcribeFile;
+    private readonly Action? _cancelFile;
     private string _phaseText = "";
     private bool _stopEnabled;
     private bool _loading = true;
     private bool _warmupBusy;
+    private string _fileLine = "";
+    private bool _fileRunning;
     /// <summary>Last open section, kept while Pisar runs.</summary>
     private static int _lastPage;
 
@@ -40,7 +44,8 @@ public partial class SettingsWindow : Window
         Func<Task>? downloadSpeech = null, Action? speechChanged = null, Func<string>? speechStatus = null,
         Func<string>? hermesStatus = null, Func<Task>? toggleLan = null,
         Action? checkUpdates = null, Action? stop = null, Func<SpeechModelKind, Task>? deleteSpeech = null,
-        Func<Task>? toggleGpuWarmup = null, Func<bool>? gpuWarmed = null, Action? networkChanged = null)
+        Func<Task>? toggleGpuWarmup = null, Func<bool>? gpuWarmed = null, Action? networkChanged = null,
+        Func<string, Task>? transcribeFile = null, Action? cancelFile = null)
     {
         _settings = settings;
         _apply = apply;
@@ -57,6 +62,8 @@ public partial class SettingsWindow : Window
         _toggleGpuWarmup = toggleGpuWarmup;
         _gpuWarmed = gpuWarmed;
         _networkChanged = networkChanged;
+        _transcribeFile = transcribeFile;
+        _cancelFile = cancelFile;
         InitializeComponent();
         ServerPanel.Saved += UpdateBrainTexts;   // the panel has already applied and saved
         Localize();
@@ -209,20 +216,20 @@ public partial class SettingsWindow : Window
 
 
         NetworkHeading.Text = L.T("Сеть", "Network");
-        NetworkIntro.Text = L.T("Этот компьютер — хост или клиент другого Писаря. Клиент модель не скачивает.",
-                                "This computer is a host, or a client of another Pisar. A client does not download a model.");
+        NetworkIntro.Text = L.T("Хост распознаёт на этом компьютере и принимает подключения. Клиент отправляет звук на другой компьютер и модель не скачивает.",
+                                "The host recognizes on this PC and accepts connections. A client sends audio to another PC and does not download a model.");
         RoleLabel.Text = L.T("Роль", "Role");
         RoleBox.Items.Clear();
-        RoleBox.Items.Add(new ComboBoxItem { Content = L.T("Хост: расшифровка на этом ПК", "Host: transcribe on this PC"), Tag = NetworkRole.Host });
-        RoleBox.Items.Add(new ComboBoxItem { Content = L.T("Клиент: звук на другой компьютер", "Client: send audio to another PC"), Tag = NetworkRole.Client });
+        RoleBox.Items.Add(new ComboBoxItem { Content = L.T("Хост: этот компьютер распознаёт сам и принимает подключения", "Host: this PC recognizes on its own and accepts connections"), Tag = NetworkRole.Host });
+        RoleBox.Items.Add(new ComboBoxItem { Content = L.T("Клиент: звук уходит на другой компьютер", "Client: audio goes to another PC"), Tag = NetworkRole.Client });
         foreach (ComboBoxItem it in RoleBox.Items)
             if ((NetworkRole)it.Tag == _settings.NetworkRole) RoleBox.SelectedItem = it;
         bool client = _settings.NetworkRole == NetworkRole.Client;
         HostPanel.Visibility = client ? Visibility.Collapsed : Visibility.Visible;
         ClientPanel.Visibility = client ? Visibility.Visible : Visibility.Collapsed;
         HostNote.Text = L.T(
-            $"Это хост. Параметры уже настроены: порт {SpeechModels.HermesPort}. Пока кнопку ниже не нажать, слушает только 127.0.0.1. После кнопки — все адреса этого ПК (0.0.0.0), тот же порт.",
-            $"This is the host. The parameters are already set: port {SpeechModels.HermesPort}. Until you press the button below it listens on 127.0.0.1 only. After the button, every address of this PC (0.0.0.0), same port.");
+            $"Этот компьютер распознаёт сам и принимает подключения. Диктовка здесь не выключается. Порт {SpeechModels.HermesPort}. Пока кнопку ниже не нажать, подключения только с этого компьютера (127.0.0.1). После кнопки — со всех адресов (0.0.0.0), тот же порт.",
+            $"This PC recognizes on its own and accepts connections. Dictation stays on. Port {SpeechModels.HermesPort}. Until you press the button below, connections are from this PC only (127.0.0.1). After the button, every address (0.0.0.0), same port.");
         HermesHeading.Text = L.T("Порт расшифровки", "Transcription port");
         HermesListenStatus.Text = _hermesStatus?.Invoke()
             ?? L.T($"Сейчас только этот компьютер, порт {SpeechModels.HermesPort}.",
@@ -231,8 +238,8 @@ public partial class SettingsWindow : Window
             ? L.T("Снова слушать только этот компьютер", "Listen on this PC only again")
             : L.T("Открыть порт в брандмауэре и слушать сеть", "Open the firewall port and listen on the network");
         ClientNote.Text = L.T(
-            "Клиент отправляет запись на http://адрес:порт/v1/transcribe и не запускает местную речевую модель. Если хост молчит, будет короткая ошибка. Скачивание само не начнётся.",
-            "The client posts the recording to http://address:port/v1/transcribe and does not run a local speech model. If the host is down, you get a short error. Nothing starts a download.");
+            "Звук уходит на другой компьютер: http://адрес:порт/v1/transcribe. Местная речевая модель не запускается и не скачивается. Если хост молчит, будет короткая ошибка.",
+            "Audio goes to another PC: http://address:port/v1/transcribe. The local speech model is not started and is not downloaded. If the host is down, you get a short error.");
         RemoteHostLabel.Text = L.T("Адрес хоста", "Host address");
         RemotePortLabel.Text = L.T("Порт", "Port");
         RemoteHostBox.Text = _settings.RemoteHost;
@@ -242,6 +249,18 @@ public partial class SettingsWindow : Window
         if (string.IsNullOrWhiteSpace(HostCheckStatus.Text))
             HostCheckStatus.Text = L.T("Проверка только спрашивает /v1/health. Модель не скачивается.",
                                        "The check only asks /v1/health. No model is downloaded.");
+        FileHeading.Text = L.T("Файл диалога", "Dialogue file");
+        FileNote.Text = L.T(
+            "Укажите путь к записи на этом компьютере. Это не загрузка: файл читается на месте. Нужен WAV 16 бит или Ogg/Opus. Длинная запись режется на куски не длиннее 24 секунд, по паузам, и идёт по порядку. Рядом появится текст с тем же именем и расширением .txt. Если этот ПК — клиент, файл уходит на хост, а текст всё равно пишется здесь. Модель сама не скачивается.",
+            "Choose a recording on this PC. This is not an upload: the file is read in place. It must be 16-bit WAV or Ogg/Opus. A long recording is split into pieces of at most 24 seconds, on pauses, and transcribed in order. A text file with the same name and a .txt extension is written beside it. If this PC is a client, the file goes to the host and the text is still written here. The model is not downloaded.");
+        FilePickButton.Content = L.T("Указать файл", "Choose a file");
+        FileStopButton.Content = L.T("Остановить", "Stop");
+        FilePickButton.IsEnabled = !_fileRunning;
+        FileStopButton.Visibility = _fileRunning ? Visibility.Visible : Visibility.Collapsed;
+        FileStatus.Text = _fileLine.Length > 0
+            ? _fileLine
+            : L.T("Текст ляжет рядом с записью: то же имя, расширение .txt.",
+                  "The text is written beside the recording: same name, .txt extension.");
 
         CleanupHeading.Text = L.T("Мозг", "Brain");
         CleanupHint.Text = L.T("Выключен: текст вставляется как распознан. Можно сказать «Писарь, исправь». Чтобы править каждую фразу, включите переписывание ниже.",
@@ -419,6 +438,31 @@ public partial class SettingsWindow : Window
         _settings.RemotePort = port;
         _apply();
     }
+
+    public void SetFileStatus(string text, bool running)
+    {
+        _fileLine = text;
+        _fileRunning = running;
+        if (!IsLoaded) return;
+        FileStatus.Text = text;
+        FilePickButton.IsEnabled = !running;
+        FileStopButton.Visibility = running ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    private void FilePick_Click(object sender, RoutedEventArgs e)
+    {
+        if (_fileRunning || _transcribeFile == null) return;
+        var dlg = new Microsoft.Win32.OpenFileDialog
+        {
+            Title = L.T("Указать файл", "Choose a file"),
+            Filter = "WAV, Ogg (*.wav;*.ogg)|*.wav;*.ogg",
+            CheckFileExists = true,
+        };
+        if (dlg.ShowDialog(this) != true || string.IsNullOrWhiteSpace(dlg.FileName)) return;
+        _ = _transcribeFile(dlg.FileName);
+    }
+
+    private void FileStop_Click(object sender, RoutedEventArgs e) => _cancelFile?.Invoke();
 
     private async void CheckHost_Click(object sender, RoutedEventArgs e)
     {

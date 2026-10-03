@@ -64,8 +64,11 @@ public sealed class HermesServer : IDisposable
                     Write(client.GetStream(), 403, JsonSerializer.Serialize(new { error = "localhost_only" }));
                     return;
                 }
-                client.ReceiveTimeout = 120_000;
-                client.SendTimeout = 120_000;
+                // A two-hour file is read, then the model runs for a long time before the answer is written.
+                client.ReceiveTimeout = 0;
+                client.SendTimeout = 0;
+                try { client.Client.SetSocketOption(System.Net.Sockets.SocketOptionLevel.Socket, System.Net.Sockets.SocketOptionName.KeepAlive, true); }
+                catch { /* keepalive is optional */ }
                 var stream = client.GetStream();
                 var (method, path, headers, body) = ReadRequest(stream);
                 if (method == "GET" && (path == "/v1/health" || path == "/health"))
@@ -188,7 +191,8 @@ public sealed class HermesServer : IDisposable
         int length = 0;
         if (headers.TryGetValue("content-length", out var lenText))
         {
-            if (!int.TryParse(lenText, out length) || length < 0 || length > 100 * 1024 * 1024)
+            // Long enough for about two hours of 44.1 kHz stereo 16-bit. Not a download.
+            if (!int.TryParse(lenText, out length) || length < 0 || length > FileTranscript.MaxBytes)
                 throw new InvalidDataException("content-length is missing or too large");
         }
         else if (req[0] == "POST")

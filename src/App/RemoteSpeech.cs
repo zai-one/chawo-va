@@ -22,14 +22,17 @@ public sealed class RemoteHostException : Exception
 
 public static class RemoteSpeech
 {
-    private static readonly HttpClient Http = new(new SocketsHttpHandler
+    private static HttpClient MakeClient(TimeSpan timeout) => new(new SocketsHttpHandler
     {
         AllowAutoRedirect = false,
         ConnectTimeout = TimeSpan.FromSeconds(5),
     })
-    {
-        Timeout = TimeSpan.FromSeconds(90),
-    };
+    { Timeout = timeout };
+
+    private static readonly HttpClient Http = MakeClient(TimeSpan.FromSeconds(90));
+
+    /// <summary>File posts can take hours. Cancelled only by the caller's token. Does not download a model.</summary>
+    private static readonly HttpClient FileHttp = MakeClient(Timeout.InfiniteTimeSpan);
 
     public static bool TryEndpoint(Settings settings, out Uri transcribe, out string russian, out string english)
     {
@@ -100,6 +103,11 @@ public static class RemoteSpeech
             throw Down();
         }
 
+        return ReadText(resp, cancel);
+    }
+
+    private static string ReadText(HttpResponseMessage resp, CancellationToken cancel)
+    {
         using (resp)
         {
             string body;
@@ -111,6 +119,10 @@ public static class RemoteSpeech
                 throw new RemoteHostException(
                     "Хост на связи, но модель там не загружена. Здесь ничего не скачиваю.",
                     "The host answered, but its model is not loaded. Nothing is downloaded here.");
+            if ((int)resp.StatusCode == 400)
+                throw new RemoteHostException(
+                    "Хост не принял файл. Нужен WAV 16 бит или Ogg/Opus. Модель здесь не скачивается.",
+                    "The host rejected the file. It needs 16-bit WAV or Ogg/Opus. This PC does not download a model.");
             if (!resp.IsSuccessStatusCode)
                 throw new RemoteHostException(
                     $"Хост ответил ошибкой {(int)resp.StatusCode}. Модель здесь не скачивается.",
@@ -126,6 +138,37 @@ public static class RemoteSpeech
                 "Хост ответил не текстом. Модель здесь не скачивается.",
                 "The host answer was not text. This PC does not download a model.");
         }
+    }
+
+    /// <summary>
+    /// Posts the file bytes as-is (wav or ogg). The host splits and recognizes.
+    /// Does not download a model. Cancel with <paramref name="cancel"/>.
+    /// </summary>
+    public static string TranscribeBytes(Settings settings, byte[] body, string contentType, CancellationToken cancel)
+    {
+        if (!TryEndpoint(settings, out var uri, out var ru, out var en))
+            throw new RemoteHostException(ru, en);
+        if (body.LongLength > FileTranscript.MaxBytes)
+            throw new RemoteHostException(
+                "Файл слишком большой. Модель здесь не скачивается.",
+                "The file is too large. This PC does not download a model.");
+        using var req = new HttpRequestMessage(HttpMethod.Post, uri);
+        req.Content = new ByteArrayContent(body);
+        req.Content.Headers.ContentType = new MediaTypeHeaderValue(contentType);
+        HttpResponseMessage resp;
+        try
+        {
+            resp = FileHttp.Send(req, cancel);
+        }
+        catch (OperationCanceledException) when (cancel.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception)
+        {
+            throw Down();
+        }
+        return ReadText(resp, cancel);
     }
 
     /// <summary>Short Russian line for the Network page. Never downloads.</summary>

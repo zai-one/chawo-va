@@ -19,7 +19,9 @@ Closing the window hides it; the app stays in the notification area until
 
 ## По-русски: что добавлено и зачем
 
-Это форк обычного Гига Писаря для Windows (ветка `gpu-mimo-hermes`, версия 1.10.0). Ниже не список галочек, а зачем каждая правка.
+Это форк обычного Гига Писаря для Windows (ветка `gpu-mimo-hermes`, версия 1.11.0). Ниже не список галочек, а зачем каждая правка.
+
+**1.11.0: хост диктует сам и принимает подключения. Файл диалога — в текст.** Роль «Хост» значит: этот компьютер распознаёт сам и принимает подключения. Диктовка с клавиши не выключается. Роль «Клиент» значит: звук уходит на другой компьютер, местная речевая модель не запускается и не скачивается. В разделе «Сеть» кнопка «Указать файл» (это путь, не загрузка копии). Берётся WAV 16 бит или Ogg/Opus. Запись длиннее 25 секунд режется на куски не длиннее 24 секунд, по паузам, тем же правилом, что и распознаватель. Куски идут по порядку. Между кусками сессия отпускается, поэтому диктовка с клавиши не ждёт весь файл. Рядом с исходным пишется текст с тем же именем и расширением `.txt` (запись `разговор.wav` даёт `разговор.txt`). На экране номер куска. Если этот ПК — клиент, файл целиком уходит на хост, куски считает хост, а `.txt` всё равно пишется здесь. Модель сама не скачивается. Если она не загружена, будет фраза по-русски и скачивание не начнётся.
 
 **1.10.0: хост или клиент.** В разделе «Сеть» выбирается роль. Хост — этот компьютер, параметры уже стоят: порт 17831, слушает только 127.0.0.1, пока не нажать «Открыть порт в брандмауэре и слушать сеть», после этого 0.0.0.0 и тот же порт. Клиент пишет адрес и порт (по умолчанию 17831) и шлёт запись на `http://адрес:порт/v1/transcribe`. Местную речевую модель клиент не качает и не запускает. Если хост молчит, не открылся или ответил без модели, на экране короткое сообщение и скачивание само не начинается. Кнопка «Проверить хост» только спрашивает `/v1/health`.
 
@@ -172,6 +174,8 @@ spend the answer on a reasoning trace. The brain stays **off** until you
 select a service in Settings.
 
 ## Hermes
+
+**1.11.0.** Host means this PC recognizes on its own and still accepts connections. Dictation is not turned off. Client means audio goes to another PC. Settings → Network → Choose a file reads a 16-bit WAV or Ogg/Opus in place (not an upload). Pieces are at most 24 seconds, cut on pauses, in order. The session lock drops between pieces so push-to-talk still works. The text file is written beside the source with the same base name and a `.txt` extension. A client posts the whole file to the host and still writes that `.txt` locally. No model is downloaded. If the model is not loaded, the window says so in Russian.
 
 **1.10.0 role.** Settings → Network: Host or Client. Host keeps the listener above (127.0.0.1 until the firewall button, then 0.0.0.0, port 17831). Client posts the take to `http://address:port/v1/transcribe` and does not download or start a local speech model. A dead host shows a short error and does not fall through to a download.
 

@@ -58,7 +58,7 @@ public sealed class Settings
     public CtcScript CtcScript { get; set; } = CtcScript.Auto;
     /// <summary>Hermes accepts connections from the LAN (0.0.0.0). Off until the user opens the firewall port.</summary>
     public bool HermesOnLan { get; set; }
-    /// <summary>Host transcribes here. Client sends the microphone to another PC and does not download a speech model.</summary>
+    /// <summary>Host recognizes on this PC and still accepts connections. Client sends audio to another PC and does not download a speech model.</summary>
     public NetworkRole NetworkRole { get; set; } = NetworkRole.Host;
     /// <summary>Client only. IP or name of the PC that listens on Hermes. Not a download URL.</summary>
     public string RemoteHost { get; set; } = "";

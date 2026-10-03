@@ -65,6 +65,9 @@ public partial class PisarApp : Application
     private CancellationTokenSource? _remotePartialCts;
     private DispatcherTimer? _partialTimer;
     private CancellationTokenSource? _takeCts;
+    private CancellationTokenSource? _fileCts;
+    private int _fileBusy;
+    private string _fileStatus = "";
     private DictatePhase _phase = DictatePhase.NoModel;
     /// <summary>Text selected when the key went down (read in the background); a take with a selection is a command on it.</summary>
     private Task<string?>? _selectionAtPress;
@@ -1166,36 +1169,38 @@ public partial class PisarApp : Application
 
     private HermesResult HermesTranscribe(byte[] audio)
     {
-        lock (_recogLock)
+        Core.Recognizer? rec;
+        lock (_recogLock) rec = _recognizer;
+        if (audio.Length == 0)
+            return new HermesResult(rec != null, null, rec?.ModelId ?? _settings.SpeechModel.ToString(), rec?.DeviceActual ?? "", rec?.Provider ?? "", 0, null);
+        if (rec == null)
+            return new HermesResult(false, null, "", "", "", 0, null);
+        try
         {
-            var rec = _recognizer;
-            if (audio.Length == 0)
-                return new HermesResult(rec != null, null, rec?.ModelId ?? _settings.SpeechModel.ToString(), rec?.DeviceActual ?? "", rec?.Provider ?? "", 0, null);
-            if (rec == null)
-                return new HermesResult(false, null, "", "", "", 0, null);
-            try
+            float[] samples = FileTranscript.Decode16k(audio, "request");
+            var ranges = rec.PieceRanges(samples);
+            var parts = new List<string>(ranges.Count);
+            foreach (var (from, to) in ranges)
             {
-                float[] samples;
-                int rate;
-                if (audio.Length >= 4 && audio[0] == (byte)'R' && audio[1] == (byte)'I' && audio[2] == (byte)'F' && audio[3] == (byte)'F')
-                    (samples, rate) = Core.AudioUtils.ReadWav(audio);
-                else if (audio.Length >= 4 && audio[0] == (byte)'O' && audio[1] == (byte)'g' && audio[2] == (byte)'g' && audio[3] == (byte)'S')
+                lock (_recogLock)
                 {
-                    samples = Core.OggOpus.DecodeTo16kMono(audio);
-                    rate = 16000;
+                    if (!ReferenceEquals(_recognizer, rec))
+                        return new HermesResult(false, null, "", "", "", 0, "model unloaded");
                 }
-                else
-                    return new HermesResult(true, null, rec.ModelId, rec.DeviceActual, rec.Provider, 0, "need a wav or ogg/opus file");
-                if (rate != 16000) samples = Core.AudioUtils.Resample(samples, rate, 16000);
-                var text = rec.Transcribe(samples, 16000);
-                Log.Write($"hermes {samples.Length / 16000.0:F1}s -> {text.Length} chars");
-                return new HermesResult(true, text, rec.ModelId, rec.DeviceActual, rec.Provider, samples.Length / 16000.0, null);
+                var piece = new float[to - from];
+                Array.Copy(samples, from, piece, 0, piece.Length);
+                // One piece, then the session lock drops, so dictation on this PC can run between pieces.
+                var bit = rec.TranscribePiece(piece);
+                if (bit.Length > 0) parts.Add(bit);
             }
-            catch (Exception ex)
-            {
-                Log.Write($"hermes decode failed: {ex.GetType().Name}");
-                return new HermesResult(true, null, rec.ModelId, rec.DeviceActual, rec.Provider, 0, ex.Message);
-            }
+            string text = string.Join('\n', parts);
+            Log.Write($"hermes {samples.Length / 16000.0:F1}s pieces={ranges.Count} -> {text.Length} chars");
+            return new HermesResult(true, text, rec.ModelId, rec.DeviceActual, rec.Provider, samples.Length / 16000.0, null);
+        }
+        catch (Exception ex)
+        {
+            Log.Write($"hermes decode failed: {ex.GetType().Name}");
+            return new HermesResult(true, null, rec.ModelId, rec.DeviceActual, rec.Provider, 0, ex.Message);
         }
     }
 
@@ -1328,6 +1333,159 @@ public partial class PisarApp : Application
         return Task.CompletedTask;
     }
 
+    private void CancelFile()
+    {
+        try { _fileCts?.Cancel(); } catch (ObjectDisposedException) { }
+    }
+
+    private async Task StartFileAsync(string path)
+    {
+        if (Interlocked.CompareExchange(ref _fileBusy, 1, 0) != 0)
+        {
+            SetFileStatus(L.T("Уже идёт другой файл.", "Another file is already running."));
+            return;
+        }
+        var cts = CancellationTokenSource.CreateLinkedTokenSource(_lifetime.Token);
+        _fileCts = cts;
+        SetFileStatus(L.T("Читаю файл…", "Reading the file…"));
+        try
+        {
+            await Task.Run(() => RunFile(path, cts.Token));
+        }
+        catch (OperationCanceledException)
+        {
+            SetFileStatus(L.T("Остановлено. Текст не записан.", "Stopped. No text was written."));
+        }
+        catch (RemoteHostException ex)
+        {
+            Log.Write("file remote: " + ex.English);
+            SetFileStatus(L.T(ex.Russian, ex.English));
+        }
+        catch (Exception ex)
+        {
+            Log.Write($"file: {ex.GetType().Name}: {ex.Message}");
+            SetFileStatus(L.T("Не получилось прочитать файл. Ничего не скачиваю.",
+                              "The file could not be read. Nothing is downloaded."));
+        }
+        finally
+        {
+            if (ReferenceEquals(_fileCts, cts)) _fileCts = null;
+            cts.Dispose();
+            Interlocked.Exchange(ref _fileBusy, 0);
+            if (_settingsWindow != null)
+                _ = Dispatcher.BeginInvoke(() => _settingsWindow?.SetFileStatus(_fileStatus, false));
+        }
+    }
+
+    /// <summary>Local pieces, or one post to the host. Never downloads a model. Writes name.txt beside the source.</summary>
+    private void RunFile(string path, CancellationToken cancel)
+    {
+        if (!File.Exists(path))
+        {
+            SetFileStatus(L.T("Такого файла нет. Ничего не скачиваю.", "That file is not there. Nothing is downloaded."));
+            return;
+        }
+        long length;
+        try { length = new FileInfo(path).Length; }
+        catch (Exception)
+        {
+            SetFileStatus(L.T("Файл не открыть. Ничего не скачиваю.", "The file cannot be opened. Nothing is downloaded."));
+            return;
+        }
+        if (length > FileTranscript.MaxBytes)
+        {
+            SetFileStatus(L.T("Файл больше примерно 1,7 ГБ. Ничего не скачиваю.",
+                              "The file is over about 1.7 GB. Nothing is downloaded."));
+            return;
+        }
+        string outPath = FileTranscript.OutputPath(path);
+        if (SpeechIsRemote)
+        {
+            byte[] bytes;
+            try { bytes = File.ReadAllBytes(path); }
+            catch (Exception)
+            {
+                SetFileStatus(L.T("Файл не открыть. Ничего не скачиваю.", "The file cannot be opened. Nothing is downloaded."));
+                return;
+            }
+            cancel.ThrowIfCancellationRequested();
+            if (!FileTranscript.IsWav(bytes) && !FileTranscript.IsOgg(bytes))
+            {
+                SetFileStatus(L.T("Нужен файл WAV 16 бит или Ogg/Opus. Ничего не скачиваю.",
+                                  "Need a 16-bit WAV or Ogg/Opus file. Nothing is downloaded."));
+                return;
+            }
+            SetFileStatus(L.T("Отправляю файл на хост. Текст запишу здесь.",
+                              "Sending the file to the host. The text will be written here."));
+            string text = RemoteSpeech.TranscribeBytes(_settings, bytes, FileTranscript.IsOgg(bytes) ? "audio/ogg" : "audio/wav", cancel);
+            cancel.ThrowIfCancellationRequested();
+            File.WriteAllText(outPath, text);
+            Log.Write($"file remote -> {outPath} {text.Length} chars");
+            SetFileStatus(L.T($"Готово: {outPath}", $"Done: {outPath}"));
+            return;
+        }
+
+        Core.Recognizer? rec;
+        lock (_recogLock) rec = _recognizer;
+        if (rec == null)
+        {
+            SetFileStatus(L.T("Модель не загружена. Файл не распознаю и ничего не скачиваю.",
+                              "The model is not loaded. The file is not transcribed and nothing is downloaded."));
+            return;
+        }
+        float[] samples;
+        try { samples = FileTranscript.Load16k(path); }
+        catch (InvalidDataException)
+        {
+            SetFileStatus(L.T("Нужен файл WAV 16 бит или Ogg/Opus. Ничего не скачиваю.",
+                              "Need a 16-bit WAV or Ogg/Opus file. Nothing is downloaded."));
+            return;
+        }
+        catch (Exception)
+        {
+            SetFileStatus(L.T("Файл не открыть. Ничего не скачиваю.", "The file cannot be opened. Nothing is downloaded."));
+            return;
+        }
+        cancel.ThrowIfCancellationRequested();
+        if (samples.Length == 0)
+        {
+            SetFileStatus(L.T("В файле нет звука. Текст не записан.", "The file has no audio. No text was written."));
+            return;
+        }
+        var ranges = rec.PieceRanges(samples);
+        var parts = new List<string>(ranges.Count);
+        for (int i = 0; i < ranges.Count; i++)
+        {
+            cancel.ThrowIfCancellationRequested();
+            SetFileStatus(L.T($"Кусок {i + 1} из {ranges.Count}", $"Piece {i + 1} of {ranges.Count}"));
+            lock (_recogLock)
+            {
+                if (!ReferenceEquals(_recognizer, rec))
+                {
+                    SetFileStatus(L.T("Модель выгрузили посреди файла. Текст не записан. Ничего не скачиваю.",
+                                      "The model was unloaded in the middle of the file. No text was written. Nothing is downloaded."));
+                    return;
+                }
+            }
+            var (from, to) = ranges[i];
+            var piece = new float[to - from];
+            Array.Copy(samples, from, piece, 0, piece.Length);
+            string bit = rec.TranscribePiece(piece);
+            if (bit.Length > 0) parts.Add(bit);
+        }
+        cancel.ThrowIfCancellationRequested();
+        string all = string.Join('\n', parts);
+        File.WriteAllText(outPath, all);
+        Log.Write($"file local {samples.Length / 16000.0:F0}s pieces={ranges.Count} -> {outPath}");
+        SetFileStatus(L.T($"Готово: {outPath}", $"Done: {outPath}"));
+    }
+
+    private void SetFileStatus(string text)
+    {
+        _fileStatus = text;
+        _ = Dispatcher.BeginInvoke(() => _settingsWindow?.SetFileStatus(text, Volatile.Read(ref _fileBusy) != 0));
+    }
+
     public void ShowSettings()
     {
         if (_settingsWindow == null)
@@ -1336,8 +1494,11 @@ public partial class PisarApp : Application
                 () => DownloadSpeechAsync(manualStart: false), () => _ = ReloadSpeechAsync(), SpeechStatusText,
                 HermesStatusText, ToggleLanAsync,
                 () => _ = CheckForUpdatesAsync(silent: false), RequestStop, DeleteSpeechModelAsync,
-                ToggleGpuWarmupAsync, GpuWarmActive, () => _ = ReloadSpeechAsync());
+                ToggleGpuWarmupAsync, GpuWarmActive, () => _ = ReloadSpeechAsync(),
+                StartFileAsync, CancelFile);
             SetPhase(_phase);
+            if (_fileStatus.Length > 0 || Volatile.Read(ref _fileBusy) != 0)
+                _settingsWindow.SetFileStatus(_fileStatus, Volatile.Read(ref _fileBusy) != 0);
             _settingsWindow.Closed += (_, _) => _settingsWindow = null;
         }
         _settingsWindow.Show();

@@ -175,6 +175,35 @@ public sealed class Recognizer : IDisposable
     public string Transcribe(float[] samples, int rate) => Execute(samples, rate, owned: false, null);
 
     /// <summary>
+    /// Ranges at the model rate. Each piece is at most <see cref="MaxChunkSeconds"/>,
+    /// cut on a pause the same way <see cref="Transcribe"/> splits a long take.
+    /// </summary>
+    public List<(int from, int to)> PieceRanges(float[] samplesAtModelRate)
+    {
+        int n = samplesAtModelRate.Length;
+        int rate = SampleRate;
+        if (n <= 0 || rate <= 0) return new();
+        double total = (double)n / rate;
+        if (total <= MaxChunkSeconds + 1) return new() { (0, n) };
+        var bounds = AudioUtils.ChunkBounds(total, AudioUtils.Silences(samplesAtModelRate, rate), MaxChunkSeconds);
+        var ranges = new List<(int, int)>(bounds.Count);
+        foreach (var (a, b) in bounds)
+        {
+            int from = Math.Min(n, (int)(a * rate));
+            int to = Math.Min(n, (int)(b * rate));
+            if (to > from) ranges.Add((from, to));
+        }
+        if (ranges.Count == 0) ranges.Add((0, n));
+        return ranges;
+    }
+
+    /// <summary>
+    /// One piece. The session lock drops when this returns, so dictation can run between pieces of a long file.
+    /// A piece longer than <see cref="MaxChunkSeconds"/> is still split inside the lock.
+    /// </summary>
+    public string TranscribePiece(float[] samplesAtModelRate) => Execute(samplesAtModelRate, SampleRate, owned: false, null);
+
+    /// <summary>
     /// Dictation pass. <see cref="CancelOwned"/> aborts it if it is inside the session.
     /// A pass that has not entered yet, or that was aborted, returns an empty string.
     /// </summary>
