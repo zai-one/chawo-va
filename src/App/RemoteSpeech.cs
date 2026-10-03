@@ -1,6 +1,7 @@
 // Client of another Giga Pisar. Posts a WAV to http://host:port/v1/transcribe.
 // Never downloads weights. A dead host is an error, not a reason to fetch a model.
 
+using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Text.Json;
 using GigaPisar.Core;
