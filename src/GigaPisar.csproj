@@ -13,7 +13,7 @@
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <StartupObject>GigaPisar.App.PisarApp</StartupObject>
     <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
-    <Version>1.14.0</Version>
+    <Version>1.15.0</Version>
     <Product>Chawo VA</Product>
     <Company>Chawo</Company>
     <Copyright>MIT License</Copyright>

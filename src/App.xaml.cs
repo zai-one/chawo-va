@@ -1545,8 +1545,9 @@ public partial class PisarApp : Application
     }
 
     /// <summary>
-    /// Hand-filled stand-in for a telephony event. No network.
-    /// Empty extension or empty manager name is a missing handset map: no card.
+    /// Hand-filled stand-in for a call event. No network.
+    /// In SaaS the PC is bound once; a webhook / softphone / hotkey matches it.
+    /// Empty extension or empty manager name is a missing binding: no card.
     /// </summary>
     private string PresentCall(string extension, string number, string manager)
     {
@@ -1559,15 +1560,15 @@ public partial class PisarApp : Application
             _openCall = null;
             _openBinding = null;
             _salesCard?.HideNow();
-            return L.T("Нет привязки трубки к менеджеру. Карточка не показывается.",
-                       "No handset-to-manager map. No card.");
+            return L.T("Стенд: нет привязки трубки к менеджеру. Карточка не показывается.",
+                       "Stand-in: no handset-to-manager binding. No card.");
         }
         _openCall = stood.Value.Event;
         _openBinding = stood.Value.Binding;
         _salesTranscript = "";
         PaintCall();
-        return L.T("Карточка на этом компьютере. CRM не подключена, сеть не используется.",
-                   "Card on this PC. No CRM, no network.");
+        return L.T("Стенд: карточка на этом компьютере. CRM нет, сеть не используется.",
+                   "Stand-in: card on this PC. No CRM, no network.");
     }
 
     private void PaintCall()

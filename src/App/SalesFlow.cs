@@ -1,6 +1,9 @@
-// Call → handset map → CRM boundary → card. No network.
-// The local CRM boundary always answers "no client". A later SaaS adapter
-// returns the same snapshot shape; this file does not name a vendor or a URL.
+// Call → PC binding → CRM boundary → card. No network.
+// SaaS binds the PC once (manager session or softphone/handset id); a webhook,
+// softphone event, or hotkey matches that binding. Nobody types an extension
+// at popup time. The local CRM boundary always answers "no client". A later
+// SaaS adapter returns the same snapshot shape; this file does not name a
+// vendor or a URL. StandIn() is only the Windows toy panel.
 
 namespace GigaPisar.App;
 
@@ -55,8 +58,9 @@ public static class SalesFlow
     }
 
     /// <summary>
-    /// The three fields a person types. Same shape a telephony webhook fills later:
-    /// trunk stays empty, direction is inbound, call id is minted here.
+    /// Local stand-in only. In SaaS nobody types an extension at popup time:
+    /// the PC is bound once, and a webhook / softphone / hotkey matches that binding.
+    /// Same event shape a telephony source fills later: trunk empty, inbound, local call id.
     /// Returns null when the handset map is missing.
     /// </summary>
     public static (TelephonyEvent Event, HandsetBinding Binding)? StandIn(string extension, string callerNumber, string managerName)

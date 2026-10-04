@@ -234,12 +234,12 @@ public partial class SettingsWindow : Window
         FillSuggestDictionaryRows(clear: true);
         SalesHeading.Text = "Продажи";
         SalesIntro.Text = L.T(
-            "Каталог на этом компьютере. Код в живом черновике открывает карточку с короткой строкой. Если кода нет, берётся ближайшее название по буквам и на карточке пишется «похоже». Ниже — папка материалов (.txt / .md): из неё подставляется короткий фрагмент под карточкой, когда точного кода нет. Облака нет. Панель «Звонок» подставляет те же поля, что позже пришлёт телефония: сети нет, CRM нет.",
-            "A catalog on this PC. A code in the live draft opens a card with the short line. If the code is missing, the nearest name by letters is shown and the card says «похоже». Below is a materials folder (.txt / .md): a short snippet from it appears under the card when the exact code is missing. No cloud. The Call panel fills the same fields a telephony event will send later: no network, no CRM.");
-        CallHeading.Text = L.T("Звонок", "Call");
+            "Каталог на этом компьютере. Код в живом черновике открывает карточку с короткой строкой. Если кода нет, берётся ближайшее название по буквам и на карточке пишется «похоже». Ниже — папка материалов (.txt / .md): из неё подставляется короткий фрагмент под карточкой, когда точного кода нет. Облака нет. Панель ниже — только стенд: в SaaS добавочный не печатают в момент звонка, компьютер привязан заранее.",
+            "A catalog on this PC. A code in the live draft opens a card with the short line. If the code is missing, the nearest name by letters is shown and the card says «похоже». Below is a materials folder (.txt / .md): a short snippet from it appears under the card when the exact code is missing. No cloud. The panel below is only a stand-in: in SaaS nobody types an extension at popup time; the PC is bound beforehand.");
+        CallHeading.Text = L.T("Звонок (стенд)", "Call (stand-in)");
         CallIntro.Text = L.T(
-            "Добавочный, номер звонящего и имя менеджера. Пустой добавочный или пустое имя — привязки трубки нет, карточка не показывается. Номер можно не заполнять.",
-            "Extension, caller number, and manager name. An empty extension or an empty name means no handset map, so no card. The number may be left blank.");
+            "Стенд, не продукт. В сервисе добавочный берётся из привязки ПК или из события телефонии / softphone / клавиши. Здесь поля заполняют руками, чтобы открыть ту же карточку без сети. Пустой добавочный или пустое имя — привязки нет, карточки нет. Номер можно не заполнять.",
+            "A stand-in, not the product. In the service the extension comes from the PC binding or from a telephony / softphone / hotkey event. Here the fields are typed by hand so the same card opens with no network. An empty extension or an empty name means no binding, so no card. The number may be left blank.");
         CallExtensionHeader.Text = L.T("Добавочный", "Extension");
         CallNumberHeader.Text = L.T("Номер", "Number");
         CallManagerHeader.Text = L.T("Менеджер", "Manager");
