@@ -56,6 +56,9 @@ public partial class PisarApp : Application
     private readonly Recorder _recorder = new();
     private OverlayWindow? _overlay;
     private SalesCardWindow? _salesCard;
+    private TelephonyEvent? _openCall;
+    private HandsetBinding? _openBinding;
+    private string _salesTranscript = "";
     private SettingsWindow? _settingsWindow;
     private readonly CancellationTokenSource _lifetime = new();
     private bool _busy;
@@ -1503,7 +1506,7 @@ public partial class PisarApp : Application
                 HermesStatusText, ToggleLanAsync,
                 () => _ = CheckForUpdatesAsync(silent: false), RequestStop, DeleteSpeechModelAsync,
                 ToggleGpuWarmupAsync, GpuWarmActive, () => _ = ReloadSpeechAsync(),
-                StartFileAsync, CancelFile);
+                StartFileAsync, CancelFile, PresentCall);
             SetPhase(_phase);
             if (_fileStatus.Length > 0 || Volatile.Read(ref _fileBusy) != 0)
                 _settingsWindow.SetFileStatus(_fileStatus, Volatile.Read(ref _fileBusy) != 0);
@@ -1521,6 +1524,12 @@ public partial class PisarApp : Application
     private void ShowSales(string transcript)
     {
         if (_settings.Mode != AppMode.Sales) return;
+        _salesTranscript = transcript;
+        if (_openCall != null && _openBinding != null)
+        {
+            PaintCall();
+            return;
+        }
         var hit = SalesCatalog.Match(transcript, _settings.SalesCatalog);
         if (hit == null) return;
         var shown = hit.Value;
@@ -1535,6 +1544,40 @@ public partial class PisarApp : Application
         _salesCard.ShowHit(shown);
     }
 
+    /// <summary>
+    /// Hand-filled stand-in for a telephony event. No network.
+    /// Empty extension or empty manager name is a missing handset map: no card.
+    /// </summary>
+    private string PresentCall(string extension, string number, string manager)
+    {
+        if (_settings.Mode != AppMode.Sales)
+            return L.T("Сначала включите режим «Продажи» на вкладке «Диктовка».",
+                       "Turn on Sales mode on the Dictation tab first.");
+        var stood = SalesFlow.StandIn(extension, number, manager);
+        if (stood == null)
+        {
+            _openCall = null;
+            _openBinding = null;
+            _salesCard?.HideNow();
+            return L.T("Нет привязки трубки к менеджеру. Карточка не показывается.",
+                       "No handset-to-manager map. No card.");
+        }
+        _openCall = stood.Value.Event;
+        _openBinding = stood.Value.Binding;
+        _salesTranscript = "";
+        PaintCall();
+        return L.T("Карточка на этом компьютере. CRM не подключена, сеть не используется.",
+                   "Card on this PC. No CRM, no network.");
+    }
+
+    private void PaintCall()
+    {
+        if (_openCall == null || _openBinding == null) return;
+        var view = SalesFlow.Compose(_openCall.Value, _openBinding.Value, _salesTranscript, _settings.SalesCatalog, _settings.RagFolder);
+        _salesCard ??= new SalesCardWindow();
+        _salesCard.ShowModel(view);
+    }
+
     private void ApplySettings()
     {
         _settings.Save();
@@ -1544,7 +1587,12 @@ public partial class PisarApp : Application
         }
         if (_hook != null) _hook.HotkeyVk = _settings.HotkeyVk;
         if (!_settings.ShowOverlay) _overlay?.HideNow();
-        if (_settings.Mode != AppMode.Sales) _salesCard?.HideNow();
+        if (_settings.Mode != AppMode.Sales)
+        {
+            _openCall = null;
+            _openBinding = null;
+            _salesCard?.HideNow();
+        }
 
         bool wasRussian = L.Russian;
         L.Apply(_settings.Language);

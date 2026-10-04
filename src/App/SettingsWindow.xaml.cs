@@ -29,6 +29,7 @@ public partial class SettingsWindow : Window
     private readonly Action? _networkChanged;
     private readonly Func<string, Task>? _transcribeFile;
     private readonly Action? _cancelFile;
+    private readonly Func<string, string, string, string>? _showCall;
     private string _phaseText = "";
     private bool _stopEnabled;
     private bool _loading = true;
@@ -45,7 +46,8 @@ public partial class SettingsWindow : Window
         Func<string>? hermesStatus = null, Func<Task>? toggleLan = null,
         Action? checkUpdates = null, Action? stop = null, Func<SpeechModelKind, Task>? deleteSpeech = null,
         Func<Task>? toggleGpuWarmup = null, Func<bool>? gpuWarmed = null, Action? networkChanged = null,
-        Func<string, Task>? transcribeFile = null, Action? cancelFile = null)
+        Func<string, Task>? transcribeFile = null, Action? cancelFile = null,
+        Func<string, string, string, string>? showCall = null)
     {
         _settings = settings;
         _apply = apply;
@@ -64,6 +66,7 @@ public partial class SettingsWindow : Window
         _networkChanged = networkChanged;
         _transcribeFile = transcribeFile;
         _cancelFile = cancelFile;
+        _showCall = showCall;
         InitializeComponent();
         ServerPanel.Saved += UpdateBrainTexts;   // the panel has already applied and saved
         Localize();
@@ -231,8 +234,16 @@ public partial class SettingsWindow : Window
         FillSuggestDictionaryRows(clear: true);
         SalesHeading.Text = "Продажи";
         SalesIntro.Text = L.T(
-            "Каталог на этом компьютере. Код в живом черновике открывает карточку с короткой строкой. Если кода нет, берётся ближайшее название по буквам и на карточке пишется «похоже». Ниже — папка материалов (.txt / .md): из неё подставляется короткий фрагмент под карточкой, когда точного кода нет. Облака нет.",
-            "A catalog on this PC. A code in the live draft opens a card with the short line. If the code is missing, the nearest name by letters is shown and the card says «похоже». Below is a materials folder (.txt / .md): a short snippet from it appears under the card when the exact code is missing. No cloud.");
+            "Каталог на этом компьютере. Код в живом черновике открывает карточку с короткой строкой. Если кода нет, берётся ближайшее название по буквам и на карточке пишется «похоже». Ниже — папка материалов (.txt / .md): из неё подставляется короткий фрагмент под карточкой, когда точного кода нет. Облака нет. Панель «Звонок» подставляет те же поля, что позже пришлёт телефония: сети нет, CRM нет.",
+            "A catalog on this PC. A code in the live draft opens a card with the short line. If the code is missing, the nearest name by letters is shown and the card says «похоже». Below is a materials folder (.txt / .md): a short snippet from it appears under the card when the exact code is missing. No cloud. The Call panel fills the same fields a telephony event will send later: no network, no CRM.");
+        CallHeading.Text = L.T("Звонок", "Call");
+        CallIntro.Text = L.T(
+            "Добавочный, номер звонящего и имя менеджера. Пустой добавочный или пустое имя — привязки трубки нет, карточка не показывается. Номер можно не заполнять.",
+            "Extension, caller number, and manager name. An empty extension or an empty name means no handset map, so no card. The number may be left blank.");
+        CallExtensionHeader.Text = L.T("Добавочный", "Extension");
+        CallNumberHeader.Text = L.T("Номер", "Number");
+        CallManagerHeader.Text = L.T("Менеджер", "Manager");
+        ShowCallButton.Content = L.T("Показать карточку", "Show card");
         CodeHeader.Text = L.T("Код", "Code");
         NameHeader.Text = L.T("Название", "Name");
         LineHeader.Text = L.T("Строка", "Line");
@@ -688,6 +699,16 @@ public partial class SettingsWindow : Window
     }
 
     private void AddSales_Click(object sender, RoutedEventArgs e) => AddSalesRow("", "", "", "", focus: true);
+
+    private void ShowCall_Click(object sender, RoutedEventArgs e)
+    {
+        if (_showCall == null)
+        {
+            CallStatus.Text = L.T("Карточка из этого окна недоступна.", "The card cannot be opened from this window.");
+            return;
+        }
+        CallStatus.Text = _showCall(CallExtensionBox.Text, CallNumberBox.Text, CallManagerBox.Text);
+    }
 
     private void DeleteSales_Click(object sender, RoutedEventArgs e)
     {

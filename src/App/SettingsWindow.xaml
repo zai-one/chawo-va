@@ -151,6 +151,30 @@
                 <StackPanel x:Name="SalesPage" Visibility="Collapsed">
                     <TextBlock x:Name="SalesHeading" FontSize="20" FontWeight="SemiBold"/>
                     <TextBlock x:Name="SalesIntro" Margin="0,4,0,8" Opacity="0.75" TextWrapping="Wrap"/>
+                    <TextBlock x:Name="CallHeading" Margin="0,4,0,4" FontWeight="SemiBold"/>
+                    <TextBlock x:Name="CallIntro" Margin="0,0,0,8" Opacity="0.75" TextWrapping="Wrap"/>
+                    <Grid Margin="0,0,0,2">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock x:Name="CallExtensionHeader" FontWeight="SemiBold"/>
+                        <TextBlock x:Name="CallNumberHeader" Grid.Column="1" Margin="8,0,0,0" FontWeight="SemiBold"/>
+                        <TextBlock x:Name="CallManagerHeader" Grid.Column="2" Margin="8,0,0,0" FontWeight="SemiBold"/>
+                    </Grid>
+                    <Grid Margin="0,4,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBox x:Name="CallExtensionBox" Padding="7,5"/>
+                        <TextBox x:Name="CallNumberBox" Grid.Column="1" Margin="8,0,0,0" Padding="7,5"/>
+                        <TextBox x:Name="CallManagerBox" Grid.Column="2" Margin="8,0,0,0" Padding="7,5"/>
+                    </Grid>
+                    <Button x:Name="ShowCallButton" HorizontalAlignment="Left" Margin="0,8,0,0" Padding="12,4" Click="ShowCall_Click"/>
+                    <TextBlock x:Name="CallStatus" Margin="0,6,0,12" Opacity="0.75" TextWrapping="Wrap"/>
                     <Grid Margin="0,8,0,2">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="110"/>

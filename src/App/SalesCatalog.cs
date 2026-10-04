@@ -88,6 +88,34 @@ public static class SalesCatalog
     public static SalesHit WithRag(SalesHit hit, string? snippet) =>
         hit with { RagSnippet = string.IsNullOrWhiteSpace(snippet) ? "" : snippet.Trim() };
 
+    /// <summary>True when the live text shares enough letters with a catalog name. Same bar as the nearest-name hit.</summary>
+    public static bool NameIsClose(string transcript, string name)
+    {
+        if (string.IsNullOrWhiteSpace(transcript) || string.IsNullOrWhiteSpace(name)) return false;
+        string letters = Letters(Fold(name));
+        if (letters.Length < 3) return false;
+        var words = Fold(transcript).Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        var dummy = new SalesCatalogItem { Name = name };
+        SalesCatalogItem? nearest = null;
+        double best = 0;
+        int bestOverlap = 0;
+        for (int i = 0; i < words.Length; i++)
+        {
+            Consider(dummy, letters, Letters(words[i]), ref nearest, ref best, ref bestOverlap);
+            if (i + 1 < words.Length)
+                Consider(dummy, letters, Letters(words[i] + words[i + 1]), ref nearest, ref best, ref bestOverlap);
+        }
+        return nearest != null;
+    }
+
+    /// <summary>True when token is its own word in the transcript, after the same folding as code matching.</summary>
+    public static bool HasToken(string transcript, string token)
+    {
+        if (string.IsNullOrWhiteSpace(transcript) || string.IsNullOrWhiteSpace(token)) return false;
+        string code = Fold(token);
+        return code.Length >= 2 && ContainsToken(Fold(transcript), code);
+    }
+
     private static string ShowName(SalesCatalogItem item)
     {
         string name = item.Name.Trim();
