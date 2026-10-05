@@ -7,7 +7,7 @@ using System.Security.Cryptography;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
-namespace GigaPisar.App;
+namespace ChawoVA.App;
 
 public sealed class UpdateInfo
 {
@@ -21,7 +21,7 @@ public sealed class UpdateInfo
 
 public static class Updater
 {
-    /// <summary>This repository only. Not moznoazachem/giga-pisar-win and not update.json.</summary>
+    /// <summary>This repository only. Not the upstream repository.</summary>
     public const string ReleasesApi = "https://api.github.com/repos/zai-one/chawo-va/releases/latest";
     public const string ReleasesPage = "https://github.com/zai-one/chawo-va/releases";
 
@@ -56,7 +56,7 @@ public static class Updater
         var tag = root.TryGetProperty("tag_name", out var tagEl) ? tagEl.GetString() ?? "" : "";
         var verText = tag.Trim().TrimStart('v', 'V');
         if (!Version.TryParse(verText, out var remote)) return null;
-        if (!Version.TryParse(PisarApp.Version, out var local))
+        if (!Version.TryParse(ChawoApp.Version, out var local))
             throw new InvalidOperationException("local version is not a number");
         Log.Write($"update check: local {local}, remote {remote} ({ReleasesApi})");
         if (remote <= local) return null;
@@ -72,7 +72,7 @@ public static class Updater
     public static async Task<string> DownloadAsync(UpdateInfo info, IProgress<(long received, long total)> progress, CancellationToken ct)
     {
         Directory.CreateDirectory(UpdatesDir);
-        var path = Path.Combine(UpdatesDir, $"GigaPisar-Setup-{info.Version}.exe");
+        var path = Path.Combine(UpdatesDir, $"ChawoVoiceAssistant-Setup-{info.Version}.exe");
         var part = path + ".part";
 
         using var http = NewClient();
@@ -144,7 +144,7 @@ public static class Updater
     {
         var handler = new SocketsHttpHandler { DefaultProxyCredentials = System.Net.CredentialCache.DefaultCredentials };
         var http = new HttpClient(handler) { Timeout = Timeout.InfiniteTimeSpan };
-        http.DefaultRequestHeaders.UserAgent.ParseAdd("GigaPisar/" + PisarApp.Version + " (Windows)");
+        http.DefaultRequestHeaders.UserAgent.ParseAdd("ChawoVoiceAssistant/" + ChawoApp.Version + " (Windows)");
         http.DefaultRequestHeaders.CacheControl = new System.Net.Http.Headers.CacheControlHeaderValue { NoCache = true };
         return http;
     }

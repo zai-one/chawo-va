@@ -10,7 +10,7 @@
 
 using System.Text;
 
-namespace GigaPisar.Core;
+namespace ChawoVA.Core;
 
 public sealed class Tokenizer
 {

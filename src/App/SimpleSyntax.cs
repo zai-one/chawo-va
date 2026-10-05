@@ -3,7 +3,7 @@
 // need the period. Only plain dictation goes through it; Brain answers to commands and
 // edits of a selection are inserted exactly as they are.
 
-namespace GigaPisar.App;
+namespace ChawoVA.App;
 
 public static class SimpleSyntax
 {

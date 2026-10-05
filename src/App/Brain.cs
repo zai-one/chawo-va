@@ -1,9 +1,9 @@
 // The Brain: an AI model that edits dictated text, as in the macOS app.
 //
 // Say the text and finish with an address in plain words:
-//   "…waiting for your answer. Pisar, fix it"
-//   "…call at five. Giga Pisar, translate into English"
-// Everything after "Pisar" is the command. No address, no Brain: the text is
+//   "…waiting for your answer. Chawo, fix it"
+//   "…call at five. Chawo, translate into English"
+// Everything after "Chawo" is the command. No address, no Brain: the text is
 // inserted at once and the model never sees it. With "edit every take" on,
 // every dictation goes through the Brain with the cleanup instructions.
 //
@@ -13,7 +13,7 @@
 
 using System.Text.RegularExpressions;
 
-namespace GigaPisar.App;
+namespace ChawoVA.App;
 
 public enum BrainSource { Off, Local, Server }
 
@@ -54,16 +54,19 @@ public static partial class Brain
         "упоминать её в ответе нельзя. Верни ТОЛЬКО готовый текст, без кавычек " +
         "вокруг него.";
 
-    /// <summary>Recognition may hear "песарь" or "писарь" with various endings; "Гига" is optional.</summary>
-    [GeneratedRegex(@"(?:гига[\s,—-]+)?п[еиэ]сар[ьяюе]?\b[\s,.:!—-]*", RegexOptions.IgnoreCase)]
+    /// <summary>
+    /// The address is "Чаво" (recognition may write чаво/чава/чево, or Chawo after the dictionary).
+    /// The address word used before 1.17.0 is still accepted so old habits keep working; it is not shown anywhere.
+    /// </summary>
+    [GeneratedRegex(@"(?:\b(?:ч[аеоё]в[оа]|chawo)\b|" + LegacyAddress + @")[\s,.:!—-]*", RegexOptions.IgnoreCase)]
     private static partial Regex AddressRegex();
 
-    /// <summary>Splits "text. Pisar, command" into body and command; null when there is no address.</summary>
+    /// <summary>Splits "text. Chawo, command" into body and command; null when there is no address.</summary>
     public static (string body, string command)? ParseCommand(string text)
     {
         var matches = AddressRegex().Matches(text);
         if (matches.Count == 0) return null;
-        var m = matches[^1];   // the last address wins: the text itself may mention Pisar
+        var m = matches[^1];   // the last address wins: the text itself may mention the address word
         var command = text[(m.Index + m.Length)..].Trim();
         var body = text[..m.Index].TrimEnd();
         while (body.Length > 0 && ",—–-".Contains(body[^1])) body = body[..^1].TrimEnd();
@@ -71,10 +74,12 @@ public static partial class Brain
         return (body, command.TrimEnd('.', '!'));
     }
 
-    [GeneratedRegex(@"^\s*(?:гига[\s,—-]+)?п[еиэ]сар[ьяюе]?\b[\s,.:!—-]*", RegexOptions.IgnoreCase)]
+    private const string LegacyAddress = @"(?:гига[\s,—-]+)?п[еиэ]сар[ьяюе]?\b";
+
+    [GeneratedRegex(@"^\s*(?:\b(?:ч[аеоё]в[оа]|chawo)\b|" + LegacyAddress + @")[\s,.:!—-]*", RegexOptions.IgnoreCase)]
     private static partial Regex LeadingAddressRegex();
 
-    /// <summary>"Писарь, сделай короче" -> "сделай короче": the address before a command on a selection is optional.</summary>
+    /// <summary>"Чаво, сделай короче" -> "сделай короче": the address before a command on a selection is optional.</summary>
     public static string StripAddress(string text) => LeadingAddressRegex().Replace(text, "").Trim().TrimEnd('.', '!');
 
     /// <summary>What the pill says while the model works.</summary>

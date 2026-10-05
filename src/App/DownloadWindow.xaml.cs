@@ -1,9 +1,9 @@
 // Progress window for one-time downloads: the speech model on first run, the local Brain on request.
 
 using System.Windows;
-using GigaPisar.Core;
+using ChawoVA.Core;
 
-namespace GigaPisar.App;
+namespace ChawoVA.App;
 
 public partial class DownloadWindow : Window
 {
@@ -34,7 +34,7 @@ public partial class DownloadWindow : Window
         _spaceNeeded = spaceNeeded;
         _manualStart = manualStart;
         InitializeComponent();
-        Title = L.T("Chawo VA", "Chawo VA");
+        Title = ChawoApp.ProductName;
         Heading.Text = heading;
         Intro.Text = intro;
         DownloadButton.Content = L.T("Скачать", "Download");

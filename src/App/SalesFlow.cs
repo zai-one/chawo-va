@@ -5,7 +5,7 @@
 // SaaS adapter returns the same snapshot shape; this file does not name a
 // vendor or a URL. StandIn() is only the Windows toy panel.
 
-namespace GigaPisar.App;
+namespace ChawoVA.App;
 
 public readonly record struct TelephonyEvent(
     string CallId,

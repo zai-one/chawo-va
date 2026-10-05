@@ -1,7 +1,8 @@
-# Chawo VA
+# Chawo Voice Assistant
 
 Windows voice assistant for dictation and a local sales trial (card, catalog, RAG folder).
-Window title **Chawo VA**; executable is still `GigaPisar.exe`. Speech stays on this computer.
+Executable `ChawoVoiceAssistant.exe`, release archive `ChawoVoiceAssistant-win-x64.zip`. Speech stays on this computer.
+The short form **Chawo VA** is used only where space is tight (tray tooltip with a status).
 
 This repository is a standalone public copy of work that began as a fork of
 [moznoazachem/giga-pisar-win](https://github.com/moznoazachem/giga-pisar-win)
@@ -17,7 +18,15 @@ Closing the window hides it; the app stays in the tray until **Quit**.
 
 ## По-русски: что добавлено и зачем
 
-Это самостоятельный репозиторий **Chawo VA** (история ветки `gpu-mimo-hermes`, версия 1.16.0), выросший из форка Гига Писаря. Ниже не список галочек, а зачем каждая правка.
+Это самостоятельный репозиторий **Chawo Voice Assistant** (история ветки `gpu-mimo-hermes`), выросший из форка [moznoazachem/giga-pisar-win](https://github.com/moznoazachem/giga-pisar-win). Ниже не список галочек, а зачем каждая правка.
+
+**1.17.0: одно имя — Chawo Voice Assistant.** Окно, трей, всплывающие сообщения, сведения о файле, EXE (`ChawoVoiceAssistant.exe`), архив (`ChawoVoiceAssistant-win-x64.zip`), установщик, бот Telegram и документация называются Chawo Voice Assistant. Короткое «Chawo VA» осталось только там, где тесно: подсказка значка в трее, когда к имени добавляется длинный статус. Обращение к мозгу голосом теперь «Чаво, …» («Чаво, исправь», «Чаво, сократи»); прежнее слово-обращение тоже понимается, чтобы привычка не ломалась, но нигде не показывается.
+
+**Переезд данных без повторного скачивания.** Папки данных теперь `%LOCALAPPDATA%\ChawoVoiceAssistant` (речевые модели, мозг, журнал `chawo-va.log`) и `%APPDATA%\ChawoVoiceAssistant` (`settings.json`: словарь, каталог, ключи, инструкции). При первом запуске, если новой папки ещё нет, а папка прежних версий `%LOCALAPPDATA%\GigaPisar` есть, программа переносит её содержимое: в пределах диска это переименование, гигабайты не копируются и заново не качаются. Файл, который держит открытым ещё запущенная старая версия, копируется. Настройки из `%APPDATA%\GigaPisar` копируются (старая версия при откате продолжит работать). Перенос идёт через временную папку `….migrating` и заканчивается переименованием, так что прерванный перенос просто продолжится при следующем запуске. Если что-то осталось в старой папке, речевые модели всё равно находятся там и не скачиваются. Ключи API, зашифрованные DPAPI, расшифровываются как раньше. Галочка «Запускать с Windows» переезжает на новый EXE, старая запись автозапуска удаляется.
+
+**Брандмауэр.** Кнопка «Открыть порт…» создаёт правило с именем `Chawo Voice Assistant` и удаляет правило прежних версий, если оно есть.
+
+**Источники весов речи не менялись.**
 
 **1.16.0: оформление Chawo, «Расшифровать файл» на Диктовке.** Иконка EXE / окна / трея из [chawo.ai/icon.svg](https://chawo.ai/icon.svg) (peach-cream `#FFF3E2`, bars `#171717`, accent coral `#EF5143`, `rx=7` на 32). Цвета и радиусы из CSS сайта; шрифт Arial (запасной у сайта вместо DIN Pro). Репозиторий `zai-one/chawo-va`; updates → `releases/latest`.
 
@@ -29,7 +38,7 @@ Closing the window hides it; the app stays in the tray until **Quit**.
 
 **1.14.0: звонок на трубку, без CRM.** На вкладке «Продажи» панель «Звонок»: добавочный, номер, имя менеджера и кнопка «Показать карточку». Пустой добавочный или пустое имя — карточки нет. Сети нет. Карточка пишет, кто на трубке, и что скрипта стадии нет, потому что CRM не подключена. Код в живом черновике по-прежнему добавляет строку каталога, а если кода нет — аналог и фрагмент из папки. Подсказки словаря сами не записываются. Формы для будущего SaaS, без поставщика и без адресов: [`docs/sales-assistant.md`](docs/sales-assistant.md).
 
-**1.13.0: Chawo VA, локальный RAG.** Видимое имя — **Chawo VA** (окно, трей). EXE по-прежнему `GigaPisar.exe`. Интерфейс русский.
+**1.13.0: Chawo VA, локальный RAG.** Видимое имя — **Chawo VA** (окно, трей); с 1.17.0 — **Chawo Voice Assistant**, и EXE тоже переименован. Интерфейс русский.
 
 **Диктовка vs продажи.** «Диктовка» — обычный push-to-talk. «Продажи» — плюс карточка: код и строка из местного каталога; если кода нет — ближайшее имя («похоже»).
 
@@ -45,7 +54,7 @@ Closing the window hides it; the app stays in the tray until **Quit**.
 
 **1.10.0: хост или клиент.** В разделе «Сеть» выбирается роль. Хост — этот компьютер, параметры уже стоят: порт 17831, слушает только 127.0.0.1, пока не нажать «Открыть порт в брандмауэре и слушать сеть», после этого 0.0.0.0 и тот же порт. Клиент пишет адрес и порт (по умолчанию 17831) и шлёт запись на `http://адрес:порт/v1/transcribe`. Местную речевую модель клиент не качает и не запускает. Если хост молчит, не открылся или ответил без модели, на экране короткое сообщение и скачивание само не начинается. Кнопка «Проверить хост» только спрашивает `/v1/health`.
 
-**Голос из Telegram, без приложения на телефоне.** В архиве рядом с программой лежит `hermes-telegram-bot`. Это маленький бот на Python, без чужих библиотек. Его запускают на этом же ПК (или на любом, который достучится до хоста). В телефон ставится обычный Telegram: голосовое пересылают боту, бот скачивает файл у Telegram и делает тот же `POST /v1/transcribe`. Ответ — текст. Форка Android у zai-one нет, новый репозиторий под телефон не заводился. Qwen 3.5 на телефон не ставится: файл около 2,3 ГБ, телефон его не тянет. Мозг остаётся в Писаре на компьютере-хосте. Бот мозг не вызывает, чтобы голосовое превращалось в текст сразу.
+**Голос из Telegram, без приложения на телефоне.** В архиве рядом с программой лежит `hermes-telegram-bot`. Это маленький бот на Python, без чужих библиотек. Его запускают на этом же ПК (или на любом, который достучится до хоста). В телефон ставится обычный Telegram: голосовое пересылают боту, бот скачивает файл у Telegram и делает тот же `POST /v1/transcribe`. Ответ — текст. Форка Android у zai-one нет, новый репозиторий под телефон не заводился. Qwen 3.5 на телефон не ставится: файл около 2,3 ГБ, телефон его не тянет. Мозг остаётся в Chawo Voice Assistant на компьютере-хосте. Бот мозг не вызывает, чтобы голосовое превращалось в текст сразу.
 
 
 **1.9.0: прогрев видеокарты.** На «Распознавании», и только когда речь считается на видеокарте (DirectML), есть кнопка «Запустить прогрев». Она грузит выбранную речевую модель в сессию DirectML, если та ещё не загружена, и один раз прогоняет короткий тихий звук: DirectML компилирует граф на первом проходе, не в момент создания сессии. «Остановить» выгружает эту сессию. Если файлов модели на диске нет, программа пишет об этом и не качает веса. Мозг не прогревается.
@@ -61,21 +70,21 @@ Closing the window hides it; the app stays in the tray until **Quit**.
 
 **Живая строка, пока клавиша зажата.** Модель GigaAM в этой программе не потоковая: она не выдаёт слова по одному, как Google. Пока вы держите клавишу диктовки, раз в секунду (и только если прошлый проход уже закончился) программа прогоняет уже записанный кусок и показывает черновик на плашке у курсора. Плашка поверх всех окон и не забирает фокус. Отпустили клавишу — черновик выбрасывается, по всей записи делается один окончательный проход, и вставляется только он, одним разом, как раньше. Черновик в текст не печатается и второй вставки не делает. Если к моменту отпускания черновик ещё считается, этот проход прерывается и не задерживает окончательный. Плашка пропадает, когда диктовка кончилась. Галочка плашки по-прежнему её прячет целиком.
 
-**Уже скачанная модель не качается снова.** При старте и по кнопке «Скачать» программа ищет файлы выбранной модели и, если они целые, просто их грузит. Смотрит папку этого репозитория `%LOCALAPPDATA%\GigaPisar\models\…`, папку оригинального Гига Писаря `%LOCALAPPDATA%\GigaPisar\model` (там лежит v3), те же имена в `%APPDATA%\GigaPisar`, и папки `model` / `models` рядом с EXE. В окне написано «уже на диске» и полный путь. Пока файла нет, сама она ничего не скачивает.
+**Уже скачанная модель не качается снова.** При старте и по кнопке «Скачать» программа ищет файлы выбранной модели и, если они целые, просто их грузит. Смотрит `%LOCALAPPDATA%\ChawoVoiceAssistant\models\…` и `…\model`, те же имена в `%APPDATA%\ChawoVoiceAssistant`, папки прежних версий (если перенос в 1.17.0 что-то там оставил) и папки `model` / `models` рядом с EXE. В окне написано «уже на диске» и полный путь. Пока файла нет, сама она ничего не скачивает.
 
 **Старт и стоп видно.** В окне «Диктовка» строка состояния: модель не загружена, готово и жду клавишу, слушаю, распознаю. Диктовка по-прежнему с зажатой клавиши. Остановить запись или уже идущее распознавание: кнопка «Стоп» или Escape. Остановленное не вставляется. Скачивание само не начинается.
 
 **Готовая фраза в буфере.** По умолчанию включено «Копировать готовую фразу в буфер»: в буфер кладётся тот же окончательный текст, который вставляется. Если поле не поймало вставку, его можно вставить Ctrl+V или найти в Win+V. Вторая галочка, тоже по умолчанию: после этого вернуть в буфер то, что было раньше. Отдельного вызова «положи в историю, но не делай текущим» у Windows нет: история запоминает то, что стало текущим буфером. Поэтому фраза сначала становится текущей (так она попадает в Win+V, если история включена), и только после проверки, что история её держит, возвращается прежний буфер. Если история выключена, или после возврата фразы в истории нет, прежний буфер не остаётся: фраза снова кладётся текущей и не теряется.
 
-**Сначала окно, не скачивание.** В 1.1.0 при запуске сразу вылезало окно «скачайте модель», и до обычных настроек было не добраться. Теперь при старте открывается то же окно, что у Гига Писаря: слева «Диктовка», «Мозг», «Правка выделенного», «О программе». Модель, процессор или видеокарта выбираются здесь, до любой загрузки. Веса сами не качаются. Кнопка «Скачать выбранную модель» по-прежнему отдельно: пока её не нажать, в сеть за весами ничего не уходит.
+**Сначала окно, не скачивание.** В 1.1.0 при запуске сразу вылезало окно «скачайте модель», и до обычных настроек было не добраться. Теперь при старте открывается то же окно, что у исходного приложения: слева «Диктовка», «Мозг», «Правка выделенного», «О программе». Модель, процессор или видеокарта выбираются здесь, до любой загрузки. Веса сами не качаются. Кнопка «Скачать выбранную модель» по-прежнему отдельно: пока её не нажать, в сеть за весами ничего не уходит.
 
-**Трей Windows.** Крестик на окне программу не убивает: окно прячется, а Писарь остаётся у часов. Двойной щелчок по значку или пункт «Открыть окно» возвращает настройки. «Свернуть в трей» делает то же, что крестик. Процесс заканчивается только пунктом «Выход» (и тем выходом, который уже был). Тогда же снимается запрет сна, если он был включён. Отдельного «старт/стоп прослушивания» в программе не было: диктовка по-прежнему с зажатой клавишей, а расшифровщик Hermes слушает, пока Писарь запущен.
+**Трей Windows.** Крестик на окне программу не убивает: окно прячется, а программа остаётся у часов. Двойной щелчок по значку или пункт «Открыть окно» возвращает настройки. «Свернуть в трей» делает то же, что крестик. Процесс заканчивается только пунктом «Выход» (и тем выходом, который уже был). Тогда же снимается запрет сна, если он был включён. Отдельного «старт/стоп прослушивания» в программе не было: диктовка по-прежнему с зажатой клавишей, а расшифровщик Hermes слушает, пока программа запущена.
 
 **Проверка обновлений только этого репозитория.** В «О программе» написана текущая версия и есть кнопка «Проверить обновления». Тот же пункт есть в меню трея. Кнопка один раз спрашивает последний релиз `https://github.com/zai-one/chawo-va/releases` (API `https://api.github.com/repos/zai-one/chawo-va/releases/latest`). Адрес оригинала и любые другие сайты не опрашиваются. По таймеру проверка не ходит. Если версия новее, программа показывает номер и ссылку на страницу релиза и спрашивает, открыть ли её в браузере. Сама она архив не скачивает и не ставит.
 
-**Выбор модели мозга и своя инструкция (1.5.0).** На вкладке «Мозг», когда стоит «На компьютере», один список. Qwen3 4B, 2,1 ГБ: тот же файл, что раньше, `Qwen3-4B-Instruct-2507-Q3_K_M.gguf`. Qwen3.5 4B, 2,3 ГБ: `Qwen3.5-4B-Q3_K_M.gguf` с Hugging Face `unsloth/Qwen3.5-4B-GGUF`. Третий пункт — своя ссылка. Это страница файла или адрес `resolve` на huggingface.co (или hf.co), и имя должно кончаться на `.gguf`. Страница `blob` превращается в `resolve`. Если это не `.gguf`, программа пишет «Нужна ссылка Hugging Face на файл .gguf.» и ничего не качает. Кнопка «Скачать модель мозга» один раз забирает движок llama.cpp и выбранный файл в `%LOCALAPPDATA%\GigaPisar\brain\`. При запуске программы и при смене «Где думает» загрузка не начинается. Свой файл проверяется по заголовку GGUF и не запускается как программа. Ключ для него не нужен и никуда не отправляется. Qwen3.5 по умолчанию думает вслух. Движок этой сборки, llama.cpp b10701, запускается как `llama-server --jinja --reasoning off`, а в запрос ещё ставится `enable_thinking: false`. Если в ответе всё же остался блок `<think>`, он вырезается и в документ не попадает. Поле «Инструкция мозгу» пустое, пока вы сами не напишете, и лежит в `settings.json`. Пустое поле не меняет правила. Если текст есть, локальный мозг получает его как системную инструкцию: туда можно записать правило перевода, и команда «Писарь, …» по-прежнему дописывается в конец. Облако, включая Xiaomi MiMo, это поле не читает. Запрос к Xiaomi остаётся прежним.
+**Выбор модели мозга и своя инструкция (1.5.0).** На вкладке «Мозг», когда стоит «На компьютере», один список. Qwen3 4B, 2,1 ГБ: тот же файл, что раньше, `Qwen3-4B-Instruct-2507-Q3_K_M.gguf`. Qwen3.5 4B, 2,3 ГБ: `Qwen3.5-4B-Q3_K_M.gguf` с Hugging Face `unsloth/Qwen3.5-4B-GGUF`. Третий пункт — своя ссылка. Это страница файла или адрес `resolve` на huggingface.co (или hf.co), и имя должно кончаться на `.gguf`. Страница `blob` превращается в `resolve`. Если это не `.gguf`, программа пишет «Нужна ссылка Hugging Face на файл .gguf.» и ничего не качает. Кнопка «Скачать модель мозга» один раз забирает движок llama.cpp и выбранный файл в `%LOCALAPPDATA%\ChawoVoiceAssistant\brain\`. При запуске программы и при смене «Где думает» загрузка не начинается. Свой файл проверяется по заголовку GGUF и не запускается как программа. Ключ для него не нужен и никуда не отправляется. Qwen3.5 по умолчанию думает вслух. Движок этой сборки, llama.cpp b10701, запускается как `llama-server --jinja --reasoning off`, а в запрос ещё ставится `enable_thinking: false`. Если в ответе всё же остался блок `<think>`, он вырезается и в документ не попадает. Поле «Инструкция мозгу» пустое, пока вы сами не напишете, и лежит в `settings.json`. Пустое поле не меняет правила. Если текст есть, локальный мозг получает его как системную инструкцию: туда можно записать правило перевода, и команда «Чаво, …» по-прежнему дописывается в конец. Облако, включая Xiaomi MiMo, это поле не читает. Запрос к Xiaomi остаётся прежним.
 
-**1.6.0: удаление моделей, микрофон, правка фразы, Vulkan для мозга.** У каждой скачанной речевой модели своя кнопка: «Удалить русскую модель v3» и «Удалить большую модель, 2,4 ГБ». У каждого файла `.gguf` в `%LOCALAPPDATA%\GigaPisar\brain` тоже своя. Перед удалением вопрос. Сносится только эта копия в LocalAppData, не `GigaPisar.exe` и не движок llama.cpp. После удаления строка статуса говорит, что модели на диске нет, если другой копии не осталось.
+**1.6.0: удаление моделей, микрофон, правка фразы, Vulkan для мозга.** У каждой скачанной речевой модели своя кнопка: «Удалить русскую модель v3» и «Удалить большую модель, 2,4 ГБ». У каждого файла `.gguf` в `%LOCALAPPDATA%\ChawoVoiceAssistant\brain` тоже своя. Перед удалением вопрос. Сносится только эта копия в LocalAppData, не `ChawoVoiceAssistant.exe` и не движок llama.cpp. После удаления строка статуса говорит, что модели на диске нет, если другой копии не осталось.
 
 Список «Потоки процессора» есть только при выборе процессора. «Правка каждой фразы» — это «Выключено» или «Переписывать каждую фразу»: мозг переписывает фразу до вставки. Микрофон: по умолчанию устройство Windows, остальные входы списком, если они есть. Список устройств на этой сборке не запускался.
 
@@ -99,11 +108,11 @@ Closing the window hides it; the app stays in the tray until **Quit**.
 
 **Мозг Xiaomi MiMo, Сингапур, выключен.** Мозг — это правка уже распознанного текста, не звука. Он по-прежнему выключен, пока вы сами не выберете сервис. Добавлен Xiaomi Token Plan Singapore: адрес `https://token-plan-sgp.xiaomimimo.com/v1`, модель `mimo-v2.6-flash`. Свой ключ вставляете вы, в репозитории ключа нет, на диске он лежит в DPAPI, как и остальные ключи. Уходит только текст. Так можно пользоваться своим тарифом MiMo и не платить за распознавание: звук считает локальная GigaAM.
 
-**Hermes, HTTP-расшифровщик.** Писарь с самого запуска слушает только `127.0.0.1`, порт **17831**. Другая программа на этом же компьютере (Hermes) может прислать `POST /v1/transcribe` с файлом wav или ogg/opus и получить JSON с текстом. Звук никуда не загружается: его разбирает эта же программа. Порт по умолчанию не торчит в сеть, чтобы расшифровка не была доступна соседям по Wi‑Fi без вашего решения.
+**Hermes, HTTP-расшифровщик.** Программа с самого запуска слушает только `127.0.0.1`, порт **17831**. Другая программа на этом же компьютере (Hermes) может прислать `POST /v1/transcribe` с файлом wav или ogg/opus и получить JSON с текстом. Звук никуда не загружается: его разбирает эта же программа. Порт по умолчанию не торчит в сеть, чтобы расшифровка не была доступна соседям по Wi‑Fi без вашего решения.
 
-**Кнопка «Открыть порт в брандмауэре и слушать сеть».** Если этот ПК должен быть расшифровщиком для других машин, кнопка делает две вещи. Windows спрашивает права администратора и добавляет входящее правило брандмауэра на TCP **17831** (имя правила `Giga Pisar Hermes`), затем открывает консоль брандмауэра, чтобы правило было видно. После этого Писарь слушает **0.0.0.0:17831**, то есть все свои сетевые адреса, не только localhost. Другой компьютер в локальной сети шлёт тот же `POST http://<адрес-этого-ПК>:17831/v1/transcribe`. Это уже доступ к расшифровке из локальной сети: кто угодно в ней может прислать запись. В интернет программа запись не отправляет. Пока кнопку не нажали, снаружи порт закрыт. Кнопка «снова только этот компьютер» возвращает прослушивание на 127.0.0.1.
+**Кнопка «Открыть порт в брандмауэре и слушать сеть».** Если этот ПК должен быть расшифровщиком для других машин, кнопка делает две вещи. Windows спрашивает права администратора и добавляет входящее правило брандмауэра на TCP **17831** (имя правила `Chawo Voice Assistant`; правило прежних версий удаляется), затем открывает консоль брандмауэра, чтобы правило было видно. После этого программа слушает **0.0.0.0:17831**, то есть все свои сетевые адреса, не только localhost. Другой компьютер в локальной сети шлёт тот же `POST http://<адрес-этого-ПК>:17831/v1/transcribe`. Это уже доступ к расшифровке из локальной сети: кто угодно в ней может прислать запись. В интернет программа запись не отправляет. Пока кнопку не нажали, снаружи порт закрыт. Кнопка «снова только этот компьютер» возвращает прослушивание на 127.0.0.1.
 
-**Галочка «не давать компьютеру уснуть».** Пока Писарь слушает и галочка включена, вызывается `SetThreadExecutionState`: Windows не усыпляет ПК от простоя, иначе расшифровщик замолчит посреди очереди голосовых. Ручное выключение это не блокирует. Сняли галочку или закрыли программу (слушатель остановился) — запрет сна снимается.
+**Галочка «не давать компьютеру уснуть».** Пока программа слушает и галочка включена, вызывается `SetThreadExecutionState`: Windows не усыпляет ПК от простоя, иначе расшифровщик замолчит посреди очереди голосовых. Ручное выключение это не блокирует. Сняли галочку или закрыли программу (слушатель остановился) — запрет сна снимается.
 
 Проверка обновлений есть только по кнопке и только у этого репозитория (`zai-one/chawo-va`). Репозиторий автора оригинала не опрашивается. Обновление само не скачивается.
 
@@ -114,7 +123,7 @@ Two published Sber GigaAM graphs:
 | Choice | What it is | Download |
 | --- | --- | --- |
 | **Multilingual Large CTC** | Largest GigaAM **ASR** with a usable ONNX file: `multilingual_large_ctc`, about 600M parameters, fp32. Russian, English and the other languages in that vocabulary. No punctuation model. No language input. | about 2.4 GB from [istupakov/gigaam-multilingual-large-ctc-onnx](https://huggingface.co/istupakov/gigaam-multilingual-large-ctc-onnx) |
-| **v3 e2e RNN-T** (fresh-install default) | Smaller Russian end-to-end model with punctuation (the original Pisar weights, int8). Ignores the language list. | about 220 MB |
+| **v3 e2e RNN-T** (fresh-install default) | Smaller Russian end-to-end model with punctuation (the upstream app's weights, int8). Ignores the language list. | about 220 MB |
 
 Why not something larger: Sber's `multilingual_large` line is the 600M model.
 `multilingual_large_ssl` is an encoder only, not a speech-to-text head, so it
@@ -176,7 +185,7 @@ only time the engine or the GGUF is fetched. Qwen3.5 thinks by default;
 empty it is the system prompt for the local brain only. Xiaomi is not sent
 that text.
 
-Same behaviour as upstream: the address word "Писарь" (or "edit on the fly")
+Same behaviour as upstream: the address word "Чаво" (or "edit on the fly")
 sends **text**, never audio. The key is stored with Windows DPAPI and is not
 written into the repo.
 
@@ -202,11 +211,11 @@ select a service in Settings.
 **Telegram voice.** `tools/hermes-telegram-bot` (also copied next to the EXE in the zip) is a stdlib Python bot. Run it beside the host. Forward a voice note from the phone. It POSTs the ogg to the same `/v1/transcribe`. There is no zai-one Android fork and none was created. Qwen 3.5 stays on the Windows host: a phone does not run that 2.3 GB model. The bot does not call the brain.
 
 
-While Pisar is running it listens on `127.0.0.1:17831` only. Audio posted
+While the app is running it listens on `127.0.0.1:17831` only. Audio posted
 there is decoded in this process and is not uploaded.
 
 **Open the firewall port and listen on the network** (Settings → Dictation)
-asks Windows (UAC) to allow inbound TCP **17831** (rule name `Giga Pisar Hermes`),
+asks Windows (UAC) to allow inbound TCP **17831** (rule name `Chawo Voice Assistant`; the rule from earlier versions is deleted),
 opens the firewall console, and rebinds to **0.0.0.0:17831**. Other machines
 on the LAN can then `POST http://<this-pc>:17831/v1/transcribe`. That exposes
 transcription to the local network. It stays off until you press the button.
@@ -214,7 +223,7 @@ transcription to the local network. It stays off until you press the button.
 
 **Keep the PC awake while transcription is listening** calls
 `SetThreadExecutionState` so Windows does not idle-sleep while the listener
-is up. It does not block a manual shutdown. Clear the box or quit Pisar
+is up. It does not block a manual shutdown. Clear the box or quit the app
 (the listener stops) and sleep is allowed again.
 
 `GET /v1/health`
@@ -254,8 +263,8 @@ After that, anyone on the local network can.
   The model is not streaming. The draft is not inserted. Releasing the key
   cancels a draft that is still running and inserts one final pass, same as before.
 - On startup and on the download button, uses a complete copy of the selected
-  model if one is already in this fork's folder, the original
-  `%LOCALAPPDATA%\GigaPisar\model` folder, roaming AppData, or next to the EXE.
+  model if one is already in the app's data folder, the folder of versions before
+  1.17.0 (if the first-start move left it there), roaming AppData, or next to the EXE.
   It does not download again. The window shows the path.
 - Escape or the Stop button drops the current take. Nothing is inserted.
 - By default the finished phrase is also placed on the clipboard. A second
@@ -264,15 +273,16 @@ After that, anyone on the local network can.
   that adds to history without making the text current, so the phrase is set
   current first. If history is off, or the phrase would leave history, it stays
   current and the previous clipboard is not restored.
-- Holds the recognition weights under `%LOCALAPPDATA%\GigaPisar\models\`.
+- Holds the recognition weights under `%LOCALAPPDATA%\ChawoVoiceAssistant\models\`.
   The download runs only after you press the button.
-- Keeps settings in `%APPDATA%\GigaPisar\settings.json` and a small log
+- Keeps settings in `%APPDATA%\ChawoVoiceAssistant\settings.json` and a small log
   (take lengths, levels, errors; never text or audio) in
-  `%LOCALAPPDATA%\GigaPisar\pisar.log`.
+  `%LOCALAPPDATA%\ChawoVoiceAssistant\chawo-va.log`.
+  On first start of 1.17.0 the folders of earlier versions are moved here (see above).
   A Brain API key is stored there encrypted with Windows DPAPI for the current user.
 - Optionally keeps the last take as `last.wav` in the same folder for
   troubleshooting (off by default; deleted when the option is turned off).
-- Does **not** check `moznoazachem/giga-pisar-win` for updates. A manual **Check for updates** button asks GitHub for the latest release of `zai-one/chawo-va` only, shows the page URL, and does not download it. There is no timer.
+- Does **not** check the upstream repository for updates. A manual **Check for updates** button asks GitHub for the latest release of `zai-one/chawo-va` only, shows the page URL, and does not download it. There is no timer.
 
 ## Layout
 
@@ -305,15 +315,15 @@ ISCC.exe setup.iss
 Headless check of the engine against a WAV file:
 
 ```
-set PISAR_MODEL=large
-set PISAR_DEVICE=gpu
-set PISAR_MODEL_DIR=C:\path\to\model
-GigaPisar.exe --transcribe input.wav result.txt
+set CHAWO_MODEL=large
+set CHAWO_DEVICE=gpu
+set CHAWO_MODEL_DIR=C:\path\to\model
+ChawoVoiceAssistant.exe --transcribe input.wav result.txt
 ```
 
-`PISAR_MODEL=v3` selects the RNN-T weights. `PISAR_DEVICE=cpu` forces the CPU.
-`PISAR_MODEL_DIR` is honoured by this headless mode only; the tray app uses
-`%LOCALAPPDATA%\GigaPisar\models\<model>`.
+`CHAWO_MODEL=v3` selects the RNN-T weights. `CHAWO_DEVICE=cpu` forces the CPU.
+`CHAWO_MODEL_DIR` is honoured by this headless mode only; the tray app uses
+`%LOCALAPPDATA%\ChawoVoiceAssistant\models\<model>`.
 
 ## Code signing policy
 
@@ -336,7 +346,7 @@ All team members use multi-factor authentication on GitHub.
 
 ## Privacy
 
-This fork collects no telemetry. Speech is recognized on your computer; audio
+Chawo Voice Assistant collects no telemetry. Speech is recognized on your computer; audio
 never leaves it, including audio posted to the Hermes port. That port is
 `127.0.0.1` until you open it for the LAN (`0.0.0.0:17831`).
 
@@ -347,7 +357,7 @@ other host. It does not run on a timer and does not download the release.
 Network traffic happens only when you ask for it:
 
 - you press **Download the selected model** (Hugging Face for the large CTC
-  weights, or the original giga-pisar-cli release for v3);
+  weights, or the upstream `moznoazachem/giga-pisar-cli` release for v3, unchanged);
 - you turn the Brain on and choose a cloud service. Then the recognized text
   (or the selected text, for a command on a selection) goes to that service.
   Xiaomi's Singapore Token Plan is `token-plan-sgp.xiaomimimo.com`. The Brain

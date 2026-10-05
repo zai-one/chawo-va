@@ -1,13 +1,14 @@
-// User settings stored as JSON in %APPDATA%\GigaPisar\settings.json.
+// User settings stored as JSON in %APPDATA%\ChawoVoiceAssistant\settings.json.
+// Before 1.17.0 the folders were named differently; DataMigration moves them on first start.
 
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
-using GigaPisar.Core;
+using ChawoVA.Core;
 
-namespace GigaPisar.App;
+namespace ChawoVA.App;
 
 public enum InsertMode { Type, Paste }
 
@@ -75,7 +76,7 @@ public sealed class Settings
     public int RemotePort { get; set; } = SpeechModels.HermesPort;
     /// <summary>While the Hermes listener is running, ask Windows not to idle-sleep. Off by default.</summary>
     public bool KeepAwakeWhileListening { get; set; }
-    /// <summary>Send every take through the Brain, not only those ending with "Pisar, …".</summary>
+    /// <summary>Send every take through the Brain, not only those ending with "Chawo, …".</summary>
     public bool BrainEveryTake { get; set; }
     /// <summary>With text selected at the key press, the take is a command on the selection. On by default, as on macOS.</summary>
     public bool BrainOnSelection { get; set; } = true;
@@ -173,14 +174,15 @@ public sealed class Settings
     public int? OverlayX { get; set; }
     public int? OverlayY { get; set; }
 
+    public const string DataFolderName = "ChawoVoiceAssistant";
     public static string AppDataDir =>
-        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "GigaPisar");
+        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), DataFolderName);
     public static string LocalDataDir =>
-        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "GigaPisar");
+        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), DataFolderName);
     public static string ModelDirectory(SpeechModelKind kind) =>
         Path.Combine(LocalDataDir, "models", SpeechModels.Folder(kind));
     public static string SettingsPath => Path.Combine(AppDataDir, "settings.json");
-    public static string LogPath => Path.Combine(LocalDataDir, "pisar.log");
+    public static string LogPath => Path.Combine(LocalDataDir, "chawo-va.log");
     public static string LastTakePath => Path.Combine(LocalDataDir, "last.wav");
 
     private static readonly JsonSerializerOptions JsonOptions = new()
@@ -232,6 +234,7 @@ public sealed class Settings
         catch (Exception e) { Log.Write($"settings save failed: {e.Message}"); }
     }
 
+    // Internal DPAPI entropy. Must stay as it was, or keys saved by earlier versions cannot be decrypted.
     private static readonly byte[] KeyEntropy = Encoding.UTF8.GetBytes("GigaPisar.CleanupApiKey");
 
     private static string Protect(string plain) =>

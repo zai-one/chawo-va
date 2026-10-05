@@ -10,7 +10,7 @@ using NAudio.CoreAudioApi;
 using NAudio.Wave;
 using NAudio.Wave.SampleProviders;
 
-namespace GigaPisar.App;
+namespace ChawoVA.App;
 
 public sealed class Recorder : IDisposable
 {
@@ -155,8 +155,8 @@ public sealed class Recorder : IDisposable
         return Task.Run(() =>
         {
             Exception? first = null;
-            // PISAR_CAPTURE=wasapi forces the fallback path (testing aid).
-            bool forceWasapi = Environment.GetEnvironmentVariable("PISAR_CAPTURE") == "wasapi";
+            // CHAWO_CAPTURE=wasapi forces the fallback path (testing aid).
+            bool forceWasapi = DataMigration.Env("CAPTURE") == "wasapi";
             var attempts = new List<Func<ManualResetEventSlim, IWaveIn>>();
             if (wanted.StartsWith("wave:", StringComparison.Ordinal) && int.TryParse(wanted.AsSpan(5), out int waveIndex) && waveIndex >= 0)
                 attempts.Add(s => OpenWaveIn(waveIndex, s));

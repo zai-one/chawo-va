@@ -5,7 +5,7 @@
 
 using System.Text.RegularExpressions;
 
-namespace GigaPisar.App;
+namespace ChawoVA.App;
 
 public static class WordReplace
 {

@@ -1,10 +1,10 @@
-<Window x:Class="GigaPisar.App.SalesCardWindow"
+<Window x:Class="ChawoVA.App.SalesCardWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         WindowStyle="None" AllowsTransparency="True" Background="Transparent"
         Topmost="True" ShowInTaskbar="False" ShowActivated="False" Focusable="False"
         ResizeMode="NoResize" SizeToContent="WidthAndHeight"
-        Title="Chawo VA"
+        Title="Chawo Voice Assistant"
         FontFamily="{StaticResource ChawoFont}">
     <Border Margin="16" Padding="14,12" CornerRadius="{StaticResource ChawoCardRadius}" MaxWidth="400"
             Background="{StaticResource ChawoBgBrush}" BorderBrush="{StaticResource ChawoBorderBrush}" BorderThickness="1">

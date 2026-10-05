@@ -7,14 +7,16 @@
     <UseWindowsForms>true</UseWindowsForms>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
-    <AssemblyName>GigaPisar</AssemblyName>
-    <RootNamespace>GigaPisar</RootNamespace>
+    <AssemblyName>ChawoVoiceAssistant</AssemblyName>
+    <RootNamespace>ChawoVA</RootNamespace>
     <ApplicationIcon>Assets/app.ico</ApplicationIcon>
     <ApplicationManifest>app.manifest</ApplicationManifest>
-    <StartupObject>GigaPisar.App.PisarApp</StartupObject>
+    <StartupObject>ChawoVA.App.ChawoApp</StartupObject>
     <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
-    <Version>1.16.0</Version>
-    <Product>Chawo VA</Product>
+    <Version>1.17.0</Version>
+    <Product>Chawo Voice Assistant</Product>
+    <AssemblyTitle>Chawo Voice Assistant</AssemblyTitle>
+    <Description>Chawo Voice Assistant</Description>
     <Company>Chawo</Company>
     <Copyright>MIT License</Copyright>
     <SatelliteResourceLanguages>en</SatelliteResourceLanguages>

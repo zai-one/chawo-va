@@ -1,9 +1,9 @@
 // A long dialogue file becomes a .txt beside it. The path is read in place.
 // Nothing is copied under the name "upload", and no model is downloaded.
 
-using GigaPisar.Core;
+using ChawoVA.Core;
 
-namespace GigaPisar.App;
+namespace ChawoVA.App;
 
 public static class FileTranscript
 {

@@ -9,9 +9,9 @@ using System.IO.Compression;
 using System.Net;
 using System.Net.Http;
 using System.Security.Cryptography;
-using GigaPisar.Core;
+using ChawoVA.Core;
 
-namespace GigaPisar.App;
+namespace ChawoVA.App;
 
 public enum DownloadFailure { Network, NoSpace, Corrupt, Rejected }
 
@@ -164,7 +164,7 @@ public static class ModelDownloader
     {
         using var handler = new SocketsHttpHandler { DefaultProxyCredentials = CredentialCache.DefaultCredentials, AllowAutoRedirect = true };
         using var http = new HttpClient(handler) { Timeout = Timeout.InfiniteTimeSpan };
-        http.DefaultRequestHeaders.UserAgent.ParseAdd("GigaPisar/" + PisarApp.Version + " (Windows)");
+        http.DefaultRequestHeaders.UserAgent.ParseAdd("ChawoVoiceAssistant/" + ChawoApp.Version + " (Windows)");
         using var idle = CancellationTokenSource.CreateLinkedTokenSource(ct);
         idle.CancelAfter(IdleTimeout);
         using var response = await http.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, idle.Token);

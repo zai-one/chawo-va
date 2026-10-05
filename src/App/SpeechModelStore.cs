@@ -1,16 +1,17 @@
 // Finds GigaAM weights that are already on disk so a second download is not started.
 //
-// This fork keeps a model in %LOCALAPPDATA%\GigaPisar\models\<id>.
-// The original Giga Pisar (1.0.x) keeps v3 in %LOCALAPPDATA%\GigaPisar\model.
+// The app keeps a model in %LOCALAPPDATA%\ChawoVoiceAssistant\models\<id>.
+// Folders of versions before 1.17.0 (see DataMigration.Legacy*) are still searched,
+// in case the first-start move could not take everything.
 // A portable copy may sit next to the EXE (model\, models\<id>\, or the EXE folder).
-// Roaming %APPDATA%\GigaPisar is checked too, in case a build wrote there.
+// Roaming %APPDATA%\ChawoVoiceAssistant is checked too, in case a build wrote there.
 // The first folder that contains every required file, at a size that is not a
 // stub or a half-finished download, is used as-is. Nothing is copied and nothing
 // is downloaded.
 
-using GigaPisar.Core;
+using ChawoVA.Core;
 
-namespace GigaPisar.App;
+namespace ChawoVA.App;
 
 public static class SpeechModelStore
 {
@@ -113,8 +114,15 @@ public static class SpeechModelStore
             yield return parent;
         }
 
-        if (Environment.GetEnvironmentVariable("PISAR_MODEL_DIR") is { Length: > 0 } env)
+        if (DataMigration.Env("MODEL_DIR") is { Length: > 0 } env)
             yield return env;
+
+        // Data folders of versions before 1.17.0, if the first-start move left anything behind.
+        foreach (var legacy in new[] { DataMigration.LegacyLocalDir, DataMigration.LegacyRoamingDir })
+        {
+            yield return Path.Combine(legacy, "models", folder);
+            yield return Path.Combine(legacy, "model");
+        }
 
         // One level down: a manual unzip often wraps the files in a single folder.
         foreach (var root in new[]
@@ -143,8 +151,8 @@ public static class SpeechModelStore
     public static bool HasDeletable(SpeechModelKind kind) => DeletableTargets(kind).Count > 0;
 
     /// <summary>
-    /// Copies under %LOCALAPPDATA%\GigaPisar only. Never the program folder and never a directory
-    /// that contains GigaPisar.exe. A folder that holds only this model's files is removed whole;
+    /// Copies under %LOCALAPPDATA%\ChawoVoiceAssistant only. Never the program folder and never a directory
+    /// that contains the program EXE. A folder that holds only this model's files is removed whole;
     /// otherwise only those files are listed.
     /// </summary>
     public static IReadOnlyList<string> DeletableTargets(SpeechModelKind kind)
@@ -161,7 +169,7 @@ public static class SpeechModelStore
             if (!seen.Add(full)) return;
             if (!IsUnder(full, root)) return;
             var dir = Directory.Exists(full) ? full : Path.GetDirectoryName(full);
-            if (dir != null && File.Exists(Path.Combine(dir, "GigaPisar.exe"))) return;
+            if (dir != null && DataMigration.ProgramExeNames.Any(n => File.Exists(Path.Combine(dir, n)))) return;
             list.Add(full);
         }
 
@@ -172,7 +180,7 @@ public static class SpeechModelStore
             try { full = Path.GetFullPath(dir); }
             catch { return; }
             if (!IsUnder(full, root) || string.Equals(full, root, StringComparison.OrdinalIgnoreCase)) return;
-            if (File.Exists(Path.Combine(full, "GigaPisar.exe"))) return;
+            if (DataMigration.ProgramExeNames.Any(n => File.Exists(Path.Combine(full, n)))) return;
             if (!DirectoryHasModelBits(full, kind) && !LooksComplete(full, kind)) return;
             if (OnlyThisModel(full, kind))
                 Add(full);

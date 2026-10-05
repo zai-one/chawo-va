@@ -4,19 +4,22 @@
 
 using System.Diagnostics;
 
-namespace GigaPisar.App;
+namespace ChawoVA.App;
 
 public static class HermesFirewall
 {
-    public const string RuleName = "Giga Pisar Hermes";
+    public const string RuleName = "Chawo Voice Assistant";
+    /// <summary>Rule name used before 1.17.0; removed whenever the button runs.</summary>
+    private const string LegacyRuleName = "Giga Pisar Hermes";
 
     /// <summary>Adds an inbound allow rule for every profile. Returns false if UAC is cancelled or netsh fails.</summary>
     public static bool TryOpenPort(int port, out string error)
     {
-        var bat = Path.Combine(Path.GetTempPath(), "giga-pisar-hermes-firewall.cmd");
+        var bat = Path.Combine(Path.GetTempPath(), "chawo-voice-assistant-firewall.cmd");
         // delete is best-effort (it fails when the rule is not there yet). add decides the exit code.
         File.WriteAllText(bat,
             "@echo off\r\n" +
+            $"netsh advfirewall firewall delete rule name=\"{LegacyRuleName}\" >nul 2>&1\r\n" +
             $"netsh advfirewall firewall delete rule name=\"{RuleName}\" protocol=TCP localport={port} >nul 2>&1\r\n" +
             $"netsh advfirewall firewall add rule name=\"{RuleName}\" dir=in action=allow protocol=TCP localport={port}\r\n" +
             "exit /b %ERRORLEVEL%\r\n");

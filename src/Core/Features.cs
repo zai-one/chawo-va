@@ -11,7 +11,7 @@
 
 using System.Numerics;
 
-namespace GigaPisar.Core;
+namespace ChawoVA.Core;
 
 public sealed class Features
 {

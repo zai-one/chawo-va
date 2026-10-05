@@ -14,7 +14,7 @@ using System.Windows.Shapes;
 using System.Windows.Threading;
 using Microsoft.Win32;
 
-namespace GigaPisar.App;
+namespace ChawoVA.App;
 
 public partial class OverlayWindow : Window
 {

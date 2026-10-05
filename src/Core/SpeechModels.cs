@@ -1,4 +1,4 @@
-namespace GigaPisar.Core;
+namespace ChawoVA.Core;
 
 /// <summary>Which published GigaAM weights to run.</summary>
 public enum SpeechModelKind

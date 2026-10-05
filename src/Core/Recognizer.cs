@@ -11,7 +11,7 @@
 
 using Microsoft.ML.OnnxRuntime;
 
-namespace GigaPisar.Core;
+namespace ChawoVA.Core;
 
 public sealed class Recognizer : IDisposable
 {

@@ -3,7 +3,7 @@
 
 using System.Runtime.InteropServices;
 
-namespace GigaPisar.App;
+namespace ChawoVA.App;
 
 internal static class KeepAwake
 {

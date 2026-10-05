@@ -14,7 +14,7 @@ using System.Text;
 using System.Windows.Automation;
 using System.Windows.Automation.Text;
 
-namespace GigaPisar.App;
+namespace ChawoVA.App;
 
 public static class SelectionReader
 {

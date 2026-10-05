@@ -12,20 +12,23 @@ using System.Windows;
 using System.Windows.Threading;
 using Forms = System.Windows.Forms;
 
-namespace GigaPisar.App;
+namespace ChawoVA.App;
 
 public enum DictatePhase { NoModel, Idle, Listening, Recognizing }
 
-public partial class PisarApp : Application
+public partial class ChawoApp : Application
 {
     public static readonly string Version = ReadVersion();
+    public const string ProductName = "Chawo Voice Assistant";
+    /// <summary>Short form, only where space is tight (tray tooltip with a status).</summary>
+    public const string ProductShortName = "Chawo VA";
     public const string SiteUrl = "https://chawo.ai";
     public const string RepoUrl = "https://github.com/zai-one/chawo-va";
 
     private static Mutex? _instanceMutex;
     /// <summary>A second launch (Start menu, desktop shortcut) signals the running instance to open Settings.</summary>
     private static EventWaitHandle? _showSettingsSignal;
-    private const string ShowSettingsSignalName = "GigaPisar.ShowSettings";
+    private const string ShowSettingsSignalName = "ChawoVoiceAssistant.ShowSettings";
     private static bool JustUpdated;
 
     /// <summary>Peak below this (about -75 dBFS) is digital silence: nothing reached the input at all.</summary>
@@ -92,6 +95,8 @@ public partial class PisarApp : Application
     [STAThread]
     public static int Main(string[] args)
     {
+        // 1.17.0: the data folders were renamed. Move the old ones over before anything reads or logs.
+        DataMigration.Run();
         if (args.Length >= 3 && args[0] == "--transcribe")
             return CliTranscribe(args[1], args[2]);
         if (args.Length >= 1 && args[0] == "--overlay-demo")
@@ -113,7 +118,7 @@ public partial class PisarApp : Application
             return WindowShot(args[1], args[2], args.Length >= 4 ? args[3] : "ru", args.Length >= 5 ? args[4] : null);
         JustUpdated = args.Length >= 1 && args[0] == "--updated";
 
-        _instanceMutex = new Mutex(true, "GigaPisar.SingleInstance", out bool first);
+        _instanceMutex = new Mutex(true, "ChawoVoiceAssistant.SingleInstance", out bool first);
         if (!first)
         {
             try
@@ -127,7 +132,7 @@ public partial class PisarApp : Application
         }
         _showSettingsSignal = new EventWaitHandle(false, EventResetMode.AutoReset, ShowSettingsSignalName);
 
-        var app = new PisarApp();
+        var app = new ChawoApp();
         app.InitializeComponent();
         app.DispatcherUnhandledException += (_, e) =>
         {
@@ -196,7 +201,7 @@ public partial class PisarApp : Application
     /// </summary>
     private static int WindowShot(string kind, string outPath, string lang, string? keyFile)
     {
-        var app = new PisarApp();
+        var app = new ChawoApp();
         app.InitializeComponent();
         app.Startup += async (_, _) =>
         {
@@ -266,7 +271,7 @@ public partial class PisarApp : Application
     /// <summary>Design aid: shows the overlay with synthetic levels for a few seconds, then the "recognizing" state.</summary>
     private static int OverlayDemo()
     {
-        var app = new PisarApp();
+        var app = new ChawoApp();
         app.InitializeComponent();
         app.Startup += async (_, _) =>
         {
@@ -288,11 +293,11 @@ public partial class PisarApp : Application
     {
         try
         {
-            var kind = Environment.GetEnvironmentVariable("PISAR_MODEL") == "v3"
+            var kind = DataMigration.Env("MODEL") == "v3"
                 ? Core.SpeechModelKind.V3E2eRnnt : Core.SpeechModelKind.MultilingualLargeCtc;
-            var device = Environment.GetEnvironmentVariable("PISAR_DEVICE") == "cpu"
+            var device = DataMigration.Env("DEVICE") == "cpu"
                 ? Core.SpeechDeviceKind.Cpu : Core.SpeechDeviceKind.Gpu;
-            var modelDir = Environment.GetEnvironmentVariable("PISAR_MODEL_DIR") is { Length: > 0 } env ? env
+            var modelDir = DataMigration.Env("MODEL_DIR") is { Length: > 0 } env ? env
                 : SpeechModelStore.FindComplete(kind) ?? Settings.ModelDirectory(kind);
             var sw = Stopwatch.StartNew();
             using var rec = new Core.Recognizer(modelDir, kind, device);
@@ -317,13 +322,15 @@ public partial class PisarApp : Application
         _settings = Settings.Load();
         L.Apply(_settings.Language);
         Log.Write($"start v{Version}");
+        DataMigration.FlushLog();
+        Autostart.MigrateLegacy();
 
         _iconIdle = LoadIcon();
         _iconBusy = MakeBusyIcon(_iconIdle, out _busyIconHandle);
         _tray = new Forms.NotifyIcon
         {
             Icon = _iconIdle,
-            Text = L.T("Chawo VA", "Chawo VA"),
+            Text = TrayText(null),
             Visible = true,
             ContextMenuStrip = BuildMenu(),
         };
@@ -363,7 +370,7 @@ public partial class PisarApp : Application
         if (JustUpdated)
         {
             Updater.Cleanup();
-            _tray.ShowBalloonTip(6000, L.T($"Chawo VA обновлён до {Version}", $"Chawo VA updated to {Version}"),
+            _tray.ShowBalloonTip(6000, L.T($"Chawo Voice Assistant обновлён до {Version}", $"Chawo Voice Assistant updated to {Version}"),
                 L.T("Всё готово, можно диктовать.", "All set, dictate away."), Forms.ToolTipIcon.None);
         }
         // No update check on a timer. The tray and About have a manual button for this fork's releases.
@@ -372,7 +379,7 @@ public partial class PisarApp : Application
             _settings.FirstRunDone = true;
             _settings.Save();
             if (SpeechIsRemote)
-                _tray.ShowBalloonTip(8000, L.T("Chawo VA — клиент", "Chawo VA is a client"),
+                _tray.ShowBalloonTip(8000, L.T("Chawo Voice Assistant — клиент", "Chawo Voice Assistant is a client"),
                     L.T("Укажите адрес хоста в разделе «Сеть». Модель на этом компьютере не скачивается.",
                         "Set the host address under Network. This PC does not download a model."),
                     Forms.ToolTipIcon.None);
@@ -382,7 +389,7 @@ public partial class PisarApp : Application
                         "Open Settings and press Download the selected model. It does not download by itself."),
                     Forms.ToolTipIcon.None);
             else
-            _tray.ShowBalloonTip(8000, L.T("Chawo VA готов", "Chawo VA is ready"),
+            _tray.ShowBalloonTip(8000, L.T("Chawo Voice Assistant готов", "Chawo Voice Assistant is ready"),
                 L.T($"Поставьте курсор в любой текст, зажмите {Settings.HotkeyTitle(_settings.HotkeyVk)} и говорите. Отпустите, и текст появится сам.",
                     $"Put the cursor in any text, hold {Settings.HotkeyTitle(_settings.HotkeyVk)} and speak. Release, and the text appears by itself."),
                 Forms.ToolTipIcon.None);
@@ -403,7 +410,7 @@ public partial class PisarApp : Application
                     System.Windows.MessageBox.Show(
                         L.T($"У вас последняя версия, {Version}.\n\nПроверено: {Updater.ReleasesPage}",
                             $"You have the latest version, {Version}.\n\nChecked: {Updater.ReleasesPage}"),
-                        L.T($"Chawo VA {Version}", $"Chawo VA {Version}"),
+                        L.T($"{ProductName} {Version}", $"{ProductName} {Version}"),
                         System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Information);
                 return;
             }
@@ -425,7 +432,7 @@ public partial class PisarApp : Application
                 System.Windows.MessageBox.Show(
                     L.T($"Не удалось проверить обновления.\n{Updater.ReleasesPage}\n{ex.Message}",
                         $"Could not check for updates.\n{Updater.ReleasesPage}\n{ex.Message}"),
-                    L.T($"Chawo VA {Version}", $"Chawo VA {Version}"),
+                    L.T($"{ProductName} {Version}", $"{ProductName} {Version}"),
                     System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Warning);
         }
     }
@@ -440,7 +447,7 @@ public partial class PisarApp : Application
         string text = L.T($"Выделено {selected.Length} знаков. Скажите, что с ними сделать",
                           $"{selected.Length} characters selected. Say what to do with them");
         if (_settings.ShowOverlay) _overlay?.ShowCaption(text);
-        else _tray?.ShowBalloonTip(2500, L.T("Chawo VA", "Chawo VA"), text, Forms.ToolTipIcon.None);
+        else _tray?.ShowBalloonTip(2500, ProductName, text, Forms.ToolTipIcon.None);
     }
 
     private async Task HandlePressAsync()
@@ -853,8 +860,8 @@ public partial class PisarApp : Application
         _settingsWindow?.Localize();
         if (source != BrainSource.Off && (source != BrainSource.Local || LocalBrain.IsReady(_settings)))
             _tray?.ShowBalloonTip(6000, L.T("Мозг включён", "Brain is on"),
-                L.T("Скажите в конце фразы: «Писарь, исправь», «Писарь, сократи» или «Писарь, переведи на английский».",
-                    "End a phrase with \"Pisar, fix it\", \"Pisar, make it shorter\" or \"Pisar, translate into English\" (in Russian)."),
+                L.T("Скажите в конце фразы: «Чаво, исправь», «Чаво, сократи» или «Чаво, переведи на английский».",
+                    "End a phrase with \"Chawo, fix it\", \"Chawo, make it shorter\" or \"Chawo, translate into English\" (in Russian)."),
                 Forms.ToolTipIcon.None);
         await Task.CompletedTask;
     }
@@ -869,7 +876,7 @@ public partial class PisarApp : Application
         }
         else
         {
-            _tray?.ShowBalloonTip(4000, L.T("Chawo VA", "Chawo VA"), text, Forms.ToolTipIcon.None);
+            _tray?.ShowBalloonTip(4000, ProductName, text, Forms.ToolTipIcon.None);
         }
     }
 
@@ -1056,8 +1063,8 @@ public partial class PisarApp : Application
         var kind = _settings.SpeechModel;
         var found = SpeechModelStore.FindComplete(kind);
         if (found == null)
-            return L.T("Эта модель на диске не найдена. Нажмите кнопку ниже, сама она не скачивается. Ищу в папках оригинального Писаря и этого форка, и рядом с программой.",
-                       "This model was not found on disk. Press the button below. It does not download by itself. The original Pisar folders, this fork's folders, and the folder next to the program are checked.");
+            return L.T("Эта модель на диске не найдена. Нажмите кнопку ниже, сама она не скачивается. Ищу в папках программы (и в папке прежней версии) и рядом с программой.",
+                       "This model was not found on disk. Press the button below. It does not download by itself. The app's data folders (including the previous version's) and the folder next to the program are checked.");
         string whereFile = L.T($"Уже на диске: {found}. ", $"Already on disk: {found}. ");
         Core.Recognizer? rec;
         string note;
@@ -1153,8 +1160,8 @@ public partial class PisarApp : Application
             return;
         }
         var yes = System.Windows.MessageBox.Show(
-            L.T($"Порт {Core.SpeechModels.HermesPort} откроется в брандмауэре Windows (система спросит разрешение администратора), и Писарь начнёт принимать записи со всех компьютеров в локальной сети. Адрес 0.0.0.0. В интернет звук не отправляется, но любой в этой сети сможет прислать файл на расшифровку. Продолжить?",
-                $"Port {Core.SpeechModels.HermesPort} will be opened in Windows Firewall (Windows will ask for administrator permission) and Pisar will accept recordings from every computer on the local network, on 0.0.0.0. Audio is not uploaded, but anyone on this network can send a file to transcribe. Continue?"),
+            L.T($"Порт {Core.SpeechModels.HermesPort} откроется в брандмауэре Windows (система спросит разрешение администратора), и Chawo Voice Assistant начнёт принимать записи со всех компьютеров в локальной сети. Адрес 0.0.0.0. В интернет звук не отправляется, но любой в этой сети сможет прислать файл на расшифровку. Продолжить?",
+                $"Port {Core.SpeechModels.HermesPort} will be opened in Windows Firewall (Windows will ask for administrator permission) and Chawo Voice Assistant will accept recordings from every computer on the local network, on 0.0.0.0. Audio is not uploaded, but anyone on this network can send a file to transcribe. Continue?"),
             L.T("Слушать сеть", "Listen on the network"),
             System.Windows.MessageBoxButton.YesNo, System.Windows.MessageBoxImage.Warning);
         if (yes != System.Windows.MessageBoxResult.Yes) return;
@@ -1215,10 +1222,19 @@ public partial class PisarApp : Application
         }
     }
 
+    /// <summary>Tray tooltip: the full name; the short form only when a status would not fit (Windows caps it at 127 chars).</summary>
+    private static string TrayText(string? status)
+    {
+        if (string.IsNullOrEmpty(status)) return ProductName;
+        var text = $"{ProductName}: {status}";
+        if (text.Length > 127) text = $"{ProductShortName}: {status}";
+        return text.Length > 127 ? text[..127] : text;
+    }
+
     private void SetStatus(string? status)
     {
         if (_tray == null) return;
-        _tray.Text = status == null ? L.T("Chawo VA", "Chawo VA") : L.T($"Chawo VA: {status}", $"Chawo VA: {status}");
+        _tray.Text = TrayText(status);
     }
 
     private bool GpuWarmActive()

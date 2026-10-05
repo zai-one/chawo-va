@@ -1,5 +1,5 @@
 # Builds the installer on GitHub's Windows runners, from the source in this repository only,
-# so anyone can see how GigaPisar-Setup.exe is made. Runs on every version tag and by hand.
+# so anyone can see how ChawoVoiceAssistant-Setup.exe is made. Runs on every version tag and by hand.
 name: Build
 
 on:
@@ -21,7 +21,7 @@ jobs:
           dotnet-version: '10.0.x'
 
       - name: Publish the app
-        run: dotnet publish src/GigaPisar.csproj -c Release -r win-x64 --self-contained true -o dist/app -nologo
+        run: dotnet publish src/ChawoVoiceAssistant.csproj -c Release -r win-x64 --self-contained true -o dist/app -nologo
 
       # onnxruntime.dll needs the Visual C++ runtime, which a clean Windows 10 lacks.
       # Microsoft allows shipping these files next to an application.
@@ -41,10 +41,10 @@ jobs:
 
       - name: Checksum
         shell: pwsh
-        run: (Get-FileHash dist/GigaPisar-Setup.exe -Algorithm SHA256).Hash
+        run: (Get-FileHash dist/ChawoVoiceAssistant-Setup.exe -Algorithm SHA256).Hash
 
       - uses: actions/upload-artifact@v4
         with:
-          name: GigaPisar-Setup
-          path: dist/GigaPisar-Setup.exe
+          name: ChawoVoiceAssistant-Setup
+          path: dist/ChawoVoiceAssistant-Setup.exe
           if-no-files-found: error

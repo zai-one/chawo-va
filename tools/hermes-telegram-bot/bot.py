@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Forward a Telegram voice note to Giga Pisar Hermes and reply with the text.
+"""Forward a Telegram voice note to the Chawo Voice Assistant host (Hermes) and reply with the text.
 
 Run this on the Windows host (or any PC that can reach it). The phone only
 forwards a voice message to the bot. Nothing here downloads a speech model.
 Qwen is not started: a phone cannot carry Qwen 3.5, and this bot does not
-either. The brain stays in Giga Pisar on the PC.
+either. The brain stays in Chawo Voice Assistant on the PC.
 
 Stdlib only. Python 3.9+.
 """
@@ -76,7 +76,7 @@ def transcribe(hermes: str, blob: bytes, kind: str) -> str:
             raise RuntimeError("Хост на связи, но модель там не загружена.")
         raise RuntimeError(f"Хост ответил {ex.code}. {detail[:180]}")
     except urllib.error.URLError:
-        raise RuntimeError("Хост не отвечает. Проверьте адрес и что Писарь запущен, а порт открыт.")
+        raise RuntimeError("Хост не отвечает. Проверьте адрес и что Chawo Voice Assistant запущен, а порт открыт.")
     text = payload.get("text")
     if not isinstance(text, str):
         raise RuntimeError("Хост ответил не текстом.")

@@ -4,7 +4,7 @@
 using System.Diagnostics;
 using System.Windows;
 
-namespace GigaPisar.App;
+namespace ChawoVA.App;
 
 public partial class UpdateWindow : Window
 {
@@ -15,12 +15,12 @@ public partial class UpdateWindow : Window
         _info = info;
         _ = quit;
         InitializeComponent();
-        Title = L.T("Chawo VA", "Chawo VA");
+        Title = ChawoApp.ProductName;
         Heading.Text = L.T($"Вышла версия {info.Version}", $"Version {info.Version} is out");
         var notes = L.Russian || string.IsNullOrWhiteSpace(info.NotesEn) ? info.Notes : info.NotesEn;
         Notes.Text = string.IsNullOrWhiteSpace(notes)
-            ? L.T($"У вас {PisarApp.Version}. Новую версию программа сама не скачивает.",
-                  $"You have {PisarApp.Version}. The app does not download the new version.")
+            ? L.T($"У вас {ChawoApp.Version}. Новую версию программа сама не скачивает.",
+                  $"You have {ChawoApp.Version}. The app does not download the new version.")
             : notes.Trim();
         Notes.Text += L.T($"\n\nСтраница: {info.Url}\nПрограмма сама ничего не скачивает и не устанавливает.",
                           $"\n\nPage: {info.Url}\nThe app does not download or install it.");

@@ -4,7 +4,7 @@
 using System.Windows;
 using System.Windows.Interop;
 
-namespace GigaPisar.App;
+namespace ChawoVA.App;
 
 public partial class SalesCardWindow : Window
 {

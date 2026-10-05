@@ -1,12 +1,12 @@
-// Client of another Giga Pisar. Posts a WAV to http://host:port/v1/transcribe.
+// Client of another Chawo Voice Assistant. Posts a WAV to http://host:port/v1/transcribe.
 // Never downloads weights. A dead host is an error, not a reason to fetch a model.
 
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Text.Json;
-using GigaPisar.Core;
+using ChawoVA.Core;
 
-namespace GigaPisar.App;
+namespace ChawoVA.App;
 
 public sealed class RemoteHostException : Exception
 {
@@ -51,8 +51,8 @@ public static class RemoteSpeech
             }
             if (!string.Equals(parsed.Scheme, "http", StringComparison.OrdinalIgnoreCase))
             {
-                russian = "Нужен адрес http. Хост Писаря слушает http, не https.";
-                english = "Use http. Pisar's host listens on http, not https.";
+                russian = "Нужен адрес http. Хост Chawo Voice Assistant слушает http, не https.";
+                english = "Use http. The Chawo Voice Assistant host listens on http, not https.";
                 return false;
             }
             if (parsed.Port > 0) port = parsed.Port;

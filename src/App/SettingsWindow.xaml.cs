@@ -6,9 +6,9 @@ using System.Diagnostics;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Navigation;
-using GigaPisar.Core;
+using ChawoVA.Core;
 
-namespace GigaPisar.App;
+namespace ChawoVA.App;
 
 public partial class SettingsWindow : Window
 {
@@ -36,7 +36,7 @@ public partial class SettingsWindow : Window
     private bool _warmupBusy;
     private string _fileLine = "";
     private bool _fileRunning;
-    /// <summary>Last open section, kept while Pisar runs.</summary>
+    /// <summary>Last open section, kept while the app runs.</summary>
     private static int _lastPage;
 
     public enum Page { Dictation, File, Speech, Dictionary, Sales, Brain, Network }
@@ -90,7 +90,7 @@ public partial class SettingsWindow : Window
     public void Localize()
     {
         _loading = true;
-        Title = L.T($"Chawo VA {PisarApp.Version}", $"Chawo VA {PisarApp.Version}");
+        Title = L.T($"{ChawoApp.ProductName} {ChawoApp.Version}", $"{ChawoApp.ProductName} {ChawoApp.Version}");
         NavDictation.Text = L.T("Диктовка", "Dictation");
         NavFile.Text = L.T("Расшифровка файла", "File transcription");
         NavSpeech.Text = L.T("Распознавание", "Speech");
@@ -310,8 +310,8 @@ public partial class SettingsWindow : Window
                   "The text is written beside the recording: same name, .txt extension.");
 
         CleanupHeading.Text = L.T("Мозг", "Brain");
-        CleanupHint.Text = L.T("Выключен: текст вставляется как распознан. Можно сказать «Писарь, исправь». Чтобы править каждую фразу, включите переписывание ниже.",
-                               "Off: text is inserted as recognized. You can say \"Pisar, fix it\". Turn on rewrite below to edit every phrase.");
+        CleanupHint.Text = L.T("Выключен: текст вставляется как распознан. Можно сказать «Чаво, исправь». Чтобы править каждую фразу, включите переписывание ниже.",
+                               "Off: text is inserted as recognized. You can say \"Chawo, fix it\". Turn on rewrite below to edit every phrase.");
         BrainLabel.Text = L.T("Где думает", "Runs on");
         BrainBox.Items.Clear();
         BrainBox.Items.Add(new ComboBoxItem { Content = L.T("Выключен", "Off"), Tag = BrainSource.Off });
@@ -354,8 +354,8 @@ public partial class SettingsWindow : Window
         EveryTakeBox.Items.Add(new ComboBoxItem { Content = L.T("Выключено", "Off"), Tag = false });
         EveryTakeBox.Items.Add(new ComboBoxItem { Content = L.T("Переписывать каждую фразу", "Rewrite each phrase"), Tag = true });
         EveryTakeBox.SelectedIndex = _settings.BrainEveryTake ? 1 : 0;
-        EveryTakeHint.Text = L.T("Включите, и ниже будет, как именно переписывать. Выключено: фраза как распознана, пока не скажете «Писарь, …».",
-                                 "Turn on, and the box below is how to rewrite. Off: the phrase is inserted as recognized until you say \"Pisar, …\".");
+        EveryTakeHint.Text = L.T("Включите, и ниже будет, как именно переписывать. Выключено: фраза как распознана, пока не скажете «Чаво, …».",
+                                 "Turn on, and the box below is how to rewrite. Off: the phrase is inserted as recognized until you say \"Chawo, …\".");
         UpdateBrainTexts();
         _loading = false;
     }
@@ -418,7 +418,7 @@ public partial class SettingsWindow : Window
     /// <summary>The close button hides the window. The process stays in the tray until Quit.</summary>
     protected override void OnClosing(System.ComponentModel.CancelEventArgs e)
     {
-        if (!PisarApp.IsQuitting)
+        if (!ChawoApp.IsQuitting)
         {
             e.Cancel = true;
             Hide();

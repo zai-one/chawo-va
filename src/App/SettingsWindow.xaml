@@ -1,7 +1,7 @@
-<Window x:Class="GigaPisar.App.SettingsWindow"
+<Window x:Class="ChawoVA.App.SettingsWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        xmlns:app="clr-namespace:GigaPisar.App"
+        xmlns:app="clr-namespace:ChawoVA.App"
         Width="920" Height="560" MinWidth="820" MinHeight="420"
         ResizeMode="CanResize" WindowStartupLocation="CenterScreen"
         Background="{StaticResource ChawoBgBrush}">

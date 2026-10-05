@@ -10,7 +10,7 @@
 
 using System.Runtime.InteropServices;
 
-namespace GigaPisar.App;
+namespace ChawoVA.App;
 
 public sealed class KeyboardHook : IDisposable
 {
@@ -41,7 +41,7 @@ public sealed class KeyboardHook : IDisposable
     {
         _hotkeyVk = hotkeyVk;
         _proc = Callback;
-        _thread = new Thread(Run) { IsBackground = true, Name = "GigaPisar.KeyboardHook" };
+        _thread = new Thread(Run) { IsBackground = true, Name = "ChawoVA.KeyboardHook" };
         _thread.Start();
         _ready.Wait();
         if (_installError != null) throw _installError;

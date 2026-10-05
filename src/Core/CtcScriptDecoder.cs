@@ -8,7 +8,7 @@
 // best logit of each frame. It does not spell an English word the model
 // did not score.
 
-namespace GigaPisar.Core;
+namespace ChawoVA.Core;
 
 public static class CtcScriptDecoder
 {

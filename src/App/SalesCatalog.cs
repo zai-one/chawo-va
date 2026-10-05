@@ -1,6 +1,6 @@
 // Local sales catalog. Matching is letters on this PC: no network and no model.
 
-namespace GigaPisar.App;
+namespace ChawoVA.App;
 
 public sealed class SalesCatalogItem
 {

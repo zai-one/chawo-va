@@ -2,7 +2,7 @@
 // A full YAML parser is overkill: we need a handful of scalars and every
 // key we care about is unique in that file.
 
-namespace GigaPisar.Core;
+namespace ChawoVA.Core;
 
 public sealed class FeatureConfig
 {

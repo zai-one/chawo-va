@@ -4,7 +4,7 @@
 using System.Text;
 using Concentus;
 
-namespace GigaPisar.Core;
+namespace ChawoVA.Core;
 
 public static class OggOpus
 {

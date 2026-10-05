@@ -1,6 +1,6 @@
 // WAV reading/writing and splitting long recordings at pauses.
 
-namespace GigaPisar.Core;
+namespace ChawoVA.Core;
 
 public static class AudioUtils
 {

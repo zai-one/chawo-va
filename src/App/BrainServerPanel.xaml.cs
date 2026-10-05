@@ -8,7 +8,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Threading;
 
-namespace GigaPisar.App;
+namespace ChawoVA.App;
 
 public partial class BrainServerPanel : UserControl
 {

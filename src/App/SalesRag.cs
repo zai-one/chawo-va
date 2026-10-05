@@ -2,7 +2,7 @@
 // Used for a card snippet when the catalog code is missing, and for
 // dictionary suggestions the user still has to add by hand.
 
-namespace GigaPisar.App;
+namespace ChawoVA.App;
 
 public readonly record struct RagSnippet(string Text, string Source);
 

@@ -5,7 +5,7 @@
 // The server starts on the first command (a couple of seconds on a fast CPU,
 // longer on a laptop), listens on a random loopback port with a random API key,
 // and is stopped after 15 idle minutes because it holds ~2.5 GB of memory.
-// It lives in a job object, so it dies together with Pisar even on a crash.
+// It lives in a job object, so it dies together with the app even on a crash.
 
 using System.Diagnostics;
 using System.IO.Compression;
@@ -15,7 +15,7 @@ using System.Net.Sockets;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 
-namespace GigaPisar.App;
+namespace ChawoVA.App;
 
 public enum LocalBrainKind { Qwen3, Qwen35, Custom }
 
@@ -233,7 +233,7 @@ public static class LocalBrain
 
         using var handler = new SocketsHttpHandler { DefaultProxyCredentials = CredentialCache.DefaultCredentials };
         using var http = new HttpClient(handler) { Timeout = Timeout.InfiniteTimeSpan };
-        http.DefaultRequestHeaders.UserAgent.ParseAdd("GigaPisar/" + PisarApp.Version + " (Windows)");
+        http.DefaultRequestHeaders.UserAgent.ParseAdd("ChawoVoiceAssistant/" + ChawoApp.Version + " (Windows)");
 
         try
         {
@@ -373,7 +373,7 @@ public static class LocalBrain
             throw new IOException("файл не в папке мозга");
         if (!full.EndsWith(".gguf", StringComparison.OrdinalIgnoreCase))
             throw new IOException("это не файл модели");
-        if (File.Exists(Path.Combine(root, "GigaPisar.exe")))
+        if (DataMigration.ProgramExeNames.Any(n => File.Exists(Path.Combine(root, n))))
             throw new IOException("рядом лежит программа, файл не удалён");
         Stop();
         if (File.Exists(full)) File.Delete(full);
@@ -556,7 +556,7 @@ public static class LocalBrain
         return p;
     }
 
-    /// <summary>Kill-on-close job: if Pisar exits or crashes, Windows ends the server too.</summary>
+    /// <summary>Kill-on-close job: if the app exits or crashes, Windows ends the server too.</summary>
     private static void AttachToJob(Process p)
     {
         try

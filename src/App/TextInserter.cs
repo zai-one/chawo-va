@@ -16,7 +16,7 @@ using Microsoft.Win32;
 using WinClip = Windows.ApplicationModel.DataTransfer.Clipboard;
 using WinTransfer = Windows.ApplicationModel.DataTransfer;
 
-namespace GigaPisar.App;
+namespace ChawoVA.App;
 
 public enum InsertResult { Done, Blocked }
 

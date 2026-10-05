@@ -3,7 +3,7 @@
 
 using System.Globalization;
 
-namespace GigaPisar.App;
+namespace ChawoVA.App;
 
 public enum UiLanguage { Auto, Russian, English }
 

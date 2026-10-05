@@ -1,10 +1,10 @@
-; Inno Setup script for Giga Pisar (Windows). Build: ISCC.exe setup.iss
+; Inno Setup script for Chawo Voice Assistant (Windows). Build: ISCC.exe setup.iss
 ; Expects the published app in ..\dist\app (dotnet publish output).
 
-#define AppExe "GigaPisar.exe"
-#define AppVersion GetStringFileInfo("..\dist\app\GigaPisar.exe", "ProductVersion")
-#define AppPublisher "Giga Pisar"
-#define AppUrl "https://gigapisar.github.io"
+#define AppExe "ChawoVoiceAssistant.exe"
+#define AppVersion GetStringFileInfo("..\dist\app\ChawoVoiceAssistant.exe", "ProductVersion")
+#define AppPublisher "Chawo"
+#define AppUrl "https://chawo.ai"
 
 [Setup]
 AppId={{7E1B0C4E-6C2B-4B7C-9C57-2D1E1F8A5A10}
@@ -14,13 +14,13 @@ AppVerName={cm:AppName} {#AppVersion}
 AppPublisher={#AppPublisher}
 AppPublisherURL={#AppUrl}
 AppSupportURL={#AppUrl}
-DefaultDirName={autopf}\GigaPisar
+DefaultDirName={autopf}\ChawoVoiceAssistant
 DefaultGroupName={cm:AppName}
 DisableProgramGroupPage=yes
 PrivilegesRequired=lowest
 PrivilegesRequiredOverridesAllowed=dialog
 OutputDir=..\dist
-OutputBaseFilename=GigaPisar-Setup
+OutputBaseFilename=ChawoVoiceAssistant-Setup
 SetupIconFile=..\src\Assets\app.ico
 WizardImageFile=art\wizard-large-*.png
 WizardSmallImageFile=art\wizard-small-*.png
@@ -42,16 +42,16 @@ Name: "russian"; MessagesFile: "compiler:Languages\Russian.isl"
 Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [CustomMessages]
-russian.AppName=Гига Писарь
-english.AppName=Giga Pisar
+russian.AppName=Chawo Voice Assistant
+english.AppName=Chawo Voice Assistant
 russian.AutoStart=Запускать при входе в Windows
 english.AutoStart=Start when I sign in to Windows
 russian.Extra=Дополнительно:
 english.Extra=Additional options:
-russian.Launch=Запустить Гига Писарь
-english.Launch=Launch Giga Pisar
-russian.Uninstall=Удалить Гига Писарь
-english.Uninstall=Uninstall Giga Pisar
+russian.Launch=Запустить Chawo Voice Assistant
+english.Launch=Launch Chawo Voice Assistant
+russian.Uninstall=Удалить Chawo Voice Assistant
+english.Uninstall=Uninstall Chawo Voice Assistant
 
 [Tasks]
 Name: "autostart"; Description: "{cm:AutoStart}"; GroupDescription: "{cm:Extra}"
@@ -72,11 +72,16 @@ Filename: "{app}\{#AppExe}"; Parameters: "--updated"; Flags: nowait; Check: Wiza
 Filename: "taskkill"; Parameters: "/im {#AppExe} /f"; Flags: runhidden; RunOnceId: "KillApp"
 
 [UninstallDelete]
+Type: filesandordirs; Name: "{localappdata}\ChawoVoiceAssistant"
+Type: filesandordirs; Name: "{userappdata}\ChawoVoiceAssistant"
+; Data folders of versions before 1.17.0, if the first-start move left anything behind.
 Type: filesandordirs; Name: "{localappdata}\GigaPisar"
 Type: filesandordirs; Name: "{userappdata}\GigaPisar"
 
 [Registry]
-Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "GigaPisar"; ValueData: """{app}\{#AppExe}"""; Tasks: autostart
-Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: none; ValueName: "GigaPisar"; Flags: deletevalue; Tasks: not autostart
+Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "ChawoVoiceAssistant"; ValueData: """{app}\{#AppExe}"""; Tasks: autostart
+Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: none; ValueName: "ChawoVoiceAssistant"; Flags: deletevalue; Tasks: not autostart
 ; Whatever set the value (installer task or the app's own checkbox), uninstall removes it.
-Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: none; ValueName: "GigaPisar"; Flags: uninsdeletevalue
+Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: none; ValueName: "ChawoVoiceAssistant"; Flags: uninsdeletevalue
+; Run value written before 1.17.0 (pointed at the old EXE).
+Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: none; ValueName: "GigaPisar"; Flags: deletevalue uninsdeletevalue

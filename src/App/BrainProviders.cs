@@ -4,7 +4,7 @@
 
 using System.Text.RegularExpressions;
 
-namespace GigaPisar.App;
+namespace ChawoVA.App;
 
 public sealed record BrainProvider(string Id, string Name, string BaseUrl, string[] PreferredModels, string KeysUrl)
 {
