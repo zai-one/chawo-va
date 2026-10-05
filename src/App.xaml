@@ -303,9 +303,20 @@
             </Setter>
         </Style>
 
-        <!-- ========== ComboBox (full custom template — Aero ignores Background when closed) ========== -->
+        <!-- ========== ComboBox (full custom template — Aero ignores Background when closed) ==========
+          1.17.2 bug: ThemeMode="Dark" merges the Fluent dictionary into Application.Resources, and its
+          implicit ToggleButton style (DefaultToggleButtonStyle) sets HorizontalAlignment=Left and
+          VerticalAlignment=Center. OverridesDefaultStyle on the ComboBox does not reach the ToggleButton
+          inside its template, so the toggle still took that implicit style: it shrank to its desired size
+          (28 px arrow column x 6 px Path) at the left of the field while the text sat on top, outside it.
+          Fix: the toggle gets its own keyed style (an explicit Style replaces the implicit one) with
+          OverridesDefaultStyle=True and Stretch/Stretch, and the template sets Stretch locally as well.
+          tools/check-xaml-combobox.py guards this on Linux.
+        -->
         <ControlTemplate x:Key="ChawoComboToggle" TargetType="ToggleButton">
-            <Grid Background="Transparent">
+            <Grid Background="Transparent"
+                  HorizontalAlignment="Stretch"
+                  VerticalAlignment="Stretch">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*"/>
                     <ColumnDefinition Width="28"/>
@@ -323,8 +334,8 @@
                       Fill="{StaticResource ChawoAccentFillBrush}"
                       HorizontalAlignment="Center"
                       VerticalAlignment="Center"
-                      Width="10" Height="6"
-                      Stretch="Uniform"/>
+                      Stretch="None"
+                      SnapsToDevicePixels="True"/>
             </Grid>
             <ControlTemplate.Triggers>
                 <Trigger Property="IsMouseOver" Value="True">
@@ -341,6 +352,23 @@
                 </Trigger>
             </ControlTemplate.Triggers>
         </ControlTemplate>
+
+        <Style x:Key="ChawoComboToggleStyle" TargetType="ToggleButton">
+            <Setter Property="OverridesDefaultStyle" Value="True"/>
+            <Setter Property="HorizontalAlignment" Value="Stretch"/>
+            <Setter Property="VerticalAlignment" Value="Stretch"/>
+            <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+            <Setter Property="VerticalContentAlignment" Value="Stretch"/>
+            <Setter Property="Margin" Value="0"/>
+            <Setter Property="Padding" Value="0"/>
+            <Setter Property="MinWidth" Value="0"/>
+            <Setter Property="MinHeight" Value="0"/>
+            <Setter Property="Focusable" Value="False"/>
+            <Setter Property="IsTabStop" Value="False"/>
+            <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+            <Setter Property="ClickMode" Value="Press"/>
+            <Setter Property="Template" Value="{StaticResource ChawoComboToggle}"/>
+        </Style>
 
         <Style TargetType="ComboBoxItem">
             <Setter Property="FontFamily" Value="{StaticResource ChawoFont}"/>
@@ -411,9 +439,11 @@
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="ComboBox">
-                        <Grid x:Name="Root">
+                        <Grid x:Name="Root" SnapsToDevicePixels="True">
                             <ToggleButton x:Name="ToggleButton"
-                                          Template="{StaticResource ChawoComboToggle}"
+                                          Style="{StaticResource ChawoComboToggleStyle}"
+                                          HorizontalAlignment="Stretch"
+                                          VerticalAlignment="Stretch"
                                           Background="{TemplateBinding Background}"
                                           BorderBrush="{TemplateBinding BorderBrush}"
                                           BorderThickness="{TemplateBinding BorderThickness}"

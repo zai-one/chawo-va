@@ -20,11 +20,15 @@ Closing the window hides it; the app stays in the tray until **Quit**.
 
 Это самостоятельный репозиторий **Chawo Voice Assistant** (история ветки `gpu-mimo-hermes`), выросший из форка [moznoazachem/giga-pisar-win](https://github.com/moznoazachem/giga-pisar-win). Ниже не список галочек, а зачем каждая правка.
 
+**1.17.3: выпадающие списки во всю ширину, иконка Chawo на панели задач.** В 1.17.2 каждый `ComboBox` схлопывался: от поля оставался тёмный комочек ~28×6 px со стрелкой слева, а выбранный текст висел справа без рамки. Причина: `ThemeMode="Dark"` подмешивает словарь Fluent в `Application.Resources`, и его неявный стиль `ToggleButton` ставит `HorizontalAlignment=Left` и `VerticalAlignment=Center`. `OverridesDefaultStyle` у самого `ComboBox` до кнопки внутри шаблона не доходит, поэтому кнопка (а это и есть всё тёмное поле) сжималась до своего желаемого размера. Теперь у неё свой ключевой стиль `ChawoComboToggleStyle` (`OverridesDefaultStyle=True`, `Stretch`/`Stretch`), поле на всю ширину, высота 30 px, текст внутри, стрелка в правой колонке 28 px. Проверка без Windows: `tools/check-xaml-combobox.py` (на XAML 1.17.2 она падает).
+
+**Иконка приложения.** `app.ico` — коралловая плитка Chawo с тем же знаком из четырёх полос, что и в трее, на 87,5–90 % кадра, как у других приложений Windows 11. Размеры 16, 20, 24, 32, 40, 48, 64, 256, каждый со своей пиксельной сеткой; 256 — точная геометрия chawo.ai/icon.svg. Она стоит у `.exe`, в заголовке всех окон и на кнопке панели задач и читается и на тёмной, и на светлой панели. Раньше окна брали `tray-dark.ico` через `BitmapImage`: WPF видел только первый кадр 16 px и растягивал его, а тёмная плитка сливалась с тёмной панелью, оставались мелкие полоски. Теперь иконка грузится как `BitmapFrame`, и WPF берёт нужный кадр под DPI. Трей не менялся: `tray-dark.ico` / `tray-light.ico` по `SystemUsesLightTheme`. Сборка: `python3 tools/make_app_icon.py`.
+
 **1.17.2: тёмные ComboBox и вторичные кнопки.** На Windows шаблон Aero/Fluent у закрытого `ComboBox` игнорирует `Background`, поэтому селекты оставались светлым градиентом с нечитаемым peach-текстом (Режим, Клавиша диктовки, Как вставлять текст, Язык, Микрофон и остальные). Полный `ControlTemplate`: тёмный chrome `#2A2A2A` / карточка `#222222`, coral-шеврон `#EF5143`, скругление 8 px, тёмный `Popup` с DropShadow, `ComboBoxItem` (hover `#333333`, selected coral-tint `#3A221F`), editable `PART_EditableTextBox`, `MaxDropDownHeight` и тёмный `ScrollBar`. Implicit-стили app-wide: Button (читаемый secondary + hover/pressed/disabled, `TextElement.Foreground`), TextBox/PasswordBox, CheckBox, ListBox/ListBoxItem, DataGrid (+header/cell/row), Slider, ScrollViewer/ScrollBar. Кисти только `SolidColorBrush`; `tools/check-xaml-brushes.py` зелёный. Иконки и dark-only тема как в 1.17.1.
 
 **1.17.1: тёмная тема, читаемая иконка, расшифровка файла.** Только тёмный интерфейс (`#0A0A0A` / `#171717` / карточка `#222222`, текст peach-cream, акцент coral `#EF5143`, sunset `#FFB261` редко). Светлой темы и переключателя нет. Заголовок окна Windows 11 — тёмный (`DwmSetWindowAttribute` / `DWMWA_USE_IMMERSIVE_DARK_MODE=20`).
 
-**Иконка.** Два варианта трея/заголовка: `tray-dark.ico` (кремовый знак на `#171717`) для тёмной панели задач и `tray-light.ico` (тёмный знак на cream) для светлой. Читают `SystemUsesLightTheme` при старте и при `UserPreferenceChanged`, меняют трей и иконки окон на лету. У `.exe` в Проводнике — `app.ico` с коралловой плиткой `#EF5143` (рантайм не умеет её менять). Coral остаётся узнаваемым элементом во всех трёх. Мелкие 16/20/24/32 — пиксель в пиксель, без тонкой cream-рамки.
+**Иконка (1.17.1; с 1.17.3 окна и панель задач — `app.ico`, см. выше).** Два варианта трея/заголовка: `tray-dark.ico` (кремовый знак на `#171717`) для тёмной панели задач и `tray-light.ico` (тёмный знак на cream) для светлой. Читают `SystemUsesLightTheme` при старте и при `UserPreferenceChanged`, меняют трей и иконки окон на лету. У `.exe` в Проводнике — `app.ico` с коралловой плиткой `#EF5143` (рантайм не умеет её менять). Coral остаётся узнаваемым элементом во всех трёх. Мелкие 16/20/24/32 — пиксель в пиксель, без тонкой cream-рамки.
 
 **Окно настроек снова открывается.** В 1.16 четыре `Setter` на `Background`/`BorderBrush` ссылались на ресурсы типа `Color`, WPF падал с `#FFFEE9CE is not a valid value for property 'Background'`, процесс оставался только в трее. Кисти — только `SolidColorBrush`. `ShowSettings` ловит ошибки в журнал и `MessageBox`. Проверка: `tools/check-xaml-brushes.py`.
 
@@ -305,7 +309,8 @@ After that, anyone on the local network can.
   keyboard hook on its own message-loop thread, text insertion, overlay,
   settings, model download.
 - `installer/setup.iss`: Inno Setup script (Russian and English wizard).
-- `tools/make_icon.py`: builds `app.ico` from the macOS iconset.
+- `tools/make_app_icon.py`: draws `app.ico` (coral tile, sizes 16–256, hand-tuned grids); `--preview PREFIX` writes enlarged previews.
+- `tools/check-xaml-combobox.py`: Linux check that every ComboBox field stretches (Fluent implicit styles must not reach controls inside our templates).
 - `build.sh`: cross-build from macOS over SSH to a Windows machine
   (settings in an untracked `build.local`, see the script header).
 

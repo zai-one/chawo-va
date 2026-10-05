@@ -57,8 +57,7 @@ public partial class ChawoApp : Application
     private System.Drawing.Icon? _iconBusyLight;
     private IntPtr _busyDarkHandle, _busyLightHandle;
     private bool _trayUsesLightChrome = true;
-    private ImageSource? _windowIconDark;
-    private ImageSource? _windowIconLight;
+    private ImageSource? _windowIcon;   // coral app.ico, every frame (title bar + taskbar)
     private IntPtr _busyIconHandle;
     private Core.Recognizer? _recognizer;
     private readonly object _recogLock = new();
@@ -1744,9 +1743,11 @@ public partial class ChawoApp : Application
     }
 
     // ── icons ────────────────────────────────────────────────────
-    // tray-dark.ico  = cream mark on dark tile  → dark taskbar (SystemUsesLightTheme=0)
-    // tray-light.ico = dark mark on cream tile  → light taskbar (SystemUsesLightTheme=1)
-    // app.ico        = coral tile (Explorer / .exe); cannot switch at runtime
+    // tray-dark.ico  = cream mark on dark tile  → dark notification area (SystemUsesLightTheme=0)
+    // tray-light.ico = dark mark on cream tile  → light notification area (SystemUsesLightTheme=1)
+    // app.ico        = coral tile, the brand mark at 87.5–90 % of the frame (16…256, hand-tuned).
+    //                  Used for the .exe, every window's title bar and the taskbar button: coral
+    //                  reads on both taskbar themes, a dark tile vanished on the dark taskbar.
 
     private void LoadThemeIcons()
     {
@@ -1754,8 +1755,7 @@ public partial class ChawoApp : Application
         _iconIdleLight = LoadIconFile("tray-light.ico") ?? _iconIdleDark;
         _iconBusyDark = MakeBusyIcon(_iconIdleDark, out _busyDarkHandle);
         _iconBusyLight = MakeBusyIcon(_iconIdleLight, out _busyLightHandle);
-        _windowIconDark = LoadWindowIcon("tray-dark.ico") ?? LoadWindowIcon("app.ico");
-        _windowIconLight = LoadWindowIcon("tray-light.ico") ?? _windowIconDark;
+        _windowIcon = LoadWindowIcon("app.ico");
     }
 
     private static System.Drawing.Icon? LoadIconFile(string name)
@@ -1766,19 +1766,22 @@ public partial class ChawoApp : Application
         catch { return null; }
     }
 
+    /// <summary>
+    /// Load an .ico as a <see cref="BitmapFrame"/> so WPF sees every frame. WPF's IconHelper only
+    /// picks the best ICON_SMALL/ICON_BIG frame (16/20/24 and 32/40/48/64 by DPI) when the
+    /// ImageSource is a BitmapFrame from an IconBitmapDecoder. A BitmapImage exposes just the first
+    /// frame (16 px), which WPF then upscaled for the taskbar: small and blurry (1.17.2).
+    /// </summary>
     private static ImageSource? LoadWindowIcon(string name)
     {
         var path = Path.Combine(AppContext.BaseDirectory, "Assets", name);
         if (!File.Exists(path)) return null;
         try
         {
-            var bmp = new BitmapImage();
-            bmp.BeginInit();
-            bmp.UriSource = new Uri(path, UriKind.Absolute);
-            bmp.CacheOption = BitmapCacheOption.OnLoad;
-            bmp.EndInit();
-            bmp.Freeze();
-            return bmp;
+            var frame = BitmapFrame.Create(new Uri(path, UriKind.Absolute),
+                BitmapCreateOptions.None, BitmapCacheOption.OnLoad);
+            frame.Freeze();
+            return frame;
         }
         catch { return null; }
     }
@@ -1814,25 +1817,22 @@ public partial class ChawoApp : Application
         _busyIconHandle = light ? _busyLightHandle : _busyDarkHandle;
         if (_tray != null)
             _tray.Icon = (_phase is DictatePhase.Listening or DictatePhase.Recognizing) ? _iconBusy : _iconIdle;
-        var winIcon = light ? _windowIconLight : _windowIconDark;
-        ApplyWindowIcons(winIcon);
+        ApplyWindowIcons(_windowIcon);
     }
 
     private void ApplyWindowIcons(ImageSource? icon)
     {
         if (icon == null) return;
         if (_settingsWindow != null) _settingsWindow.Icon = icon;
-        // Download / Update windows are short-lived; set when shown via helper.
-        _pendingWindowIcon = icon;
     }
 
-    private ImageSource? _pendingWindowIcon;
-
-    /// <summary>Call from any Window after InitializeComponent so the title-bar glyph matches the tray.</summary>
+    /// <summary>
+    /// Call from any Window after InitializeComponent: title bar and taskbar get the coral app.ico.
+    /// Without it WPF would still fall back to the .exe icon, which is the same app.ico.
+    /// </summary>
     public void AttachWindowIcon(Window window)
     {
-        var icon = _pendingWindowIcon ?? (_trayUsesLightChrome ? _windowIconLight : _windowIconDark);
-        if (icon != null) window.Icon = icon;
+        if (_windowIcon != null) window.Icon = _windowIcon;
     }
 
     /// <summary>Same icon with a coral dot: "listening". The HICON must be destroyed by the caller.</summary>
