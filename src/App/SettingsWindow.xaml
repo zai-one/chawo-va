@@ -4,7 +4,8 @@
         xmlns:app="clr-namespace:ChawoVA.App"
         Width="920" Height="560" MinWidth="820" MinHeight="420"
         ResizeMode="CanResize" WindowStartupLocation="CenterScreen"
-        Background="{StaticResource ChawoBgBrush}">
+        Background="{StaticResource ChawoBgBrush}"
+        AllowDrop="True" PreviewDragEnter="Window_PreviewDragOver" PreviewDragOver="Window_PreviewDragOver" PreviewDrop="Window_PreviewDrop">
     <Grid>
         <Grid.ColumnDefinitions>
             <ColumnDefinition Width="220"/>
@@ -65,6 +66,19 @@
                 <StackPanel x:Name="DictationPage">
                     <TextBlock x:Name="Heading" FontSize="20" FontWeight="SemiBold"/>
                     <TextBlock x:Name="Intro" Margin="0,4,0,0" Opacity="0.75" TextWrapping="Wrap"/>
+                    <Border x:Name="StartCard" Margin="0,12,0,0" Padding="12,10" CornerRadius="{StaticResource ChawoCardRadius}"
+                            Background="{StaticResource ChawoCardBrush}" BorderThickness="1" BorderBrush="{StaticResource ChawoBorderBrush}"
+                            Visibility="Collapsed">
+                        <StackPanel>
+                            <DockPanel>
+                                <Button x:Name="StartCardClose" DockPanel.Dock="Right" Padding="10,2" FontSize="12" Click="StartCardClose_Click"/>
+                                <TextBlock x:Name="StartCardTitle" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                            </DockPanel>
+                            <TextBlock x:Name="StartStep1" Margin="0,8,0,0" TextWrapping="Wrap"/>
+                            <TextBlock x:Name="StartStep2" Margin="0,4,0,0" TextWrapping="Wrap"/>
+                            <TextBlock x:Name="StartStep3" Margin="0,4,0,0" TextWrapping="Wrap"/>
+                        </StackPanel>
+                    </Border>
                     <TextBlock x:Name="ModeLabel" Margin="0,14,0,4" FontWeight="SemiBold"/>
                     <ComboBox x:Name="ModeBox" MinWidth="240" HorizontalAlignment="Left" SelectionChanged="Mode_Changed"/>
                     <TextBlock x:Name="ModeHint" Margin="0,4,0,0" Opacity="0.7" TextWrapping="Wrap"/>
@@ -111,21 +125,32 @@
                 <StackPanel x:Name="FilePage" Visibility="Collapsed">
                     <TextBlock x:Name="FileHeading" FontSize="20" FontWeight="SemiBold"/>
                     <TextBlock x:Name="FileNote" Margin="0,4,0,12" Opacity="0.75" TextWrapping="Wrap"/>
-                    <DockPanel LastChildFill="True">
-                        <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Margin="8,0,0,0">
-                            <Button x:Name="FilePickButton" Padding="12,4" Click="FilePick_Click"/>
-                            <Button x:Name="FileFolderButton" Margin="6,0,0,0" Padding="12,4" Click="FileFolder_Click"/>
+                    <StackPanel Orientation="Horizontal">
+                        <Button x:Name="FilePickButton" Padding="12,4" Click="FilePick_Click"/>
+                        <Button x:Name="FileFolderButton" Margin="8,0,0,0" Padding="12,4" Click="FileFolder_Click"/>
+                    </StackPanel>
+                    <Border Margin="0,10,0,0" Padding="10,6" CornerRadius="{StaticResource ChawoCardRadius}"
+                            Background="{StaticResource ChawoCardBrush}" BorderThickness="1" BorderBrush="{StaticResource ChawoBorderBrush}">
+                        <StackPanel>
+                            <TextBlock x:Name="FileQueueEmpty" Margin="0,4" Opacity="0.7" TextWrapping="Wrap"/>
+                            <ScrollViewer MaxHeight="200" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                                <StackPanel x:Name="FileQueueRows"/>
+                            </ScrollViewer>
                         </StackPanel>
-                        <TextBox x:Name="FilePathBox" Padding="7,5" VerticalContentAlignment="Center"/>
-                    </DockPanel>
+                    </Border>
                     <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
                         <Button x:Name="FileRunButton" Padding="12,4" Click="FileRun_Click" FontWeight="SemiBold"/>
                         <Button x:Name="FileStopButton" Margin="8,0,0,0" Padding="12,4" Click="FileStop_Click" Visibility="Collapsed"/>
+                        <Button x:Name="FileOpenFolderButton" Margin="8,0,0,0" Padding="12,4" Click="FileOpenFolder_Click" Visibility="Collapsed"/>
                     </StackPanel>
-                    <TextBlock x:Name="FileSpeedLabel" Margin="0,14,0,4" FontWeight="SemiBold"/>
+                    <TextBlock x:Name="FileStatus" Margin="0,8,0,0" Opacity="0.85" TextWrapping="Wrap"/>
+                    <CheckBox x:Name="FileTimestampsBox" Margin="0,16,0,0" Click="FileTimestamps_Click"/>
+                    <CheckBox x:Name="FileSrtBox" Margin="0,8,0,0" Click="FileSrt_Click"/>
+                    <CheckBox x:Name="FileBrainBox" Margin="0,8,0,0" Click="FileBrain_Click"/>
+                    <TextBlock x:Name="FileBrainHint" Margin="22,2,0,0" FontSize="12" Opacity="0.7" TextWrapping="Wrap"/>
+                    <TextBlock x:Name="FileSpeedLabel" Margin="0,16,0,4" FontWeight="SemiBold"/>
                     <ComboBox x:Name="FileSpeedBox" MinWidth="360" HorizontalAlignment="Left" SelectionChanged="FileSpeed_Changed"/>
                     <TextBlock x:Name="FileSpeedHint" Margin="0,4,0,0" Opacity="0.7" TextWrapping="Wrap"/>
-                    <TextBlock x:Name="FileStatus" Margin="0,10,0,0" Opacity="0.85" TextWrapping="Wrap"/>
                     <TextBlock x:Name="FileFfmpegStatus" Margin="0,14,0,0" Opacity="0.75" TextWrapping="Wrap"/>
                     <Button x:Name="FileFfmpegButton" HorizontalAlignment="Left" Margin="0,8,0,0" Padding="12,4" Click="FileFfmpeg_Click"/>
                 </StackPanel>

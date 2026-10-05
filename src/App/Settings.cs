@@ -56,6 +56,14 @@ public sealed class Settings
     /// Dictation is not slowed: file jobs use their own sessions.
     /// </summary>
     public FileParallelismKind FileParallelism { get; set; } = FileParallelismKind.Auto;
+    /// <summary>File transcription: every line of the .txt starts with [hh:mm:ss] of its piece. On by default.</summary>
+    public bool FileTimestamps { get; set; } = true;
+    /// <summary>File transcription: also write name.srt with start/end per piece. Off by default.</summary>
+    public bool FileSrt { get; set; }
+    /// <summary>File transcription: after the raw .txt, write name.brain.txt (filler removed + «Кратко»). Off by default.</summary>
+    public bool FileUseBrain { get; set; }
+    /// <summary>The «С чего начать» card on Dictation was closed for good.</summary>
+    public bool StartHintDismissed { get; set; }
     /// <summary>WASAPI capture endpoint id. Empty is the Windows default input device.</summary>
     public string MicrophoneId { get; set; } = "";
     /// <summary>Where the local llama.cpp brain runs. Cpu is the original engine. Gpu downloads the Vulkan build.</summary>

@@ -244,10 +244,15 @@ public sealed class Recognizer : IDisposable
     /// Ranges at the model rate. Each piece is at most <see cref="MaxChunkSeconds"/>,
     /// cut on a pause the same way <see cref="Transcribe"/> splits a long take.
     /// </summary>
-    public List<(int from, int to)> PieceRanges(float[] samplesAtModelRate)
+    public List<(int from, int to)> PieceRanges(float[] samplesAtModelRate) => SplitRanges(samplesAtModelRate, SampleRate);
+
+    /// <summary>
+    /// Same pause split without a loaded model (client mode posts each piece to the host).
+    /// Offsets are sample indices at <paramref name="rate"/>; start = from / rate seconds.
+    /// </summary>
+    public static List<(int from, int to)> SplitRanges(float[] samplesAtModelRate, int rate)
     {
         int n = samplesAtModelRate.Length;
-        int rate = SampleRate;
         if (n <= 0 || rate <= 0) return new();
         double total = (double)n / rate;
         if (total <= MaxChunkSeconds + 1) return new() { (0, n) };

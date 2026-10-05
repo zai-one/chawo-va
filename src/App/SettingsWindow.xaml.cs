@@ -1,5 +1,5 @@
 // Settings window, laid out like Windows 11 Settings: sections on the left
-// (Dictation, Brain, About), the chosen section on the right. Every change is
+// (Dictation, File, Speech, Dictionary, Sales, Brain, Network), the chosen section on the right. Every change is
 // applied and saved immediately, the server Brain included.
 
 using System.Diagnostics;
@@ -28,7 +28,8 @@ public partial class SettingsWindow : Window
     private readonly Func<Task>? _toggleGpuWarmup;
     private readonly Func<bool>? _gpuWarmed;
     private readonly Action? _networkChanged;
-    private readonly Func<IReadOnlyList<string>, Task>? _transcribeFiles;
+    private readonly Func<Task>? _runFileQueue;
+    private readonly FileQueue? _fileQueue;
     private readonly Action? _cancelFile;
     private readonly Func<string, string, string, string>? _showCall;
     private readonly Func<Task>? _downloadFfmpeg;
@@ -39,6 +40,7 @@ public partial class SettingsWindow : Window
     private bool _warmupBusy;
     private string _fileLine = "";
     private bool _fileRunning;
+    private bool _queueDetached;
     /// <summary>Last open section, kept while the app runs.</summary>
     private static int _lastPage;
 
@@ -49,7 +51,7 @@ public partial class SettingsWindow : Window
         Func<string>? hermesStatus = null, Func<Task>? toggleLan = null,
         Action? checkUpdates = null, Action? stop = null, Func<SpeechModelKind, Task>? deleteSpeech = null,
         Func<Task>? toggleGpuWarmup = null, Func<bool>? gpuWarmed = null, Action? networkChanged = null,
-        Func<IReadOnlyList<string>, Task>? transcribeFiles = null, Action? cancelFile = null,
+        Func<Task>? runFileQueue = null, FileQueue? fileQueue = null, Action? cancelFile = null,
         Func<string, string, string, string>? showCall = null,
         Func<Task>? downloadFfmpeg = null, Func<string>? ffmpegStatus = null)
     {
@@ -68,7 +70,8 @@ public partial class SettingsWindow : Window
         _toggleGpuWarmup = toggleGpuWarmup;
         _gpuWarmed = gpuWarmed;
         _networkChanged = networkChanged;
-        _transcribeFiles = transcribeFiles;
+        _runFileQueue = runFileQueue;
+        _fileQueue = fileQueue;
         _cancelFile = cancelFile;
         _showCall = showCall;
         _downloadFfmpeg = downloadFfmpeg;
@@ -81,6 +84,11 @@ public partial class SettingsWindow : Window
         };
         if (Application.Current is ChawoApp app) app.AttachWindowIcon(this);
         ServerPanel.Saved += UpdateBrainTexts;   // the panel has already applied and saved
+        if (_fileQueue != null)
+        {
+            _fileQueue.Changed += () => Dispatcher.BeginInvoke(RenderQueue);
+            Closed += (_, _) => _queueDetached = true;
+        }
         Localize();
         Nav.SelectedIndex = _lastPage;
     }
@@ -96,6 +104,9 @@ public partial class SettingsWindow : Window
         for (int i = 0; i < pages.Length; i++)
             pages[i].Visibility = i == _lastPage ? Visibility.Visible : Visibility.Collapsed;
         if (_lastPage == (int)Page.Brain && _settings.Brain == BrainSource.Server) ServerPanel.FocusKey();
+        // The Brain may have been downloaded or switched on another page since the last look.
+        if (_lastPage == (int)Page.File) RefreshFileBrainUi();
+        if (_lastPage == (int)Page.Dictation) FillStartCard();
     }
 
     /// <summary>Fills every text in the current UI language; called again when the language changes.</summary>
@@ -113,6 +124,7 @@ public partial class SettingsWindow : Window
         Heading.Text = L.T("Диктовка", "Dictation");
         Intro.Text = L.T("Курсор в любой текст, зажмите клавишу и говорите. Отпустите, и текст появится сам.",
                          "Cursor in any text, hold the key and speak. Release and the text appears by itself.");
+        FillStartCard();
         ModeLabel.Text = L.T("Режим", "Mode");
         ModeBox.Items.Clear();
         ModeBox.Items.Add(new ComboBoxItem { Content = "Диктовка", Tag = AppMode.Dictation });
@@ -208,9 +220,9 @@ public partial class SettingsWindow : Window
         foreach (ComboBoxItem it in DeviceBox.Items)
             if ((SpeechDeviceKind)it.Tag == _settings.SpeechDevice) DeviceBox.SelectedItem = it;
         int cores = Math.Max(1, Environment.ProcessorCount);
-        ThreadsLabel.Text = L.T("Потоки процессора", "Processor threads");
-        ThreadsHint.Text = L.T($"Список виден только на процессоре. «Все ядра» — это {cores}. На видеокарте потоки не меняются.",
-                                $"Shown only for the processor. All cores means {cores}. The video card ignores this.");
+        ThreadsLabel.Text = L.T("Потоки процессора для диктовки", "Processor threads for dictation");
+        ThreadsHint.Text = L.T($"Виден только на процессоре. «Все ядра» — это {cores}. Расшифровку файлов настраивает «Скорость длинных записей» в разделе «Расшифровка файла».",
+                                $"Shown only for the processor. All cores means {cores}. File transcription uses Speed for long recordings on the File transcription page.");
         ThreadsPanel.Visibility = _settings.SpeechDevice == SpeechDeviceKind.Cpu ? Visibility.Visible : Visibility.Collapsed;
         bool gpu = _settings.SpeechDevice == SpeechDeviceKind.Gpu;
         WarmupPanel.Visibility = gpu ? Visibility.Visible : Visibility.Collapsed;
@@ -286,7 +298,7 @@ public partial class SettingsWindow : Window
         HostNote.Text = L.T(
             $"Этот компьютер распознаёт сам и принимает подключения. Диктовка здесь не выключается. Порт {SpeechModels.HermesPort}. Пока кнопку ниже не нажать, подключения только с этого компьютера (127.0.0.1). После кнопки — со всех адресов (0.0.0.0), тот же порт.",
             $"This PC recognizes on its own and accepts connections. Dictation stays on. Port {SpeechModels.HermesPort}. Until you press the button below, connections are from this PC only (127.0.0.1). After the button, every address (0.0.0.0), same port.");
-        HermesHeading.Text = L.T("Порт расшифровки", "Transcription port");
+        HermesHeading.Text = L.T("Приём звука от других компьютеров", "Audio from other computers");
         HermesListenStatus.Text = _hermesStatus?.Invoke()
             ?? L.T($"Сейчас только этот компьютер, порт {SpeechModels.HermesPort}.",
                    $"This computer only right now, port {SpeechModels.HermesPort}.");
@@ -305,32 +317,40 @@ public partial class SettingsWindow : Window
         if (string.IsNullOrWhiteSpace(HostCheckStatus.Text))
             HostCheckStatus.Text = L.T("Проверка только спрашивает /v1/health. Модель не скачивается.",
                                        "The check only asks /v1/health. No model is downloaded.");
-                FileHeading.Text = L.T("Расшифровка файла", "File transcription");
+        FileHeading.Text = L.T("Расшифровка файла", "File transcription");
         FileNote.Text = L.T(
-            "Файл или папка на этом компьютере. WAV, MP3, M4A/AAC, MP4/MOV/MKV/WebM, FLAC, WMA, AMR, Ogg/Opus и другие, что умеют Media Foundation или ffmpeg. Длинная запись режется на куски не длиннее 24 секунд. Рядом с каждым файлом пишется .txt. Если модель на диске, но ещё не в памяти — загрузится сама (как при диктовке). В режиме клиента звук уходит на хост после декодирования здесь. Веса речи сами не скачиваются.",
-            "A file or folder on this PC. WAV, MP3, M4A/AAC, MP4/MOV/MKV/WebM, FLAC, WMA, AMR, Ogg/Opus and anything Media Foundation or ffmpeg can decode. Long audio is split into pieces of at most 24 seconds. A .txt is written beside each file. If the model is on disk but not in memory yet, it loads on demand (same as dictation). In client mode audio is decoded here then sent to the host. Speech weights are not downloaded by themselves.");
-        FilePickButton.Content = L.T("Обзор…", "Browse…");
-        FileFolderButton.Content = L.T("Папка…", "Folder…");
+            "Перетащите записи или папку в это окно или нажмите «Добавить». Текст ляжет рядом с записью: то же имя, расширение .txt. WAV, MP3, M4A, видео, FLAC, WMA, Ogg/Opus; редкие форматы — через ffmpeg внизу. Модель та же, что у диктовки, загрузится сама.",
+            "Drop recordings or a folder onto this window, or press Add. The text is written beside the recording: same name, .txt. WAV, MP3, M4A, video, FLAC, WMA, Ogg/Opus; rare formats need ffmpeg below. Same model as dictation; it loads by itself.");
+        FilePickButton.Content = L.T("Добавить файлы…", "Add files…");
+        FileFolderButton.Content = L.T("Добавить папку…", "Add folder…");
         FileRunButton.Content = L.T("Расшифровать", "Transcribe");
         FileStopButton.Content = L.T("Остановить", "Stop");
+        FileOpenFolderButton.Content = L.T("Открыть папку", "Open folder");
+        FileOpenFolderButton.ToolTip = L.T("Проводник с выделенным последним .txt", "Explorer with the last .txt selected");
+        FileQueueEmpty.Text = L.T("Очередь пуста. Перетащите файлы сюда или нажмите «Добавить файлы…».",
+                                  "The queue is empty. Drop files here or press Add files….");
+        FileTimestampsBox.Content = L.T("Метки времени", "Timestamps");
+        FileTimestampsBox.ToolTip = L.T("Каждая строка .txt начинается с [чч:мм:сс] — где этот кусок начинается в записи.",
+                                        "Every .txt line starts with [hh:mm:ss], where that piece starts in the recording.");
+        FileTimestampsBox.IsChecked = _settings.FileTimestamps;
+        FileSrtBox.Content = L.T("Также сохранить субтитры .srt", "Also save .srt subtitles");
+        FileSrtBox.ToolTip = L.T("Рядом появится имя.srt: начало и конец каждого куска.",
+                                 "name.srt appears beside it: start and end of every piece.");
+        FileSrtBox.IsChecked = _settings.FileSrt;
+        FileBrainBox.Content = L.T("Прогнать через мозг", "Run through the Brain");
+        FileBrainBox.ToolTip = L.T("После .txt рядом появится имя.brain.txt: тот же текст без слов-паразитов (без сокращений, метки по абзацам) и раздел «Кратко». Сырой .txt остаётся.",
+                                   "After the .txt, name.brain.txt appears: the same text without filler (nothing cut, timestamps per paragraph) and a «Кратко» summary. The raw .txt stays.");
+        RefreshFileBrainUi();
         FileSpeedLabel.Text = L.T("Скорость длинных записей", "Speed for long recordings");
         FileSpeedHint.Text = L.T(
             "Сколько кусков распознаётся одновременно. Больше — быстрее, но нужно больше памяти. Диктовку не замедляет.",
             "How many pieces are recognized at once. More is faster, but needs more memory. Does not slow dictation.");
         FillFileSpeedBox();
         FileFfmpegButton.Content = L.T("Скачать ffmpeg", "Download ffmpeg");
-        FilePickButton.IsEnabled = !_fileRunning;
-        FileFolderButton.IsEnabled = !_fileRunning;
-        FileRunButton.IsEnabled = !_fileRunning;
-        FileFfmpegButton.IsEnabled = !_fileRunning && _downloadFfmpeg != null;
-        FilePathBox.IsEnabled = !_fileRunning;
-        FileSpeedBox.IsEnabled = !_fileRunning;
-        FileStopButton.Visibility = _fileRunning ? Visibility.Visible : Visibility.Collapsed;
-        FileStatus.Text = _fileLine.Length > 0
-            ? _fileLine
-            : L.T("Текст ляжет рядом с записью: то же имя, расширение .txt. Можно выбрать несколько файлов или папку.",
-                  "The text is written beside the recording: same name, .txt extension. You can pick several files or a folder.");
-        FileFfmpegStatus.Text = _ffmpegStatus?.Invoke() ?? FfmpegTool.StatusLine();
+        ApplyFileRunning();
+        FileStatus.Text = _fileLine;
+        FileStatus.Visibility = _fileLine.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
+        RenderQueue();
 
         CleanupHeading.Text = L.T("Мозг", "Brain");
         CleanupHint.Text = L.T("Выключен: текст вставляется как распознан. Можно сказать «Чаво, исправь». Чтобы править каждую фразу, включите переписывание ниже.",
@@ -511,18 +531,236 @@ public partial class SettingsWindow : Window
 
     public void SetFileStatus(string text, bool running)
     {
+        bool changed = running != _fileRunning;
         _fileLine = text;
         _fileRunning = running;
         if (!IsLoaded) return;
         FileStatus.Text = text;
-        FilePickButton.IsEnabled = !running;
-        FileFolderButton.IsEnabled = !running;
-        FileRunButton.IsEnabled = !running;
-        FileFfmpegButton.IsEnabled = !running && _downloadFfmpeg != null;
-        FilePathBox.IsEnabled = !running;
-        FileSpeedBox.IsEnabled = !running;
+        FileStatus.Visibility = text.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
+        // Progress lines arrive many times a second; buttons only change when the running state does.
+        if (changed || !running) ApplyFileRunning();
+    }
+
+    /// <summary>Buttons and options that must not change while a file runs. Queue add/remove stays open.</summary>
+    private void ApplyFileRunning()
+    {
+        bool running = _fileRunning;
+        int queued = _fileQueue?.QueuedCount ?? 0;
+        FileRunButton.IsEnabled = !running && queued > 0 && _runFileQueue != null;
         FileStopButton.Visibility = running ? Visibility.Visible : Visibility.Collapsed;
+        FileSpeedBox.IsEnabled = !running;
+        FileTimestampsBox.IsEnabled = !running;
+        FileSrtBox.IsEnabled = !running;
+        FileBrainBox.IsEnabled = !running && FileBrain.Target(_settings) != FileBrainTarget.None;
+        bool ffmpeg = FfmpegTool.IsInstalled;
+        // Already found: the download button would do nothing useful, so it is hidden.
+        FileFfmpegButton.Visibility = ffmpeg ? Visibility.Collapsed : Visibility.Visible;
+        FileFfmpegButton.IsEnabled = !running && _downloadFfmpeg != null;
         if (!running) FileFfmpegStatus.Text = _ffmpegStatus?.Invoke() ?? FfmpegTool.StatusLine();
+        string? last = _fileQueue?.LastOutput;
+        FileOpenFolderButton.Visibility = last != null && File.Exists(last) ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    /// <summary>The checkbox is live only when some Brain can take the text; otherwise a hint points to «Мозг».</summary>
+    private void RefreshFileBrainUi()
+    {
+        var target = FileBrain.Target(_settings);
+        bool available = target != FileBrainTarget.None;
+        FileBrainBox.IsEnabled = available && !_fileRunning;
+        FileBrainBox.IsChecked = available && _settings.FileUseBrain;
+        FileBrainHint.Inlines.Clear();
+        if (available)
+        {
+            FileBrainHint.Inlines.Add(new System.Windows.Documents.Run(
+                L.T("Мозг: ", "Brain: ") + FileBrain.Describe(_settings) + L.T(". Рядом появится имя.brain.txt.", ". name.brain.txt appears beside it.")));
+        }
+        else
+        {
+            FileBrainHint.Inlines.Add(new System.Windows.Documents.Run(
+                L.T("Модель мозга не скачана. Скачайте её в разделе ", "The Brain model is not downloaded. Get it under ")));
+            var link = new System.Windows.Documents.Hyperlink(new System.Windows.Documents.Run(L.T("«Мозг»", "Brain")))
+            {
+                Foreground = (System.Windows.Media.Brush)FindResource("ChawoInkBrush"),
+            };
+            link.Click += (_, _) => ShowPage(Page.Brain);
+            FileBrainHint.Inlines.Add(link);
+            FileBrainHint.Inlines.Add(new System.Windows.Documents.Run("."));
+        }
+    }
+
+    private void RenderQueue()
+    {
+        if (_queueDetached) return;
+        FileQueueRows.Children.Clear();
+        var items = _fileQueue?.Snapshot() ?? Array.Empty<FileQueueItem>();
+        FileQueueEmpty.Visibility = items.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+        foreach (var item in items)
+        {
+            var row = new Grid { Margin = new Thickness(0, 3, 0, 3) };
+            row.ColumnDefinitions.Add(new ColumnDefinition());
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            var name = new TextBlock
+            {
+                Text = Path.GetFileName(item.Path),
+                ToolTip = item.Path,
+                VerticalAlignment = VerticalAlignment.Center,
+                TextTrimming = TextTrimming.CharacterEllipsis,
+                Margin = new Thickness(0, 0, 12, 0),
+            };
+            var state = new TextBlock
+            {
+                Text = StateText(item),
+                ToolTip = item.Note.Length > 0 ? item.Note : null,
+                VerticalAlignment = VerticalAlignment.Center,
+                TextTrimming = TextTrimming.CharacterEllipsis,
+                MaxWidth = 300,
+                Opacity = item.State == FileItemState.Running ? 1.0 : 0.75,
+                FontWeight = item.State == FileItemState.Running ? FontWeights.SemiBold : FontWeights.Normal,
+                Margin = new Thickness(0, 0, 8, 0),
+            };
+            Grid.SetColumn(state, 1);
+            var remove = new Button
+            {
+                Content = L.T("Убрать", "Remove"),
+                Padding = new Thickness(8, 2, 8, 2),
+                FontSize = 12,
+                Tag = item,
+                IsEnabled = item.State != FileItemState.Running,
+                VerticalAlignment = VerticalAlignment.Center,
+            };
+            remove.Click += (_, _) => _fileQueue?.Remove(item);
+            Grid.SetColumn(remove, 2);
+            row.Children.Add(name);
+            row.Children.Add(state);
+            row.Children.Add(remove);
+            FileQueueRows.Children.Add(row);
+        }
+        ApplyFileRunning();
+    }
+
+    private static string StateText(FileQueueItem item)
+    {
+        string head = item.State switch
+        {
+            FileItemState.Queued => L.T("в очереди", "queued"),
+            FileItemState.Running => L.T("идёт…", "running…"),
+            FileItemState.Done => L.T("готово", "done"),
+            FileItemState.Failed => L.T("ошибка", "failed"),
+            _ => L.T("остановлено", "stopped"),
+        };
+        return item.Note.Length > 0 ? head + " · " + item.Note : head;
+    }
+
+    /// <summary>Files or folders from Explorer: any page jumps to File transcription and queues them.</summary>
+    private void Window_PreviewDragOver(object sender, DragEventArgs e)
+    {
+        if (_fileQueue == null || !e.Data.GetDataPresent(DataFormats.FileDrop)) return;
+        e.Effects = DragDropEffects.Copy;
+        e.Handled = true;
+    }
+
+    private void Window_PreviewDrop(object sender, DragEventArgs e)
+    {
+        if (_fileQueue == null || !e.Data.GetDataPresent(DataFormats.FileDrop)) return;
+        e.Handled = true;
+        if (e.Data.GetData(DataFormats.FileDrop) is not string[] paths || paths.Length == 0) return;
+        ShowPage(Page.File);
+        AddToQueue(paths, onlyAudio: true);
+        Activate();
+    }
+
+    private void AddToQueue(IEnumerable<string> paths, bool onlyAudio)
+    {
+        if (_fileQueue == null) return;
+        var (added, skipped) = _fileQueue.Add(paths, onlyAudio);
+        string line;
+        if (added == 0)
+            line = L.T("Ничего не добавлено: нет поддерживаемых аудио или они уже в очереди.",
+                       "Nothing added: no supported audio, or it is already queued.");
+        else if (_fileRunning)
+            line = L.T($"Добавлено {added} — пойдут после текущего.", $"Added {added}; they run after the current one.");
+        else
+            line = L.T($"Добавлено {added}. Нажмите «Расшифровать».", $"Added {added}. Press Transcribe.");
+        if (added > 0 && skipped > 0) line += L.T($" Пропущено {skipped}.", $" Skipped {skipped}.");
+        // While a file runs the progress line belongs to it; the note shows up in the row list instead.
+        if (!_fileRunning) SetFileStatus(line, false);
+        ApplyFileRunning();
+    }
+
+    private void FileTimestamps_Click(object sender, RoutedEventArgs e)
+    {
+        _settings.FileTimestamps = FileTimestampsBox.IsChecked == true;
+        _apply();
+    }
+
+    private void FileSrt_Click(object sender, RoutedEventArgs e)
+    {
+        _settings.FileSrt = FileSrtBox.IsChecked == true;
+        _apply();
+    }
+
+    private void FileBrain_Click(object sender, RoutedEventArgs e)
+    {
+        _settings.FileUseBrain = FileBrainBox.IsChecked == true;
+        _apply();
+    }
+
+    private void FileOpenFolder_Click(object sender, RoutedEventArgs e)
+    {
+        var last = _fileQueue?.LastOutput;
+        if (last != null) ChawoApp.RevealInExplorer(last);
+    }
+
+    /// <summary>«С чего начать»: shown until closed once; step 1 notes when the model is already there.</summary>
+    private void FillStartCard()
+    {
+        if (_settings.StartHintDismissed)
+        {
+            StartCard.Visibility = Visibility.Collapsed;
+            return;
+        }
+        StartCard.Visibility = Visibility.Visible;
+        StartCardTitle.Text = L.T("С чего начать", "Getting started");
+        StartCardClose.Content = L.T("Больше не показывать", "Don't show again");
+        StartStep1.Inlines.Clear();
+        if (_settings.NetworkRole == NetworkRole.Client)
+        {
+            StartStep1.Inlines.Add(new System.Windows.Documents.Run(L.T("1) Этот ПК — клиент: укажите адрес хоста в разделе ", "1) This PC is a client: set the host address under ")));
+            StartStep1.Inlines.Add(PageLink(L.T("«Сеть»", "Network"), Page.Network));
+            StartStep1.Inlines.Add(new System.Windows.Documents.Run("."));
+        }
+        else
+        {
+            bool onDisk = SpeechModelStore.FindComplete(_settings.SpeechModel) != null;
+            StartStep1.Inlines.Add(new System.Windows.Documents.Run(L.T("1) Скачайте речевую модель в разделе ", "1) Download the speech model under ")));
+            StartStep1.Inlines.Add(PageLink(L.T("«Распознавание»", "Speech"), Page.Speech));
+            StartStep1.Inlines.Add(new System.Windows.Documents.Run(onDisk ? L.T(" — уже на диске ✓", " — already on disk ✓") : "."));
+        }
+        string key = Settings.HotkeyTitle(_settings.HotkeyVk);
+        StartStep2.Text = L.T($"2) Поставьте курсор в любое поле, зажмите {key} и говорите. Отпустите — текст вставится сам.",
+                              $"2) Put the cursor in any field, hold {key} and speak. Release, and the text is inserted.");
+        StartStep3.Inlines.Clear();
+        StartStep3.Inlines.Add(new System.Windows.Documents.Run(L.T("3) Длинную запись перетащите в это окно — текст ляжет рядом, в ", "3) Drop a long recording onto this window; the text lands beside it, see ")));
+        StartStep3.Inlines.Add(PageLink(L.T("«Расшифровка файла»", "File transcription"), Page.File));
+        StartStep3.Inlines.Add(new System.Windows.Documents.Run("."));
+    }
+
+    private System.Windows.Documents.Hyperlink PageLink(string text, Page page)
+    {
+        var link = new System.Windows.Documents.Hyperlink(new System.Windows.Documents.Run(text))
+        {
+            Foreground = (System.Windows.Media.Brush)FindResource("ChawoInkBrush"),
+        };
+        link.Click += (_, _) => ShowPage(page);
+        return link;
+    }
+
+    private void StartCardClose_Click(object sender, RoutedEventArgs e)
+    {
+        _settings.StartHintDismissed = true;
+        _apply();
+        StartCard.Visibility = Visibility.Collapsed;
     }
 
     private void FillFileSpeedBox()
@@ -550,69 +788,37 @@ public partial class SettingsWindow : Window
 
     private void FilePick_Click(object sender, RoutedEventArgs e)
     {
-        if (_fileRunning) return;
         var dlg = new Microsoft.Win32.OpenFileDialog
         {
-            Title = L.T("Обзор", "Browse"),
+            Title = L.T("Добавить файлы", "Add files"),
             Filter = FileTranscript.OpenFilter,
             CheckFileExists = true,
             Multiselect = true,
         };
         if (dlg.ShowDialog(this) != true || dlg.FileNames.Length == 0) return;
-        FilePathBox.Text = dlg.FileNames.Length == 1
-            ? dlg.FileName
-            : string.Join(";", dlg.FileNames);
+        AddToQueue(dlg.FileNames, onlyAudio: false);
     }
 
     private void FileFolder_Click(object sender, RoutedEventArgs e)
     {
-        if (_fileRunning) return;
         var dlg = new Microsoft.Win32.OpenFolderDialog
         {
             Title = L.T("Папка с записями", "Folder with recordings"),
         };
         if (dlg.ShowDialog(this) != true || string.IsNullOrWhiteSpace(dlg.FolderName)) return;
-        FilePathBox.Text = dlg.FolderName;
+        AddToQueue(new[] { dlg.FolderName }, onlyAudio: true);
     }
 
     private void FileRun_Click(object sender, RoutedEventArgs e)
     {
-        if (_fileRunning || _transcribeFiles == null) return;
-        var raw = (FilePathBox.Text ?? "").Trim().Trim('"');
-        if (raw.Length == 0)
+        if (_fileRunning || _runFileQueue == null) return;
+        if ((_fileQueue?.QueuedCount ?? 0) == 0)
         {
-            FileStatus.Text = L.T("Укажите путь к файлу, несколько файлов через «;», или папку.",
-                                  "Enter a file path, several files separated by ';', or a folder.");
+            SetFileStatus(L.T("Очередь пуста. Добавьте файлы или перетащите их в окно.",
+                              "The queue is empty. Add files or drop them onto the window."), false);
             return;
         }
-        var list = new List<string>();
-        if (Directory.Exists(raw))
-        {
-            list.AddRange(FileTranscript.CollectFromFolder(raw));
-            if (list.Count == 0)
-            {
-                FileStatus.Text = L.T("В папке нет поддерживаемых аудиофайлов.",
-                                      "No supported audio files in that folder.");
-                return;
-            }
-        }
-        else
-        {
-            foreach (var part in raw.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
-            {
-                var p = part.Trim().Trim('"');
-                if (p.Length == 0) continue;
-                if (Directory.Exists(p)) list.AddRange(FileTranscript.CollectFromFolder(p));
-                else list.Add(p);
-            }
-        }
-        if (list.Count == 0)
-        {
-            FileStatus.Text = L.T("Укажите путь к файлу или нажмите «Обзор».",
-                                  "Enter a file path or press Browse.");
-            return;
-        }
-        _ = _transcribeFiles(list);
+        _ = _runFileQueue();
     }
 
     private void FileFfmpeg_Click(object sender, RoutedEventArgs e)
@@ -1315,8 +1521,6 @@ public partial class SettingsWindow : Window
         _settings.BrainInstruction = text;
         _apply();
     }
-
-    private async void BrainDownload_Click(object sender, RoutedEventArgs e) => await DownloadBrainAsync();
 
     private async Task DownloadBrainAsync()
     {

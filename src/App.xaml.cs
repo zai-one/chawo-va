@@ -85,6 +85,10 @@ public partial class ChawoApp : Application
     private CancellationTokenSource? _fileCts;
     private int _fileBusy;
     private string _fileStatus = "";
+    private readonly FileQueue _fileQueue = new();
+    /// <summary>The .txt a "file finished" balloon points to; a click within a short window opens Explorer on it.</summary>
+    private string? _balloonOpenPath;
+    private DateTime _balloonOpenAt;
     private DictatePhase _phase = DictatePhase.NoModel;
     /// <summary>Text selected when the key went down (read in the background); a take with a selection is a command on it.</summary>
     private Task<string?>? _selectionAtPress;
@@ -346,6 +350,11 @@ public partial class ChawoApp : Application
             ContextMenuStrip = BuildMenu(),
         };
         _tray.DoubleClick += (_, _) => ShowSettings();
+        _tray.BalloonTipClicked += (_, _) =>
+        {
+            var path = _balloonOpenPath;
+            if (path != null && DateTime.UtcNow - _balloonOpenAt < TimeSpan.FromSeconds(30)) RevealInExplorer(path);
+        };
         new Thread(() =>
         {
             while (_showSettingsSignal!.WaitOne() && !_lifetime.IsCancellationRequested)
@@ -396,8 +405,8 @@ public partial class ChawoApp : Application
                     Forms.ToolTipIcon.None);
             else if (_recognizer == null)
                 _tray.ShowBalloonTip(8000, L.T("Модель не скачана", "Speech model is not downloaded"),
-                    L.T("Откройте настройки и нажмите «Скачать выбранную модель». Сама она не скачивается.",
-                        "Open Settings and press Download the selected model. It does not download by itself."),
+                    L.T("Откройте окно → «Распознавание» и нажмите «Скачать» в строке модели. Сама она не скачивается.",
+                        "Open the window → Speech and press Download on the model's row. It does not download by itself."),
                     Forms.ToolTipIcon.None);
             else
             _tray.ShowBalloonTip(8000, L.T("Chawo Voice Assistant готов", "Chawo Voice Assistant is ready"),
@@ -481,8 +490,8 @@ public partial class ChawoApp : Application
                 Hint(L.T("Модель на диске, но сессия не загружена. На «Распознавании» нажмите «Запустить прогрев», если выбрана видеокарта. Веса сами не скачиваются.",
                          "The model is on disk, but the session is not loaded. On Speech, press Start warmup when the video card is selected. Weights are not downloaded by themselves."));
             else
-                Hint(L.T("Модель не скачана. Откройте окно и нажмите «Скачать выбранную модель». Сама она не скачивается.",
-                         "The model is not downloaded. Open the window and press Download the selected model. It does not download by itself."));
+                Hint(L.T("Модель не скачана. Откройте окно → «Распознавание» и нажмите «Скачать» в строке модели. Сама она не скачивается.",
+                         "The model is not downloaded. Open the window → Speech and press Download on the model's row. It does not download by itself."));
             return;
         }
         _abandonTake = false;
@@ -1376,18 +1385,33 @@ public partial class ChawoApp : Application
         try { _fileCts?.Cancel(); } catch (ObjectDisposedException) { }
     }
 
-    private Task StartFileAsync(string path) => StartFilesAsync(new[] { path });
-
-    private async Task StartFilesAsync(IReadOnlyList<string> paths)
+    /// <summary>Explorer with the file selected (explorer /select). Does nothing if the file is gone.</summary>
+    public static void RevealInExplorer(string path)
     {
-        if (paths.Count == 0)
+        try
         {
-            SetFileStatus(L.T("Укажите файл или папку.", "Pick a file or a folder."));
+            if (File.Exists(path))
+                Process.Start(new ProcessStartInfo("explorer.exe", $"/select,\"{path}\"") { UseShellExecute = true });
+            else if (Directory.Exists(Path.GetDirectoryName(path)))
+                Process.Start(new ProcessStartInfo("explorer.exe", $"\"{Path.GetDirectoryName(path)}\"") { UseShellExecute = true });
+        }
+        catch (Exception ex) { Log.Write($"reveal {path}: {ex.Message}"); }
+    }
+
+    /// <summary>
+    /// Runs every queued file in order; files queued during the run are picked up too.
+    /// Loads the dictation model from disk if needed (never downloads). The cloud Brain asks once per run.
+    /// </summary>
+    private async Task RunFileQueueAsync()
+    {
+        if (_fileQueue.QueuedCount == 0)
+        {
+            SetFileStatus(L.T("Очередь пуста. Добавьте файлы или перетащите их в окно.", "The queue is empty. Add files or drop them onto the window."));
             return;
         }
         if (Interlocked.CompareExchange(ref _fileBusy, 1, 0) != 0)
         {
-            SetFileStatus(L.T("Уже идёт другой файл.", "Another file is already running."));
+            SetFileStatus(L.T("Уже идёт расшифровка — новые файлы пойдут следом.", "Transcription is running; new files follow."));
             return;
         }
         var cts = CancellationTokenSource.CreateLinkedTokenSource(_lifetime.Token);
@@ -1395,6 +1419,28 @@ public partial class ChawoApp : Application
         SetFileStatus(L.T("Читаю файл…", "Reading the file…"));
         try
         {
+            var brain = FileBrainTarget.None;
+            string brainNote = "";
+            if (_settings.FileUseBrain)
+            {
+                brain = FileBrain.Target(_settings);
+                if (brain == FileBrainTarget.None)
+                    brainNote = L.T("мозг недоступен", "Brain unavailable");
+                var cloud = brain == FileBrainTarget.Cloud ? FileBrain.CloudName(_settings) : null;
+                if (cloud != null)
+                {
+                    string question = L.T($"Текст уйдёт в {cloud}. Продолжить?", $"The text will be sent to {cloud}. Continue?");
+                    string caption = L.T("Прогнать через мозг", "Run through the Brain");
+                    var answer = _settingsWindow is { IsVisible: true } owner
+                        ? System.Windows.MessageBox.Show(owner, question, caption, System.Windows.MessageBoxButton.YesNo, System.Windows.MessageBoxImage.Question)
+                        : System.Windows.MessageBox.Show(question, caption, System.Windows.MessageBoxButton.YesNo, System.Windows.MessageBoxImage.Question);
+                    if (answer != System.Windows.MessageBoxResult.Yes)
+                    {
+                        brain = FileBrainTarget.None;
+                        brainNote = L.T("мозг пропущен", "Brain skipped");
+                    }
+                }
+            }
             if (!SpeechIsRemote)
             {
                 Core.Recognizer? rec;
@@ -1418,11 +1464,13 @@ public partial class ChawoApp : Application
                     }
                 }
             }
-            await Task.Run(() => RunFiles(paths, cts.Token));
+            await Task.Run(() => RunQueue(brain, brainNote, cts.Token));
         }
         catch (OperationCanceledException)
         {
-            SetFileStatus(L.T("Остановлено. Текст не записан.", "Stopped. No text was written."));
+            _fileQueue.MarkRunningStopped(L.T("остановлено", "stopped"));
+            SetFileStatus(L.T("Остановлено. Уже записанные .txt остаются, остальное ждёт в очереди.",
+                              "Stopped. Finished .txt files stay; the rest waits in the queue."));
         }
         catch (RemoteHostException ex)
         {
@@ -1432,6 +1480,7 @@ public partial class ChawoApp : Application
         catch (Exception ex)
         {
             Log.Write($"file: {ex.GetType().Name}: {ex.Message}");
+            _fileQueue.MarkRunningStopped(ex.Message);
             SetFileStatus(L.T($"Не получилось: {ex.Message}",
                               $"Failed: {ex.Message}"));
         }
@@ -1445,68 +1494,101 @@ public partial class ChawoApp : Application
         }
     }
 
-    /// <summary>Several files in order. One failure is skipped; the rest continue. Never downloads a speech model.</summary>
-    private void RunFiles(IReadOnlyList<string> paths, CancellationToken cancel)
+    /// <summary>Queue loop on a worker thread. One failure is skipped; the rest continue. Never downloads a speech model.</summary>
+    private void RunQueue(FileBrainTarget brain, string brainNote, CancellationToken cancel)
     {
         int ok = 0, fail = 0;
-        string lastOk = "";
-        // While one file is recognizing, decode/resample the next (local only).
+        string? lastOk = null;
+        var runClock = System.Diagnostics.Stopwatch.StartNew();
+        // While one file is recognizing, decode/resample the next queued one (local only).
         Task<float[]>? nextDecode = null;
-        string? nextDecodePath = null;
-        if (!SpeechIsRemote && paths.Count > 1)
-        {
-            nextDecodePath = paths[0];
-            nextDecode = Task.Run(() => FileTranscript.Load16k(paths[0], cancel), cancel);
-        }
-        for (int i = 0; i < paths.Count; i++)
+        FileQueueItem? nextItem = null;
+        while (true)
         {
             cancel.ThrowIfCancellationRequested();
-            string path = paths[i];
-            string prefix = paths.Count > 1
-                ? L.T($"Файл {i + 1} из {paths.Count}: ", $"File {i + 1} of {paths.Count}: ")
+            var item = _fileQueue.TakeNext();
+            if (item == null) break;
+            int index = ok + fail + 1;
+            int total = index - 1 + 1 + _fileQueue.QueuedCount;
+            string prefix = total > 1
+                ? L.T($"Файл {index} из {total}: ", $"File {index} of {total}: ")
                 : "";
-            float[]? preloaded = null;
             try
             {
-                if (nextDecode != null && nextDecodePath == path)
+                float[]? preloaded = null;
+                if (nextDecode != null)
                 {
-                    SetFileStatus(prefix + L.T("Декодирую…", "Decoding…"));
-                    preloaded = nextDecode.GetAwaiter().GetResult();
+                    if (ReferenceEquals(nextItem, item))
+                    {
+                        SetFileStatus(prefix + L.T("Декодирую…", "Decoding…"));
+                        preloaded = nextDecode.GetAwaiter().GetResult();
+                    }
+                    else
+                    {
+                        // The prefetched file was removed from the queue: drop its result quietly.
+                        nextDecode.ContinueWith(t => _ = t.Exception, TaskContinuationOptions.OnlyOnFaulted);
+                    }
                     nextDecode = null;
-                    nextDecodePath = null;
+                    nextItem = null;
                 }
-                if (!SpeechIsRemote && i + 1 < paths.Count)
+                if (!SpeechIsRemote && _fileQueue.PeekNext() is { } peek)
                 {
-                    string nxt = paths[i + 1];
-                    nextDecodePath = nxt;
-                    nextDecode = Task.Run(() => FileTranscript.Load16k(nxt, cancel), cancel);
+                    nextItem = peek;
+                    string nextPath = peek.Path;
+                    nextDecode = Task.Run(() => FileTranscript.Load16k(nextPath, cancel), cancel);
                 }
-                RunOneFile(path, prefix, cancel, preloaded);
+                string note = RunOneFile(item.Path, prefix, cancel, preloaded, brain, out string outPath);
+                if (brainNote.Length > 0) note = note.Length > 0 ? note + " · " + brainNote : brainNote;
                 ok++;
-                lastOk = FileTranscript.OutputPath(path);
+                lastOk = outPath;
+                _fileQueue.Finish(item, FileItemState.Done, note, outPath);
             }
             catch (OperationCanceledException) { throw; }
-            catch (RemoteHostException)
+            catch (RemoteHostException ex)
             {
-                // Host errors are fatal for the batch — same as a single file.
+                // Host errors are fatal for the run: the next file would fail the same way.
+                _fileQueue.Finish(item, FileItemState.Failed, L.T(ex.Russian, ex.English));
                 throw;
             }
             catch (Exception ex)
             {
                 fail++;
-                Log.Write($"file skip {path}: {ex.GetType().Name}: {ex.Message}");
+                Log.Write($"file skip {item.Path}: {ex.GetType().Name}: {ex.Message}");
+                _fileQueue.Finish(item, FileItemState.Failed, ex.Message);
                 SetFileStatus(prefix + L.T($"пропуск — {ex.Message}", $"skipped — {ex.Message}"));
             }
         }
-        if (paths.Count > 1)
+        if (ok + fail > 1)
+            SetFileStatus(L.T($"Готово {ok}, пропуск {fail}." + (lastOk != null ? $" Последний текст: {lastOk}" : ""),
+                              $"Done {ok}, skipped {fail}." + (lastOk != null ? $" Last text: {lastOk}" : "")));
+
+        // A long run ends while the user is elsewhere: say so in the tray. Click opens Explorer on the text.
+        if (runClock.Elapsed >= TimeSpan.FromSeconds(60) && ok + fail > 0)
         {
-            SetFileStatus(L.T($"Пакет: готово {ok}, пропуск {fail}." + (lastOk.Length > 0 ? $" Последний текст: {lastOk}" : ""),
-                              $"Batch: done {ok}, skipped {fail}." + (lastOk.Length > 0 ? $" Last text: {lastOk}" : "")));
+            string title = fail == 0
+                ? L.T("Расшифровка готова", "Transcription finished")
+                : L.T("Расшифровка закончена с ошибками", "Transcription finished with errors");
+            string body = ok + fail == 1
+                ? (lastOk != null ? Path.GetFileName(lastOk) : L.T("Не получилось — подробности в окне.", "Failed; see the window."))
+                : L.T($"Готово {ok}, пропуск {fail}.", $"Done {ok}, skipped {fail}.") + (lastOk != null ? " " + Path.GetFileName(lastOk) : "");
+            if (lastOk != null) body += L.T(" Нажмите, чтобы открыть папку.", " Click to open the folder.");
+            string? open = lastOk;
+            _ = Dispatcher.BeginInvoke(() =>
+            {
+                _balloonOpenPath = open;
+                _balloonOpenAt = DateTime.UtcNow;
+                _tray?.ShowBalloonTip(10000, title, body, fail == 0 ? Forms.ToolTipIcon.Info : Forms.ToolTipIcon.Warning);
+            });
         }
     }
 
-    /// <summary>Local pieces, or decode then post WAV to the host. Writes name.txt beside the source.</summary>
-    private void RunOneFile(string path, string statusPrefix, CancellationToken cancel, float[]? preloaded = null)
+    /// <summary>
+    /// Local pieces, or decode then post to the host. Writes name.txt beside the source
+    /// (with [hh:mm:ss] per piece when on), name.srt when on, then name.brain.txt when a Brain is given.
+    /// Returns the short note for the queue row.
+    /// </summary>
+    private string RunOneFile(string path, string statusPrefix, CancellationToken cancel, float[]? preloaded,
+        FileBrainTarget brain, out string outPath)
     {
         if (!File.Exists(path))
             throw new FileNotFoundException(L.T("Такого файла нет.", "That file is not there."), path);
@@ -1516,7 +1598,7 @@ public partial class ChawoApp : Application
         if (length > FileTranscript.MaxBytes)
             throw new InvalidDataException(L.T("Файл больше примерно 1,7 ГБ.", "The file is over about 1.7 GB."));
 
-        string outPath = FileTranscript.OutputPath(path);
+        outPath = FileTranscript.OutputPath(path);
         float[] samples;
         if (preloaded != null)
         {
@@ -1531,41 +1613,98 @@ public partial class ChawoApp : Application
         if (samples.Length == 0)
             throw new InvalidDataException(L.T("В файле нет звука.", "The file has no audio."));
 
+        bool timestamps = _settings.FileTimestamps;
+        bool srt = _settings.FileSrt;
+        List<Core.TranscriptSegment> segments;
         if (SpeechIsRemote)
+            segments = TranscribeRemote(samples, statusPrefix, timestamps || srt, cancel);
+        else
+            segments = TranscribeLocal(path, samples, statusPrefix, cancel);
+
+        cancel.ThrowIfCancellationRequested();
+        File.WriteAllText(outPath, Core.TranscriptFormat.Txt(segments, timestamps));
+        var notes = new List<string> { Core.TranscriptFormat.Clock(samples.Length / 16000.0) };
+        if (srt)
+        {
+            File.WriteAllText(Path.ChangeExtension(outPath, ".srt"), Core.TranscriptFormat.Srt(segments));
+            notes.Add(".srt");
+        }
+        string done = L.T($"Готово: {outPath}", $"Done: {outPath}");
+
+        if (brain != FileBrainTarget.None)
+        {
+            try
+            {
+                var result = FileBrain.RunAsync(_settings, brain, segments, timestamps,
+                    t => SetFileStatus(statusPrefix + t), cancel).GetAwaiter().GetResult();
+                string brainPath = FileBrain.OutputPath(outPath);
+                File.WriteAllText(brainPath, result.Text);
+                Log.Write($"file brain {brain} paragraphs={result.Paragraphs} keptAsIs={result.KeptAsIs} summaryError={result.SummaryError ?? "-"} -> {brainPath}");
+                notes.Add(result.KeptAsIs > 0
+                    ? L.T($"мозг ✓ ({result.KeptAsIs} абз. без правок)", $"Brain ✓ ({result.KeptAsIs} paragraphs as is)")
+                    : L.T("мозг ✓", "Brain ✓"));
+                done += L.T($" Мозг: {brainPath}", $" Brain: {brainPath}");
+            }
+            catch (OperationCanceledException) { throw; }
+            catch (Exception ex) when (ex is BrainException or HttpRequestException or InvalidDataException or IOException)
+            {
+                Log.Write($"file brain failed {path}: {ex.GetType().Name}: {ex.Message}");
+                notes.Add(L.T($"мозг: {ex.Message}", $"Brain: {ex.Message}"));
+                done += L.T($" Мозг не справился: {ex.Message}. Сырой .txt на месте.", $" The Brain failed: {ex.Message}. The raw .txt is there.");
+            }
+        }
+        SetFileStatus(statusPrefix + done);
+        return string.Join(" · ", notes);
+    }
+
+    /// <summary>Client mode. With timestamps or .srt every pause-split piece goes to the host on its own, so its offset is known.</summary>
+    private List<Core.TranscriptSegment> TranscribeRemote(float[] samples, string statusPrefix, bool perPiece, CancellationToken cancel)
+    {
+        const int rate = 16000;
+        if (!perPiece)
         {
             SetFileStatus(statusPrefix + L.T("Отправляю на хост…", "Sending to the host…"));
-            byte[] wav = Core.AudioUtils.WavBytes(samples, 16000);
-            string text = RemoteSpeech.TranscribeBytes(_settings, wav, "audio/wav", cancel);
-            cancel.ThrowIfCancellationRequested();
-            File.WriteAllText(outPath, text);
-            Log.Write($"file remote -> {outPath} {text.Length} chars");
-            SetFileStatus(statusPrefix + L.T($"Готово: {outPath}", $"Done: {outPath}"));
-            return;
+            string text = RemoteSpeech.TranscribeBytes(_settings, Core.AudioUtils.WavBytes(samples, rate), "audio/wav", cancel);
+            Log.Write($"file remote whole {text.Length} chars");
+            return new() { new Core.TranscriptSegment(0, samples.Length / (double)rate, text) };
         }
+        var ranges = Core.Recognizer.SplitRanges(samples, rate);
+        var texts = new string[ranges.Count];
+        for (int i = 0; i < ranges.Count; i++)
+        {
+            cancel.ThrowIfCancellationRequested();
+            SetFileStatus(statusPrefix + L.T($"Кусок {i + 1} из {ranges.Count} на хосте…", $"Piece {i + 1} of {ranges.Count} on the host…"));
+            var (from, to) = ranges[i];
+            var piece = new float[to - from];
+            Array.Copy(samples, from, piece, 0, piece.Length);
+            texts[i] = RemoteSpeech.TranscribeBytes(_settings, Core.AudioUtils.WavBytes(piece, rate), "audio/wav", cancel);
+        }
+        Log.Write($"file remote pieces={ranges.Count}");
+        return Core.TranscriptFormat.FromRanges(ranges, texts, rate);
+    }
 
-        // Dedicated file sessions: dictation keeps its own recognizer and is not locked out.
+    /// <summary>Dedicated file sessions: dictation keeps its own recognizer and is not locked out.</summary>
+    private List<Core.TranscriptSegment> TranscribeLocal(string path, float[] samples, string statusPrefix, CancellationToken cancel)
+    {
         string? modelDir;
         Core.SpeechModelKind kind;
         Core.SpeechDeviceKind device;
         Core.CtcScript script;
-        lock (_recogLock)
-        {
-            if (_recognizer == null)
-                throw new InvalidOperationException(L.T("Модель не загружена.", "The model is not loaded."));
-            modelDir = _recognizer.ModelDir;
-            kind = _recognizer.Kind;
-            script = _recognizer.Script;
-        }
-        device = _settings.SpeechDevice;
-
-        // Piece ranges need any recognizer of the same kind (feature rate is fixed).
+        int rate;
         List<(int from, int to)> ranges;
         lock (_recogLock)
         {
-            if (_recognizer == null || _recognizer.Kind != kind)
-                throw new InvalidOperationException(L.T("Модель выгрузили посреди файла.", "The model was unloaded mid-file."));
+            if (_recognizer == null)
+                throw new InvalidOperationException(L.T("Модель выгрузили посреди очереди. Нажмите «Расшифровать» ещё раз.",
+                                                        "The model was unloaded mid-queue. Press Transcribe again."));
+            modelDir = _recognizer.ModelDir;
+            kind = _recognizer.Kind;
+            script = _recognizer.Script;
+            rate = _recognizer.SampleRate;
+            // Real pause-split offsets; the .txt timestamps and .srt come from these ranges.
             ranges = _recognizer.PieceRanges(samples);
         }
+        device = _settings.SpeechDevice;
 
         using var job = Core.FileJob.Open(modelDir, kind, device, _settings.FileParallelism, script);
         // If the user hits Stop, cancel ONNX runs on the file workers immediately.
@@ -1587,18 +1726,13 @@ public partial class ChawoApp : Application
                 cancel);
 
             cancel.ThrowIfCancellationRequested();
-            var parts = new List<string>(bits.Length);
-            foreach (var bit in bits)
-                if (!string.IsNullOrEmpty(bit)) parts.Add(bit);
-            string all = string.Join('\n', parts);
-            File.WriteAllText(outPath, all);
-            double audioSec = samples.Length / 16000.0;
-            double wall = sw.Elapsed.TotalSeconds;
-            double rtf = wall > 0.05 ? audioSec / wall : 0;
-            Log.Write($"file local {audioSec:F0}s pieces={ranges.Count} workers={plan.Workers} batch={plan.BatchSize} wall={wall:F1}s rtf={rtf:F2}x -> {outPath}");
-            SetFileStatus(statusPrefix + L.T($"Готово: {outPath}", $"Done: {outPath}"));
+            double audioSec = samples.Length / (double)rate;
+            double wallSec = sw.Elapsed.TotalSeconds;
+            double rtf = wallSec > 0.05 ? audioSec / wallSec : 0;
+            Log.Write($"file local {audioSec:F0}s pieces={ranges.Count} workers={plan.Workers} batch={plan.BatchSize} wall={wallSec:F1}s rtf={rtf:F2}x <- {path}");
+            return Core.TranscriptFormat.FromRanges(ranges, bits, rate);
         }
-        }
+    }
 
     private async Task DownloadFfmpegAsync()
     {
@@ -1651,7 +1785,7 @@ public partial class ChawoApp : Application
                     HermesStatusText, ToggleLanAsync,
                     () => _ = CheckForUpdatesAsync(silent: false), RequestStop, DeleteSpeechModelAsync,
                     ToggleGpuWarmupAsync, GpuWarmActive, () => _ = ReloadSpeechAsync(),
-                    StartFilesAsync, CancelFile, PresentCall, DownloadFfmpegAsync, () => FfmpegTool.StatusLine());
+                    RunFileQueueAsync, _fileQueue, CancelFile, PresentCall, DownloadFfmpegAsync, () => FfmpegTool.StatusLine());
                 SetPhase(_phase);
                 if (_fileStatus.Length > 0 || Volatile.Read(ref _fileBusy) != 0)
                     _settingsWindow.SetFileStatus(_fileStatus, Volatile.Read(ref _fileBusy) != 0);

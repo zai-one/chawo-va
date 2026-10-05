@@ -110,7 +110,7 @@ public static partial class Brain
         "не могу", "я не буду", "извините", "расшифровк", "как ии", "как языковая модель",
     ];
 
-    private static bool LooksLikeRefusal(string answer, string body)
+    internal static bool LooksLikeRefusal(string answer, string body)
     {
         var a = answer.ToLowerInvariant();
         var b = body.ToLowerInvariant();
@@ -119,7 +119,7 @@ public static partial class Brain
 
     /// <summary>A sane answer is about as long as the text; anything far longer is not a cleanup and is not typed in.</summary>
     /// <summary>Qwen thinking must not be typed into the document. The server is also started with reasoning off.</summary>
-    private static string StripThink(string text)
+    internal static string StripThink(string text)
     {
         var t = System.Text.RegularExpressions.Regex.Replace(text, "(?is)<think>.*?</think>", "");
         int i = t.LastIndexOf("</think>", StringComparison.OrdinalIgnoreCase);
