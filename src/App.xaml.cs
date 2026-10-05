@@ -6,9 +6,12 @@
 // Hold the key: record. Release: recognize and insert the text where the caret is.
 
 using System.Diagnostics;
+using Microsoft.Win32;
 using System.Reflection;
 using System.Text;
 using System.Windows;
+using System.Windows.Media;
+using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using Forms = System.Windows.Forms;
 
@@ -48,6 +51,14 @@ public partial class ChawoApp : Application
     private Forms.NotifyIcon? _tray;
     private System.Drawing.Icon? _iconIdle;
     private System.Drawing.Icon? _iconBusy;
+    private System.Drawing.Icon? _iconIdleDark;   // cream mark — for dark taskbar
+    private System.Drawing.Icon? _iconIdleLight;  // dark mark — for light taskbar
+    private System.Drawing.Icon? _iconBusyDark;
+    private System.Drawing.Icon? _iconBusyLight;
+    private IntPtr _busyDarkHandle, _busyLightHandle;
+    private bool _trayUsesLightChrome = true;
+    private ImageSource? _windowIconDark;
+    private ImageSource? _windowIconLight;
     private IntPtr _busyIconHandle;
     private Core.Recognizer? _recognizer;
     private readonly object _recogLock = new();
@@ -325,8 +336,9 @@ public partial class ChawoApp : Application
         DataMigration.FlushLog();
         Autostart.MigrateLegacy();
 
-        _iconIdle = LoadIcon();
-        _iconBusy = MakeBusyIcon(_iconIdle, out _busyIconHandle);
+        LoadThemeIcons();
+        ApplyTrayChrome(force: true);
+        try { SystemEvents.UserPreferenceChanged += OnUserPreferenceChanged; } catch { /* non-interactive hosts */ }
         _tray = new Forms.NotifyIcon
         {
             Icon = _iconIdle,
@@ -1365,8 +1377,15 @@ public partial class ChawoApp : Application
         try { _fileCts?.Cancel(); } catch (ObjectDisposedException) { }
     }
 
-    private async Task StartFileAsync(string path)
+    private Task StartFileAsync(string path) => StartFilesAsync(new[] { path });
+
+    private async Task StartFilesAsync(IReadOnlyList<string> paths)
     {
+        if (paths.Count == 0)
+        {
+            SetFileStatus(L.T("Укажите файл или папку.", "Pick a file or a folder."));
+            return;
+        }
         if (Interlocked.CompareExchange(ref _fileBusy, 1, 0) != 0)
         {
             SetFileStatus(L.T("Уже идёт другой файл.", "Another file is already running."));
@@ -1377,7 +1396,30 @@ public partial class ChawoApp : Application
         SetFileStatus(L.T("Читаю файл…", "Reading the file…"));
         try
         {
-            await Task.Run(() => RunFile(path, cts.Token));
+            if (!SpeechIsRemote)
+            {
+                Core.Recognizer? rec;
+                lock (_recogLock) rec = _recognizer;
+                if (rec == null)
+                {
+                    if (SpeechModelStore.FindComplete(_settings.SpeechModel) == null)
+                    {
+                        SetFileStatus(L.T("Модели нет на диске. Откройте «Распознавание» и скачайте выбранную модель.",
+                                          "The model is not on disk. Open Speech and download the selected model."));
+                        return;
+                    }
+                    SetFileStatus(L.T("Загружаю модель…", "Loading the model…"));
+                    await ReloadSpeechAsync();
+                    lock (_recogLock) rec = _recognizer;
+                    if (rec == null)
+                    {
+                        SetFileStatus(L.T("Модель на диске есть, но сессия не поднялась. Смотрите «Распознавание». Файл не распознаю.",
+                                          "The model is on disk, but the session did not start. See Speech. The file is not transcribed."));
+                        return;
+                    }
+                }
+            }
+            await Task.Run(() => RunFiles(paths, cts.Token));
         }
         catch (OperationCanceledException)
         {
@@ -1391,8 +1433,8 @@ public partial class ChawoApp : Application
         catch (Exception ex)
         {
             Log.Write($"file: {ex.GetType().Name}: {ex.Message}");
-            SetFileStatus(L.T("Не получилось прочитать файл. Ничего не скачиваю.",
-                              "The file could not be read. Nothing is downloaded."));
+            SetFileStatus(L.T($"Не получилось: {ex.Message}",
+                              $"Failed: {ex.Message}"));
         }
         finally
         {
@@ -1404,95 +1446,89 @@ public partial class ChawoApp : Application
         }
     }
 
-    /// <summary>Local pieces, or one post to the host. Never downloads a model. Writes name.txt beside the source.</summary>
-    private void RunFile(string path, CancellationToken cancel)
+    /// <summary>Several files in order. One failure is skipped; the rest continue. Never downloads a speech model.</summary>
+    private void RunFiles(IReadOnlyList<string> paths, CancellationToken cancel)
+    {
+        int ok = 0, fail = 0;
+        string lastOk = "";
+        for (int i = 0; i < paths.Count; i++)
+        {
+            cancel.ThrowIfCancellationRequested();
+            string path = paths[i];
+            string prefix = paths.Count > 1
+                ? L.T($"Файл {i + 1} из {paths.Count}: ", $"File {i + 1} of {paths.Count}: ")
+                : "";
+            try
+            {
+                RunOneFile(path, prefix, cancel);
+                ok++;
+                lastOk = FileTranscript.OutputPath(path);
+            }
+            catch (OperationCanceledException) { throw; }
+            catch (RemoteHostException)
+            {
+                // Host errors are fatal for the batch — same as a single file.
+                throw;
+            }
+            catch (Exception ex)
+            {
+                fail++;
+                Log.Write($"file skip {path}: {ex.GetType().Name}: {ex.Message}");
+                SetFileStatus(prefix + L.T($"пропуск — {ex.Message}", $"skipped — {ex.Message}"));
+            }
+        }
+        if (paths.Count > 1)
+        {
+            SetFileStatus(L.T($"Пакет: готово {ok}, пропуск {fail}." + (lastOk.Length > 0 ? $" Последний текст: {lastOk}" : ""),
+                              $"Batch: done {ok}, skipped {fail}." + (lastOk.Length > 0 ? $" Last text: {lastOk}" : "")));
+        }
+    }
+
+    /// <summary>Local pieces, or decode then post WAV to the host. Writes name.txt beside the source.</summary>
+    private void RunOneFile(string path, string statusPrefix, CancellationToken cancel)
     {
         if (!File.Exists(path))
-        {
-            SetFileStatus(L.T("Такого файла нет. Ничего не скачиваю.", "That file is not there. Nothing is downloaded."));
-            return;
-        }
+            throw new FileNotFoundException(L.T("Такого файла нет.", "That file is not there."), path);
         long length;
         try { length = new FileInfo(path).Length; }
-        catch (Exception)
-        {
-            SetFileStatus(L.T("Файл не открыть. Ничего не скачиваю.", "The file cannot be opened. Nothing is downloaded."));
-            return;
-        }
+        catch (Exception ex) { throw new IOException(L.T("Файл не открыть.", "The file cannot be opened."), ex); }
         if (length > FileTranscript.MaxBytes)
-        {
-            SetFileStatus(L.T("Файл больше примерно 1,7 ГБ. Ничего не скачиваю.",
-                              "The file is over about 1.7 GB. Nothing is downloaded."));
-            return;
-        }
+            throw new InvalidDataException(L.T("Файл больше примерно 1,7 ГБ.", "The file is over about 1.7 GB."));
+
         string outPath = FileTranscript.OutputPath(path);
+        SetFileStatus(statusPrefix + L.T("Декодирую…", "Decoding…"));
+        float[] samples = FileTranscript.Load16k(path, cancel);
+        cancel.ThrowIfCancellationRequested();
+        if (samples.Length == 0)
+            throw new InvalidDataException(L.T("В файле нет звука.", "The file has no audio."));
+
         if (SpeechIsRemote)
         {
-            byte[] bytes;
-            try { bytes = File.ReadAllBytes(path); }
-            catch (Exception)
-            {
-                SetFileStatus(L.T("Файл не открыть. Ничего не скачиваю.", "The file cannot be opened. Nothing is downloaded."));
-                return;
-            }
-            cancel.ThrowIfCancellationRequested();
-            if (!FileTranscript.IsWav(bytes) && !FileTranscript.IsOgg(bytes))
-            {
-                SetFileStatus(L.T("Нужен файл WAV 16 бит или Ogg/Opus. Ничего не скачиваю.",
-                                  "Need a 16-bit WAV or Ogg/Opus file. Nothing is downloaded."));
-                return;
-            }
-            SetFileStatus(L.T("Отправляю файл на хост. Текст запишу здесь.",
-                              "Sending the file to the host. The text will be written here."));
-            string text = RemoteSpeech.TranscribeBytes(_settings, bytes, FileTranscript.IsOgg(bytes) ? "audio/ogg" : "audio/wav", cancel);
+            SetFileStatus(statusPrefix + L.T("Отправляю на хост…", "Sending to the host…"));
+            byte[] wav = Core.AudioUtils.WavBytes(samples, 16000);
+            string text = RemoteSpeech.TranscribeBytes(_settings, wav, "audio/wav", cancel);
             cancel.ThrowIfCancellationRequested();
             File.WriteAllText(outPath, text);
             Log.Write($"file remote -> {outPath} {text.Length} chars");
-            SetFileStatus(L.T($"Готово: {outPath}", $"Done: {outPath}"));
+            SetFileStatus(statusPrefix + L.T($"Готово: {outPath}", $"Done: {outPath}"));
             return;
         }
 
         Core.Recognizer? rec;
         lock (_recogLock) rec = _recognizer;
         if (rec == null)
-        {
-            SetFileStatus(L.T("Модель не загружена. Файл не распознаю и ничего не скачиваю.",
-                              "The model is not loaded. The file is not transcribed and nothing is downloaded."));
-            return;
-        }
-        float[] samples;
-        try { samples = FileTranscript.Load16k(path); }
-        catch (InvalidDataException)
-        {
-            SetFileStatus(L.T("Нужен файл WAV 16 бит или Ogg/Opus. Ничего не скачиваю.",
-                              "Need a 16-bit WAV or Ogg/Opus file. Nothing is downloaded."));
-            return;
-        }
-        catch (Exception)
-        {
-            SetFileStatus(L.T("Файл не открыть. Ничего не скачиваю.", "The file cannot be opened. Nothing is downloaded."));
-            return;
-        }
-        cancel.ThrowIfCancellationRequested();
-        if (samples.Length == 0)
-        {
-            SetFileStatus(L.T("В файле нет звука. Текст не записан.", "The file has no audio. No text was written."));
-            return;
-        }
+            throw new InvalidOperationException(L.T("Модель не загружена.", "The model is not loaded."));
+
         var ranges = rec.PieceRanges(samples);
         var parts = new List<string>(ranges.Count);
         for (int i = 0; i < ranges.Count; i++)
         {
             cancel.ThrowIfCancellationRequested();
-            SetFileStatus(L.T($"Кусок {i + 1} из {ranges.Count}", $"Piece {i + 1} of {ranges.Count}"));
+            SetFileStatus(statusPrefix + L.T($"Кусок {i + 1} из {ranges.Count}", $"Piece {i + 1} of {ranges.Count}"));
             lock (_recogLock)
             {
                 if (!ReferenceEquals(_recognizer, rec))
-                {
-                    SetFileStatus(L.T("Модель выгрузили посреди файла. Текст не записан. Ничего не скачиваю.",
-                                      "The model was unloaded in the middle of the file. No text was written. Nothing is downloaded."));
-                    return;
-                }
+                    throw new InvalidOperationException(L.T("Модель выгрузили посреди файла.", "The model was unloaded mid-file."));
             }
             var (from, to) = ranges[i];
             var piece = new float[to - from];
@@ -1504,7 +1540,41 @@ public partial class ChawoApp : Application
         string all = string.Join('\n', parts);
         File.WriteAllText(outPath, all);
         Log.Write($"file local {samples.Length / 16000.0:F0}s pieces={ranges.Count} -> {outPath}");
-        SetFileStatus(L.T($"Готово: {outPath}", $"Done: {outPath}"));
+        SetFileStatus(statusPrefix + L.T($"Готово: {outPath}", $"Done: {outPath}"));
+    }
+
+    private async Task DownloadFfmpegAsync()
+    {
+        if (Interlocked.CompareExchange(ref _fileBusy, 1, 0) != 0)
+        {
+            SetFileStatus(L.T("Сейчас занято расшифровкой. Подождите.", "Busy with transcription. Wait."));
+            return;
+        }
+        var cts = CancellationTokenSource.CreateLinkedTokenSource(_lifetime.Token);
+        _fileCts = cts;
+        try
+        {
+            var progress = new Progress<string>(SetFileStatus);
+            await FfmpegTool.DownloadAsync(progress, cts.Token);
+            _settingsWindow?.Localize();
+        }
+        catch (OperationCanceledException)
+        {
+            SetFileStatus(L.T("Скачивание ffmpeg остановлено.", "ffmpeg download stopped."));
+        }
+        catch (Exception ex)
+        {
+            Log.Write($"ffmpeg download: {ex}");
+            SetFileStatus(L.T($"ffmpeg не скачался: {ex.Message}", $"ffmpeg download failed: {ex.Message}"));
+        }
+        finally
+        {
+            if (ReferenceEquals(_fileCts, cts)) _fileCts = null;
+            cts.Dispose();
+            Interlocked.Exchange(ref _fileBusy, 0);
+            if (_settingsWindow != null)
+                _ = Dispatcher.BeginInvoke(() => _settingsWindow?.SetFileStatus(_fileStatus, false));
+        }
     }
 
     private void SetFileStatus(string text)
@@ -1515,25 +1585,45 @@ public partial class ChawoApp : Application
 
     public void ShowSettings()
     {
-        if (_settingsWindow == null)
+        try
         {
-            _settingsWindow = new SettingsWindow(_settings, ApplySettings, () => { _overlay?.Unpin(); _settings.OverlayX = null; _settings.OverlayY = null; _settings.Save(); }, SelectBrainAsync,
-                () => DownloadSpeechAsync(manualStart: false), () => _ = ReloadSpeechAsync(), SpeechStatusText,
-                HermesStatusText, ToggleLanAsync,
-                () => _ = CheckForUpdatesAsync(silent: false), RequestStop, DeleteSpeechModelAsync,
-                ToggleGpuWarmupAsync, GpuWarmActive, () => _ = ReloadSpeechAsync(),
-                StartFileAsync, CancelFile, PresentCall);
-            SetPhase(_phase);
-            if (_fileStatus.Length > 0 || Volatile.Read(ref _fileBusy) != 0)
-                _settingsWindow.SetFileStatus(_fileStatus, Volatile.Read(ref _fileBusy) != 0);
-            _settingsWindow.Closed += (_, _) => _settingsWindow = null;
+            if (_settingsWindow == null)
+            {
+                _settingsWindow = new SettingsWindow(_settings, ApplySettings, () => { _overlay?.Unpin(); _settings.OverlayX = null; _settings.OverlayY = null; _settings.Save(); }, SelectBrainAsync,
+                    () => DownloadSpeechAsync(manualStart: false), () => _ = ReloadSpeechAsync(), SpeechStatusText,
+                    HermesStatusText, ToggleLanAsync,
+                    () => _ = CheckForUpdatesAsync(silent: false), RequestStop, DeleteSpeechModelAsync,
+                    ToggleGpuWarmupAsync, GpuWarmActive, () => _ = ReloadSpeechAsync(),
+                    StartFilesAsync, CancelFile, PresentCall, DownloadFfmpegAsync, () => FfmpegTool.StatusLine());
+                SetPhase(_phase);
+                if (_fileStatus.Length > 0 || Volatile.Read(ref _fileBusy) != 0)
+                    _settingsWindow.SetFileStatus(_fileStatus, Volatile.Read(ref _fileBusy) != 0);
+                _settingsWindow.Closed += (_, _) => _settingsWindow = null;
+                AttachWindowIcon(_settingsWindow);
+            }
+            AttachWindowIcon(_settingsWindow);
+            _settingsWindow.Show();
+            if (_settingsWindow.WindowState == WindowState.Minimized) _settingsWindow.WindowState = WindowState.Normal;
+            // Windows may refuse the foreground to a tray app; a topmost blink still brings the window above the rest.
+            _settingsWindow.Topmost = true;
+            _settingsWindow.Activate();
+            _settingsWindow.Topmost = false;
         }
-        _settingsWindow.Show();
-        if (_settingsWindow.WindowState == WindowState.Minimized) _settingsWindow.WindowState = WindowState.Normal;
-        // Windows may refuse the foreground to a tray app; a topmost blink still brings the window above the rest.
-        _settingsWindow.Topmost = true;
-        _settingsWindow.Activate();
-        _settingsWindow.Topmost = false;
+        catch (Exception ex)
+        {
+            Log.Write($"ShowSettings failed: {ex}");
+            try
+            {
+                _settingsWindow?.Close();
+            }
+            catch { /* ignore close errors while recovering */ }
+            _settingsWindow = null;
+            System.Windows.MessageBox.Show(
+                L.T($"Не удалось открыть окно настроек.\n\n{ex.GetType().Name}: {ex.Message}",
+                    $"Could not open the settings window.\n\n{ex.GetType().Name}: {ex.Message}"),
+                L.T($"{ProductName} {Version}", $"{ProductName} {Version}"),
+                System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Error);
+        }
     }
 
     /// <summary>Local catalog card only. Does not download a model and does not call the network.</summary>
@@ -1641,30 +1731,119 @@ public partial class ChawoApp : Application
         _salesCard?.Close();
         if (_tray != null) { _tray.Visible = false; _tray.Dispose(); }
         _recognizer?.Dispose();
-        _iconBusy?.Dispose();
-        if (_busyIconHandle != IntPtr.Zero) Native.DestroyIcon(_busyIconHandle);
-        _iconIdle?.Dispose();
+        try { SystemEvents.UserPreferenceChanged -= OnUserPreferenceChanged; } catch { }
+        _iconBusy = null;
+        _iconIdle = null;
+        _iconBusyDark?.Dispose();
+        _iconBusyLight?.Dispose();
+        if (_busyDarkHandle != IntPtr.Zero) Native.DestroyIcon(_busyDarkHandle);
+        if (_busyLightHandle != IntPtr.Zero) Native.DestroyIcon(_busyLightHandle);
+        _iconIdleDark?.Dispose();
+        _iconIdleLight?.Dispose();
         Shutdown();
     }
 
     // ── icons ────────────────────────────────────────────────────
+    // tray-dark.ico  = cream mark on dark tile  → dark taskbar (SystemUsesLightTheme=0)
+    // tray-light.ico = dark mark on cream tile  → light taskbar (SystemUsesLightTheme=1)
+    // app.ico        = coral tile (Explorer / .exe); cannot switch at runtime
 
-    private static System.Drawing.Icon LoadIcon()
+    private void LoadThemeIcons()
     {
-        var path = Path.Combine(AppContext.BaseDirectory, "Assets", "app.ico");
-        if (File.Exists(path)) return new System.Drawing.Icon(path, 32, 32);
-        return System.Drawing.SystemIcons.Application;
+        _iconIdleDark = LoadIconFile("tray-dark.ico") ?? LoadIconFile("app.ico") ?? System.Drawing.SystemIcons.Application;
+        _iconIdleLight = LoadIconFile("tray-light.ico") ?? _iconIdleDark;
+        _iconBusyDark = MakeBusyIcon(_iconIdleDark, out _busyDarkHandle);
+        _iconBusyLight = MakeBusyIcon(_iconIdleLight, out _busyLightHandle);
+        _windowIconDark = LoadWindowIcon("tray-dark.ico") ?? LoadWindowIcon("app.ico");
+        _windowIconLight = LoadWindowIcon("tray-light.ico") ?? _windowIconDark;
     }
 
-    /// <summary>Same icon with a red dot: "listening". The HICON must be destroyed by the caller.</summary>
+    private static System.Drawing.Icon? LoadIconFile(string name)
+    {
+        var path = Path.Combine(AppContext.BaseDirectory, "Assets", name);
+        if (!File.Exists(path)) return null;
+        try { return new System.Drawing.Icon(path, 32, 32); }
+        catch { return null; }
+    }
+
+    private static ImageSource? LoadWindowIcon(string name)
+    {
+        var path = Path.Combine(AppContext.BaseDirectory, "Assets", name);
+        if (!File.Exists(path)) return null;
+        try
+        {
+            var bmp = new BitmapImage();
+            bmp.BeginInit();
+            bmp.UriSource = new Uri(path, UriKind.Absolute);
+            bmp.CacheOption = BitmapCacheOption.OnLoad;
+            bmp.EndInit();
+            bmp.Freeze();
+            return bmp;
+        }
+        catch { return null; }
+    }
+
+    /// <summary>HKCU …\Personalize\SystemUsesLightTheme: 1 = light taskbar, 0 = dark.</summary>
+    private static bool SystemUsesLightTheme()
+    {
+        try
+        {
+            using var key = Registry.CurrentUser.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize");
+            return key?.GetValue("SystemUsesLightTheme") is not int v || v != 0;
+        }
+        catch { return true; }
+    }
+
+    private void OnUserPreferenceChanged(object sender, UserPreferenceChangedEventArgs e)
+    {
+        // Taskbar chrome follows SystemUsesLightTheme; fires under General / VisualStyle / Color.
+        if (e.Category is not (UserPreferenceCategory.General or UserPreferenceCategory.VisualStyle or UserPreferenceCategory.Color))
+            return;
+        _ = Dispatcher.BeginInvoke(() => ApplyTrayChrome(force: false));
+    }
+
+    /// <summary>Pick tray + window icons for the current taskbar chrome. Safe to call often.</summary>
+    private void ApplyTrayChrome(bool force)
+    {
+        bool light = SystemUsesLightTheme();
+        if (!force && light == _trayUsesLightChrome && _iconIdle != null) return;
+        _trayUsesLightChrome = light;
+        // Light taskbar → dark mark (tray-light). Dark taskbar → cream mark (tray-dark).
+        _iconIdle = light ? _iconIdleLight : _iconIdleDark;
+        _iconBusy = light ? _iconBusyLight : _iconBusyDark;
+        _busyIconHandle = light ? _busyLightHandle : _busyDarkHandle;
+        if (_tray != null)
+            _tray.Icon = (_phase is DictatePhase.Listening or DictatePhase.Recognizing) ? _iconBusy : _iconIdle;
+        var winIcon = light ? _windowIconLight : _windowIconDark;
+        ApplyWindowIcons(winIcon);
+    }
+
+    private void ApplyWindowIcons(ImageSource? icon)
+    {
+        if (icon == null) return;
+        if (_settingsWindow != null) _settingsWindow.Icon = icon;
+        // Download / Update windows are short-lived; set when shown via helper.
+        _pendingWindowIcon = icon;
+    }
+
+    private ImageSource? _pendingWindowIcon;
+
+    /// <summary>Call from any Window after InitializeComponent so the title-bar glyph matches the tray.</summary>
+    public void AttachWindowIcon(Window window)
+    {
+        var icon = _pendingWindowIcon ?? (_trayUsesLightChrome ? _windowIconLight : _windowIconDark);
+        if (icon != null) window.Icon = icon;
+    }
+
+    /// <summary>Same icon with a coral dot: "listening". The HICON must be destroyed by the caller.</summary>
     private static System.Drawing.Icon MakeBusyIcon(System.Drawing.Icon idle, out IntPtr handle)
     {
         using var bmp = idle.ToBitmap();
         using var g = System.Drawing.Graphics.FromImage(bmp);
         g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
         int d = bmp.Width * 7 / 16;
-        using var brush = new System.Drawing.SolidBrush(System.Drawing.Color.FromArgb(255, 226, 61, 61));
-        using var pen = new System.Drawing.Pen(System.Drawing.Color.White, Math.Max(1, bmp.Width / 16));
+        using var brush = new System.Drawing.SolidBrush(System.Drawing.Color.FromArgb(255, 0xEF, 0x51, 0x43));
+        using var pen = new System.Drawing.Pen(System.Drawing.Color.FromArgb(255, 0xFF, 0xF3, 0xE2), Math.Max(1, bmp.Width / 16));
         g.FillEllipse(brush, bmp.Width - d, bmp.Height - d, d - 1, d - 1);
         g.DrawEllipse(pen, bmp.Width - d, bmp.Height - d, d - 1, d - 1);
         handle = bmp.GetHicon();

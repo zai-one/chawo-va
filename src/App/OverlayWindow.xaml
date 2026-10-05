@@ -7,7 +7,7 @@
         FontFamily="{StaticResource ChawoFont}">
     <Border x:Name="Pill" CornerRadius="{StaticResource ChawoMediaRadius}" Height="30" Width="92" Margin="14"
             HorizontalAlignment="Center" VerticalAlignment="Center" Cursor="SizeAll"
-            Background="#F5FFF3E2" BorderBrush="#3D0A0A0A" BorderThickness="1"
+            Background="#F2171717" BorderBrush="#42FEE9CE" BorderThickness="1"
             RenderTransformOrigin="0.5,0.5">
         <Border.RenderTransform>
             <ScaleTransform x:Name="PillScale" ScaleX="1" ScaleY="1"/>
@@ -23,11 +23,11 @@
                     <StackPanel x:Name="Bars" Orientation="Horizontal" Height="22" VerticalAlignment="Center"/>
                 </StackPanel>
                 <TextBlock x:Name="Label" HorizontalAlignment="Center" VerticalAlignment="Center" Visibility="Collapsed"
-                           Foreground="#D90A0A0A" FontSize="12.5" FontFamily="{StaticResource ChawoFont}"/>
+                           Foreground="#E6FEE9CE" FontSize="12.5" FontFamily="{StaticResource ChawoFont}"/>
             </Grid>
             <TextBlock x:Name="Live" Visibility="Collapsed" TextWrapping="Wrap" MaxWidth="380"
                        Margin="0,2,0,0" FontSize="14.5" FontFamily="{StaticResource ChawoFont}"
-                       Foreground="#D90A0A0A"/>
+                       Foreground="#E6FEE9CE"/>
         </StackPanel>
     </Border>
 </Window>

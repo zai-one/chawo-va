@@ -1,6 +1,7 @@
 // Progress window for one-time downloads: the speech model on first run, the local Brain on request.
 
 using System.Windows;
+using System.Windows.Interop;
 using ChawoVA.Core;
 
 namespace ChawoVA.App;
@@ -34,6 +35,12 @@ public partial class DownloadWindow : Window
         _spaceNeeded = spaceNeeded;
         _manualStart = manualStart;
         InitializeComponent();
+        SourceInitialized += (_, _) =>
+        {
+            var hwnd = new WindowInteropHelper(this).Handle;
+            Native.UseImmersiveDarkMode(hwnd);
+        };
+        if (Application.Current is ChawoApp app) app.AttachWindowIcon(this);
         Title = ChawoApp.ProductName;
         Heading.Text = heading;
         Intro.Text = intro;

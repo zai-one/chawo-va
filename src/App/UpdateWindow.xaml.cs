@@ -3,6 +3,7 @@
 
 using System.Diagnostics;
 using System.Windows;
+using System.Windows.Interop;
 
 namespace ChawoVA.App;
 
@@ -15,6 +16,12 @@ public partial class UpdateWindow : Window
         _info = info;
         _ = quit;
         InitializeComponent();
+        SourceInitialized += (_, _) =>
+        {
+            var hwnd = new WindowInteropHelper(this).Handle;
+            Native.UseImmersiveDarkMode(hwnd);
+        };
+        if (Application.Current is ChawoApp app) app.AttachWindowIcon(this);
         Title = ChawoApp.ProductName;
         Heading.Text = L.T($"Вышла версия {info.Version}", $"Version {info.Version} is out");
         var notes = L.Russian || string.IsNullOrWhiteSpace(info.NotesEn) ? info.Notes : info.NotesEn;

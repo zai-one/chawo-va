@@ -2,12 +2,15 @@
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              ShutdownMode="OnExplicitShutdown"
-             ThemeMode="System">
+             ThemeMode="Dark">
     <Application.Resources>
         <!--
-          Chawo brand tokens from https://chawo.ai CSS (:root) and /icon.svg.
-          DIN Pro is served by the site but not bundled here (commercial hint in @font-face);
-          Arial is the site's own fallback, then Segoe UI on Windows.
+          Chawo dark UI only (no light theme, no toggle).
+          Brand tokens from https://chawo.ai CSS (:root) and /icon.svg.
+          Surfaces: almost-black / surface / muted card. Ink: peach-cream.
+          Accent: coral. Secondary accent: sunset (sparingly).
+          DIN Pro is not bundled; Arial then Segoe UI.
+          Every Brush property must use a SolidColorBrush key — never a Color key.
         -->
         <Color x:Key="ChawoPeachCream">#FFF3E2</Color>
         <Color x:Key="ChawoWarmSand">#FEE9CE</Color>
@@ -21,15 +24,16 @@
         <Color x:Key="ChawoSunset">#FFB261</Color>
         <Color x:Key="ChawoSunsetInk">#B56A12</Color>
 
-        <SolidColorBrush x:Key="ChawoBgBrush" Color="{StaticResource ChawoPeachCream}"/>
-        <SolidColorBrush x:Key="ChawoSurfaceBrush" Color="{StaticResource ChawoSurfaceCream}"/>
-        <SolidColorBrush x:Key="ChawoCardBrush" Color="{StaticResource ChawoWarmSand}"/>
-        <SolidColorBrush x:Key="ChawoInkBrush" Color="{StaticResource ChawoAlmostBlack}"/>
-        <SolidColorBrush x:Key="ChawoMutedBrush" Color="#9E0A0A0A"/>
+        <SolidColorBrush x:Key="ChawoBgBrush" Color="{StaticResource ChawoAlmostBlack}"/>
+        <SolidColorBrush x:Key="ChawoSurfaceBrush" Color="{StaticResource ChawoSurface}"/>
+        <SolidColorBrush x:Key="ChawoCardBrush" Color="{StaticResource ChawoSurfaceMuted}"/>
+        <SolidColorBrush x:Key="ChawoInkBrush" Color="{StaticResource ChawoPeachCream}"/>
+        <SolidColorBrush x:Key="ChawoMutedBrush" Color="#A6FEE9CE"/>
         <SolidColorBrush x:Key="ChawoAccentBrush" Color="{StaticResource ChawoCoralInk}"/>
         <SolidColorBrush x:Key="ChawoAccentFillBrush" Color="{StaticResource ChawoCoral}"/>
-        <SolidColorBrush x:Key="ChawoWarnBrush" Color="{StaticResource ChawoSunsetInk}"/>
-        <SolidColorBrush x:Key="ChawoBorderBrush" Color="#3D0A0A0A"/>
+        <SolidColorBrush x:Key="ChawoWarnBrush" Color="{StaticResource ChawoSunset}"/>
+        <SolidColorBrush x:Key="ChawoBorderBrush" Color="#3DFEE9CE"/>
+        <!-- Kept for any leftover callers; same as the dark surface/ink pair. -->
         <SolidColorBrush x:Key="ChawoDarkBgBrush" Color="{StaticResource ChawoSurface}"/>
         <SolidColorBrush x:Key="ChawoDarkInkBrush" Color="{StaticResource ChawoWarmSand}"/>
 
@@ -80,7 +84,7 @@
         <Style x:Key="ChawoPrimaryButton" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
             <Setter Property="Background" Value="{StaticResource ChawoAccentFillBrush}"/>
             <Setter Property="Foreground" Value="{StaticResource ChawoInkBrush}"/>
-            <Setter Property="BorderBrush" Value="{StaticResource ChawoCoralInk}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource ChawoAccentBrush}"/>
             <Setter Property="FontWeight" Value="SemiBold"/>
         </Style>
 
@@ -88,7 +92,7 @@
             <Setter Property="FontFamily" Value="{StaticResource ChawoFont}"/>
             <Setter Property="Background" Value="{StaticResource ChawoCardBrush}"/>
             <Setter Property="Foreground" Value="{StaticResource ChawoInkBrush}"/>
-            <Setter Property="BorderBrush" Value="#8A0A0A0A"/>
+            <Setter Property="BorderBrush" Value="{StaticResource ChawoBorderBrush}"/>
             <Setter Property="BorderThickness" Value="1"/>
             <Setter Property="CaretBrush" Value="{StaticResource ChawoInkBrush}"/>
         </Style>
@@ -97,7 +101,7 @@
             <Setter Property="FontFamily" Value="{StaticResource ChawoFont}"/>
             <Setter Property="Background" Value="{StaticResource ChawoCardBrush}"/>
             <Setter Property="Foreground" Value="{StaticResource ChawoInkBrush}"/>
-            <Setter Property="BorderBrush" Value="#8A0A0A0A"/>
+            <Setter Property="BorderBrush" Value="{StaticResource ChawoBorderBrush}"/>
             <Setter Property="BorderThickness" Value="1"/>
             <Setter Property="CaretBrush" Value="{StaticResource ChawoInkBrush}"/>
         </Style>
@@ -106,7 +110,7 @@
             <Setter Property="FontFamily" Value="{StaticResource ChawoFont}"/>
             <Setter Property="Background" Value="{StaticResource ChawoCardBrush}"/>
             <Setter Property="Foreground" Value="{StaticResource ChawoInkBrush}"/>
-            <Setter Property="BorderBrush" Value="#8A0A0A0A"/>
+            <Setter Property="BorderBrush" Value="{StaticResource ChawoBorderBrush}"/>
         </Style>
 
         <Style TargetType="CheckBox">
@@ -116,6 +120,7 @@
 
         <Style TargetType="TextBlock">
             <Setter Property="FontFamily" Value="{StaticResource ChawoFont}"/>
+            <Setter Property="Foreground" Value="{StaticResource ChawoInkBrush}"/>
         </Style>
 
         <Style TargetType="ListBox">
@@ -137,10 +142,10 @@
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsSelected" Value="True">
-                                <Setter TargetName="Bd" Property="Background" Value="{StaticResource ChawoWarmSand}"/>
+                                <Setter TargetName="Bd" Property="Background" Value="{StaticResource ChawoCardBrush}"/>
                             </Trigger>
                             <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="Bd" Property="Background" Value="{StaticResource ChawoSurfaceCream}"/>
+                                <Setter TargetName="Bd" Property="Background" Value="{StaticResource ChawoSurfaceBrush}"/>
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
@@ -151,7 +156,7 @@
         <Style TargetType="ProgressBar">
             <Setter Property="Height" Value="6"/>
             <Setter Property="Foreground" Value="{StaticResource ChawoAccentFillBrush}"/>
-            <Setter Property="Background" Value="{StaticResource ChawoSurfaceCream}"/>
+            <Setter Property="Background" Value="{StaticResource ChawoCardBrush}"/>
             <Setter Property="BorderThickness" Value="0"/>
         </Style>
     </Application.Resources>

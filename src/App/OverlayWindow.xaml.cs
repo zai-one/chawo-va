@@ -12,7 +12,6 @@ using System.Windows.Media;
 using System.Windows.Media.Animation;
 using System.Windows.Shapes;
 using System.Windows.Threading;
-using Microsoft.Win32;
 
 namespace ChawoVA.App;
 
@@ -82,6 +81,7 @@ public partial class OverlayWindow : Window
         SourceInitialized += (_, _) =>
         {
             var hwnd = new WindowInteropHelper(this).Handle;
+            Native.UseImmersiveDarkMode(hwnd);
             int ex = Native.GetWindowLong(hwnd, Native.GWL_EXSTYLE);
             Native.SetWindowLong(hwnd, Native.GWL_EXSTYLE, ex | Native.WS_EX_NOACTIVATE | Native.WS_EX_TOOLWINDOW | Native.WS_EX_TOPMOST);
         };
@@ -318,32 +318,13 @@ public partial class OverlayWindow : Window
         }
     }
 
-    /// <summary>Light or dark pill, following "Choose your default app mode" in Windows settings.</summary>
+    /// <summary>Dark pill only. The app has no light theme.</summary>
     private void ApplyTheme()
     {
-        bool light = true;
-        try
-        {
-            using var key = Registry.CurrentUser.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize");
-            light = key?.GetValue("AppsUseLightTheme") is not int v || v != 0;
-        }
-        catch { }
-        if (light)
-        {
-            // peach-cream / almost-black from chawo.ai light frame
-            Pill.Background = new SolidColorBrush(Color.FromArgb(0xF5, 0xFF, 0xF3, 0xE2));
-            Pill.BorderBrush = new SolidColorBrush(Color.FromArgb(0x3D, 0x0A, 0x0A, 0x0A));
-            Label.Foreground = new SolidColorBrush(Color.FromArgb(0xD9, 0x0A, 0x0A, 0x0A));
-            Live.Foreground = Label.Foreground;
-        }
-        else
-        {
-            // surface / warm-sand from chawo.ai dark frame
-            Pill.Background = new SolidColorBrush(Color.FromArgb(0xF2, 0x17, 0x17, 0x17));
-            Pill.BorderBrush = new SolidColorBrush(Color.FromArgb(0x42, 0xFE, 0xE9, 0xCE));
-            Label.Foreground = new SolidColorBrush(Color.FromArgb(0xE6, 0xFE, 0xE9, 0xCE));
-            Live.Foreground = Label.Foreground;
-        }
+        Pill.Background = new SolidColorBrush(Color.FromArgb(0xF2, 0x17, 0x17, 0x17));
+        Pill.BorderBrush = new SolidColorBrush(Color.FromArgb(0x42, 0xFE, 0xE9, 0xCE));
+        Label.Foreground = new SolidColorBrush(Color.FromArgb(0xE6, 0xFE, 0xE9, 0xCE));
+        Live.Foreground = Label.Foreground;
     }
 
     /// <summary>Positions the pill just below the caret, or at the bottom center of the active window's monitor.</summary>

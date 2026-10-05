@@ -13,7 +13,7 @@
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <StartupObject>ChawoVA.App.ChawoApp</StartupObject>
     <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
-    <Version>1.17.0</Version>
+    <Version>1.17.1</Version>
     <Product>Chawo Voice Assistant</Product>
     <AssemblyTitle>Chawo Voice Assistant</AssemblyTitle>
     <Description>Chawo Voice Assistant</Description>
@@ -50,6 +50,12 @@
 
   <ItemGroup>
     <Content Include="Assets/app.ico">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="Assets/tray-dark.ico">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="Assets/tray-light.ico">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
     <Content Include="Assets/chawo-mark.svg">

@@ -204,6 +204,19 @@ internal static class Native
     public static extern int DwmGetWindowAttribute(IntPtr hwnd, int attribute, out RECT value, int size);
     public const int DWMWA_EXTENDED_FRAME_BOUNDS = 9;
 
+    /// <summary>Windows 11 / late 10: dark title bar and caption buttons when the client is dark.</summary>
+    public const int DWMWA_USE_IMMERSIVE_DARK_MODE = 20;
+    [DllImport("dwmapi.dll")]
+    public static extern int DwmSetWindowAttribute(IntPtr hwnd, int attribute, ref int pvAttribute, int cbAttribute);
+
+    /// <summary>Ask DWM for a dark title bar. Safe to call on Windows 10 that ignores the attribute.</summary>
+    public static void UseImmersiveDarkMode(IntPtr hwnd, bool enabled = true)
+    {
+        if (hwnd == IntPtr.Zero) return;
+        int on = enabled ? 1 : 0;
+        _ = DwmSetWindowAttribute(hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE, ref on, sizeof(int));
+    }
+
     [DllImport("user32.dll")]
     public static extern short GetAsyncKeyState(int vKey);
     public const int VK_LCONTROL = 0xA2;

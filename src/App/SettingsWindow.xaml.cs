@@ -4,6 +4,7 @@
 
 using System.Diagnostics;
 using System.Windows;
+using System.Windows.Interop;
 using System.Windows.Controls;
 using System.Windows.Navigation;
 using ChawoVA.Core;
@@ -27,9 +28,11 @@ public partial class SettingsWindow : Window
     private readonly Func<Task>? _toggleGpuWarmup;
     private readonly Func<bool>? _gpuWarmed;
     private readonly Action? _networkChanged;
-    private readonly Func<string, Task>? _transcribeFile;
+    private readonly Func<IReadOnlyList<string>, Task>? _transcribeFiles;
     private readonly Action? _cancelFile;
     private readonly Func<string, string, string, string>? _showCall;
+    private readonly Func<Task>? _downloadFfmpeg;
+    private readonly Func<string>? _ffmpegStatus;
     private string _phaseText = "";
     private bool _stopEnabled;
     private bool _loading = true;
@@ -46,8 +49,9 @@ public partial class SettingsWindow : Window
         Func<string>? hermesStatus = null, Func<Task>? toggleLan = null,
         Action? checkUpdates = null, Action? stop = null, Func<SpeechModelKind, Task>? deleteSpeech = null,
         Func<Task>? toggleGpuWarmup = null, Func<bool>? gpuWarmed = null, Action? networkChanged = null,
-        Func<string, Task>? transcribeFile = null, Action? cancelFile = null,
-        Func<string, string, string, string>? showCall = null)
+        Func<IReadOnlyList<string>, Task>? transcribeFiles = null, Action? cancelFile = null,
+        Func<string, string, string, string>? showCall = null,
+        Func<Task>? downloadFfmpeg = null, Func<string>? ffmpegStatus = null)
     {
         _settings = settings;
         _apply = apply;
@@ -64,10 +68,18 @@ public partial class SettingsWindow : Window
         _toggleGpuWarmup = toggleGpuWarmup;
         _gpuWarmed = gpuWarmed;
         _networkChanged = networkChanged;
-        _transcribeFile = transcribeFile;
+        _transcribeFiles = transcribeFiles;
         _cancelFile = cancelFile;
         _showCall = showCall;
+        _downloadFfmpeg = downloadFfmpeg;
+        _ffmpegStatus = ffmpegStatus;
         InitializeComponent();
+        SourceInitialized += (_, _) =>
+        {
+            var hwnd = new WindowInteropHelper(this).Handle;
+            Native.UseImmersiveDarkMode(hwnd);
+        };
+        if (Application.Current is ChawoApp app) app.AttachWindowIcon(this);
         ServerPanel.Saved += UpdateBrainTexts;   // the panel has already applied and saved
         Localize();
         Nav.SelectedIndex = _lastPage;
@@ -295,19 +307,24 @@ public partial class SettingsWindow : Window
                                        "The check only asks /v1/health. No model is downloaded.");
                 FileHeading.Text = L.T("Расшифровка файла", "File transcription");
         FileNote.Text = L.T(
-            "Путь к записи на этом компьютере. WAV 16 бит или Ogg/Opus. Длинная запись режется на куски не длиннее 24 секунд. Рядом появится .txt с тем же именем. В режиме клиента файл уходит на хост, текст пишется здесь. Модель сама не скачивается.",
-            "Path to a recording on this PC. 16-bit WAV or Ogg/Opus. Long audio is split into pieces of at most 24 seconds. A .txt with the same name is written beside it. In client mode the file goes to the host; the text is still written here. The model is not downloaded.");
-        FilePickButton.Content = L.T("Обзор", "Browse");
+            "Файл или папка на этом компьютере. WAV, MP3, M4A/AAC, MP4/MOV/MKV/WebM, FLAC, WMA, AMR, Ogg/Opus и другие, что умеют Media Foundation или ffmpeg. Длинная запись режется на куски не длиннее 24 секунд. Рядом с каждым файлом пишется .txt. Если модель на диске, но ещё не в памяти — загрузится сама (как при диктовке). В режиме клиента звук уходит на хост после декодирования здесь. Веса речи сами не скачиваются.",
+            "A file or folder on this PC. WAV, MP3, M4A/AAC, MP4/MOV/MKV/WebM, FLAC, WMA, AMR, Ogg/Opus and anything Media Foundation or ffmpeg can decode. Long audio is split into pieces of at most 24 seconds. A .txt is written beside each file. If the model is on disk but not in memory yet, it loads on demand (same as dictation). In client mode audio is decoded here then sent to the host. Speech weights are not downloaded by themselves.");
+        FilePickButton.Content = L.T("Обзор…", "Browse…");
+        FileFolderButton.Content = L.T("Папка…", "Folder…");
         FileRunButton.Content = L.T("Расшифровать", "Transcribe");
         FileStopButton.Content = L.T("Остановить", "Stop");
+        FileFfmpegButton.Content = L.T("Скачать ffmpeg", "Download ffmpeg");
         FilePickButton.IsEnabled = !_fileRunning;
+        FileFolderButton.IsEnabled = !_fileRunning;
         FileRunButton.IsEnabled = !_fileRunning;
+        FileFfmpegButton.IsEnabled = !_fileRunning && _downloadFfmpeg != null;
         FilePathBox.IsEnabled = !_fileRunning;
         FileStopButton.Visibility = _fileRunning ? Visibility.Visible : Visibility.Collapsed;
         FileStatus.Text = _fileLine.Length > 0
             ? _fileLine
-            : L.T("Текст ляжет рядом с записью: то же имя, расширение .txt.",
-                  "The text is written beside the recording: same name, .txt extension.");
+            : L.T("Текст ляжет рядом с записью: то же имя, расширение .txt. Можно выбрать несколько файлов или папку.",
+                  "The text is written beside the recording: same name, .txt extension. You can pick several files or a folder.");
+        FileFfmpegStatus.Text = _ffmpegStatus?.Invoke() ?? FfmpegTool.StatusLine();
 
         CleanupHeading.Text = L.T("Мозг", "Brain");
         CleanupHint.Text = L.T("Выключен: текст вставляется как распознан. Можно сказать «Чаво, исправь». Чтобы править каждую фразу, включите переписывание ниже.",
@@ -493,9 +510,12 @@ public partial class SettingsWindow : Window
         if (!IsLoaded) return;
         FileStatus.Text = text;
         FilePickButton.IsEnabled = !running;
+        FileFolderButton.IsEnabled = !running;
         FileRunButton.IsEnabled = !running;
+        FileFfmpegButton.IsEnabled = !running && _downloadFfmpeg != null;
         FilePathBox.IsEnabled = !running;
         FileStopButton.Visibility = running ? Visibility.Visible : Visibility.Collapsed;
+        if (!running) FileFfmpegStatus.Text = _ffmpegStatus?.Invoke() ?? FfmpegTool.StatusLine();
     }
 
     private void FilePick_Click(object sender, RoutedEventArgs e)
@@ -504,24 +524,71 @@ public partial class SettingsWindow : Window
         var dlg = new Microsoft.Win32.OpenFileDialog
         {
             Title = L.T("Обзор", "Browse"),
-            Filter = "WAV, Ogg (*.wav;*.ogg)|*.wav;*.ogg",
+            Filter = FileTranscript.OpenFilter,
             CheckFileExists = true,
+            Multiselect = true,
         };
-        if (dlg.ShowDialog(this) != true || string.IsNullOrWhiteSpace(dlg.FileName)) return;
-        FilePathBox.Text = dlg.FileName;
+        if (dlg.ShowDialog(this) != true || dlg.FileNames.Length == 0) return;
+        FilePathBox.Text = dlg.FileNames.Length == 1
+            ? dlg.FileName
+            : string.Join(";", dlg.FileNames);
+    }
+
+    private void FileFolder_Click(object sender, RoutedEventArgs e)
+    {
+        if (_fileRunning) return;
+        var dlg = new Microsoft.Win32.OpenFolderDialog
+        {
+            Title = L.T("Папка с записями", "Folder with recordings"),
+        };
+        if (dlg.ShowDialog(this) != true || string.IsNullOrWhiteSpace(dlg.FolderName)) return;
+        FilePathBox.Text = dlg.FolderName;
     }
 
     private void FileRun_Click(object sender, RoutedEventArgs e)
     {
-        if (_fileRunning || _transcribeFile == null) return;
-        var path = (FilePathBox.Text ?? "").Trim().Trim('"');
-        if (path.Length == 0)
+        if (_fileRunning || _transcribeFiles == null) return;
+        var raw = (FilePathBox.Text ?? "").Trim().Trim('"');
+        if (raw.Length == 0)
+        {
+            FileStatus.Text = L.T("Укажите путь к файлу, несколько файлов через «;», или папку.",
+                                  "Enter a file path, several files separated by ';', or a folder.");
+            return;
+        }
+        var list = new List<string>();
+        if (Directory.Exists(raw))
+        {
+            list.AddRange(FileTranscript.CollectFromFolder(raw));
+            if (list.Count == 0)
+            {
+                FileStatus.Text = L.T("В папке нет поддерживаемых аудиофайлов.",
+                                      "No supported audio files in that folder.");
+                return;
+            }
+        }
+        else
+        {
+            foreach (var part in raw.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            {
+                var p = part.Trim().Trim('"');
+                if (p.Length == 0) continue;
+                if (Directory.Exists(p)) list.AddRange(FileTranscript.CollectFromFolder(p));
+                else list.Add(p);
+            }
+        }
+        if (list.Count == 0)
         {
             FileStatus.Text = L.T("Укажите путь к файлу или нажмите «Обзор».",
                                   "Enter a file path or press Browse.");
             return;
         }
-        _ = _transcribeFile(path);
+        _ = _transcribeFiles(list);
+    }
+
+    private void FileFfmpeg_Click(object sender, RoutedEventArgs e)
+    {
+        if (_fileRunning || _downloadFfmpeg == null) return;
+        _ = _downloadFfmpeg();
     }
 
     private void FileStop_Click(object sender, RoutedEventArgs e) => _cancelFile?.Invoke();
