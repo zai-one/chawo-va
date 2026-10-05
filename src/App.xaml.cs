@@ -1450,6 +1450,14 @@ public partial class ChawoApp : Application
     {
         int ok = 0, fail = 0;
         string lastOk = "";
+        // While one file is recognizing, decode/resample the next (local only).
+        Task<float[]>? nextDecode = null;
+        string? nextDecodePath = null;
+        if (!SpeechIsRemote && paths.Count > 1)
+        {
+            nextDecodePath = paths[0];
+            nextDecode = Task.Run(() => FileTranscript.Load16k(paths[0], cancel), cancel);
+        }
         for (int i = 0; i < paths.Count; i++)
         {
             cancel.ThrowIfCancellationRequested();
@@ -1457,9 +1465,23 @@ public partial class ChawoApp : Application
             string prefix = paths.Count > 1
                 ? L.T($"Файл {i + 1} из {paths.Count}: ", $"File {i + 1} of {paths.Count}: ")
                 : "";
+            float[]? preloaded = null;
             try
             {
-                RunOneFile(path, prefix, cancel);
+                if (nextDecode != null && nextDecodePath == path)
+                {
+                    SetFileStatus(prefix + L.T("Декодирую…", "Decoding…"));
+                    preloaded = nextDecode.GetAwaiter().GetResult();
+                    nextDecode = null;
+                    nextDecodePath = null;
+                }
+                if (!SpeechIsRemote && i + 1 < paths.Count)
+                {
+                    string nxt = paths[i + 1];
+                    nextDecodePath = nxt;
+                    nextDecode = Task.Run(() => FileTranscript.Load16k(nxt, cancel), cancel);
+                }
+                RunOneFile(path, prefix, cancel, preloaded);
                 ok++;
                 lastOk = FileTranscript.OutputPath(path);
             }
@@ -1484,7 +1506,7 @@ public partial class ChawoApp : Application
     }
 
     /// <summary>Local pieces, or decode then post WAV to the host. Writes name.txt beside the source.</summary>
-    private void RunOneFile(string path, string statusPrefix, CancellationToken cancel)
+    private void RunOneFile(string path, string statusPrefix, CancellationToken cancel, float[]? preloaded = null)
     {
         if (!File.Exists(path))
             throw new FileNotFoundException(L.T("Такого файла нет.", "That file is not there."), path);
@@ -1495,8 +1517,16 @@ public partial class ChawoApp : Application
             throw new InvalidDataException(L.T("Файл больше примерно 1,7 ГБ.", "The file is over about 1.7 GB."));
 
         string outPath = FileTranscript.OutputPath(path);
-        SetFileStatus(statusPrefix + L.T("Декодирую…", "Decoding…"));
-        float[] samples = FileTranscript.Load16k(path, cancel);
+        float[] samples;
+        if (preloaded != null)
+        {
+            samples = preloaded;
+        }
+        else
+        {
+            SetFileStatus(statusPrefix + L.T("Декодирую…", "Decoding…"));
+            samples = FileTranscript.Load16k(path, cancel);
+        }
         cancel.ThrowIfCancellationRequested();
         if (samples.Length == 0)
             throw new InvalidDataException(L.T("В файле нет звука.", "The file has no audio."));
@@ -1513,34 +1543,62 @@ public partial class ChawoApp : Application
             return;
         }
 
-        Core.Recognizer? rec;
-        lock (_recogLock) rec = _recognizer;
-        if (rec == null)
-            throw new InvalidOperationException(L.T("Модель не загружена.", "The model is not loaded."));
-
-        var ranges = rec.PieceRanges(samples);
-        var parts = new List<string>(ranges.Count);
-        for (int i = 0; i < ranges.Count; i++)
+        // Dedicated file sessions: dictation keeps its own recognizer and is not locked out.
+        string? modelDir;
+        Core.SpeechModelKind kind;
+        Core.SpeechDeviceKind device;
+        Core.CtcScript script;
+        lock (_recogLock)
         {
-            cancel.ThrowIfCancellationRequested();
-            SetFileStatus(statusPrefix + L.T($"Кусок {i + 1} из {ranges.Count}", $"Piece {i + 1} of {ranges.Count}"));
-            lock (_recogLock)
-            {
-                if (!ReferenceEquals(_recognizer, rec))
-                    throw new InvalidOperationException(L.T("Модель выгрузили посреди файла.", "The model was unloaded mid-file."));
-            }
-            var (from, to) = ranges[i];
-            var piece = new float[to - from];
-            Array.Copy(samples, from, piece, 0, piece.Length);
-            string bit = rec.TranscribePiece(piece);
-            if (bit.Length > 0) parts.Add(bit);
+            if (_recognizer == null)
+                throw new InvalidOperationException(L.T("Модель не загружена.", "The model is not loaded."));
+            modelDir = _recognizer.ModelDir;
+            kind = _recognizer.Kind;
+            script = _recognizer.Script;
         }
-        cancel.ThrowIfCancellationRequested();
-        string all = string.Join('\n', parts);
-        File.WriteAllText(outPath, all);
-        Log.Write($"file local {samples.Length / 16000.0:F0}s pieces={ranges.Count} -> {outPath}");
-        SetFileStatus(statusPrefix + L.T($"Готово: {outPath}", $"Done: {outPath}"));
-    }
+        device = _settings.SpeechDevice;
+
+        // Piece ranges need any recognizer of the same kind (feature rate is fixed).
+        List<(int from, int to)> ranges;
+        lock (_recogLock)
+        {
+            if (_recognizer == null || _recognizer.Kind != kind)
+                throw new InvalidOperationException(L.T("Модель выгрузили посреди файла.", "The model was unloaded mid-file."));
+            ranges = _recognizer.PieceRanges(samples);
+        }
+
+        using var job = Core.FileJob.Open(modelDir, kind, device, _settings.FileParallelism, script);
+        // If the user hits Stop, cancel ONNX runs on the file workers immediately.
+        using (cancel.Register(job.Cancel))
+        {
+            var plan = job.Plan;
+            string planShown = L.T(plan.SummaryRu, plan.SummaryEn);
+            Log.Write($"file parallel workers={plan.Workers} batch={plan.BatchSize} intra={plan.IntraOpThreads} gpu={plan.UseGpu} encoderBatch={plan.EncoderBatch} device={job.DeviceActual}/{job.Provider} pick={plan.Kind} → {planShown}");
+            SetFileStatus(statusPrefix + Core.FileParallel.ProgressLine(0, ranges.Count, 0, 0, planShown, L.T));
+
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            string[] bits = job.Run(
+                samples,
+                ranges,
+                (done, total, audioDone, wall) =>
+                {
+                    SetFileStatus(statusPrefix + Core.FileParallel.ProgressLine(done, total, audioDone, wall, planShown, L.T));
+                },
+                cancel);
+
+            cancel.ThrowIfCancellationRequested();
+            var parts = new List<string>(bits.Length);
+            foreach (var bit in bits)
+                if (!string.IsNullOrEmpty(bit)) parts.Add(bit);
+            string all = string.Join('\n', parts);
+            File.WriteAllText(outPath, all);
+            double audioSec = samples.Length / 16000.0;
+            double wall = sw.Elapsed.TotalSeconds;
+            double rtf = wall > 0.05 ? audioSec / wall : 0;
+            Log.Write($"file local {audioSec:F0}s pieces={ranges.Count} workers={plan.Workers} batch={plan.BatchSize} wall={wall:F1}s rtf={rtf:F2}x -> {outPath}");
+            SetFileStatus(statusPrefix + L.T($"Готово: {outPath}", $"Done: {outPath}"));
+        }
+        }
 
     private async Task DownloadFfmpegAsync()
     {

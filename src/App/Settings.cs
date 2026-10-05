@@ -50,6 +50,12 @@ public sealed class Settings
     public SpeechDeviceKind SpeechDevice { get; set; } = SpeechDeviceKind.Gpu;
     /// <summary>CPU intra-op threads. 0 means every logical processor. Not applied to a DirectML session.</summary>
     public int CpuThreads { get; set; }
+    /// <summary>
+    /// How many pieces of a long file run at once. Auto by default.
+    /// On CPU this is worker sessions; on GPU (DirectML) it is the encoder batch size.
+    /// Dictation is not slowed: file jobs use their own sessions.
+    /// </summary>
+    public FileParallelismKind FileParallelism { get; set; } = FileParallelismKind.Auto;
     /// <summary>WASAPI capture endpoint id. Empty is the Windows default input device.</summary>
     public string MicrophoneId { get; set; } = "";
     /// <summary>Where the local llama.cpp brain runs. Cpu is the original engine. Gpu downloads the Vulkan build.</summary>

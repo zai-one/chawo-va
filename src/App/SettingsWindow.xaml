@@ -122,7 +122,10 @@
                         <Button x:Name="FileRunButton" Padding="12,4" Click="FileRun_Click" FontWeight="SemiBold"/>
                         <Button x:Name="FileStopButton" Margin="8,0,0,0" Padding="12,4" Click="FileStop_Click" Visibility="Collapsed"/>
                     </StackPanel>
-                    <TextBlock x:Name="FileStatus" Margin="0,6,0,0" Opacity="0.85" TextWrapping="Wrap"/>
+                    <TextBlock x:Name="FileSpeedLabel" Margin="0,14,0,4" FontWeight="SemiBold"/>
+                    <ComboBox x:Name="FileSpeedBox" MinWidth="360" HorizontalAlignment="Left" SelectionChanged="FileSpeed_Changed"/>
+                    <TextBlock x:Name="FileSpeedHint" Margin="0,4,0,0" Opacity="0.7" TextWrapping="Wrap"/>
+                    <TextBlock x:Name="FileStatus" Margin="0,10,0,0" Opacity="0.85" TextWrapping="Wrap"/>
                     <TextBlock x:Name="FileFfmpegStatus" Margin="0,14,0,0" Opacity="0.75" TextWrapping="Wrap"/>
                     <Button x:Name="FileFfmpegButton" HorizontalAlignment="Left" Margin="0,8,0,0" Padding="12,4" Click="FileFfmpeg_Click"/>
                 </StackPanel>

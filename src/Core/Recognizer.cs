@@ -34,8 +34,11 @@ public sealed class Recognizer : IDisposable
     /// <summary>Bumped when that dictation pass should abort. Hermes calls do not own the run.</summary>
     private int _kill;
     private volatile bool _terminateSet;
+    private readonly bool _encoderAcceptsBatch;
 
     public string ModelDir { get; }
+    /// <summary>True when the main graph (encoder or CTC) declares a dynamic batch dim on its feature input.</summary>
+    public bool EncoderAcceptsBatch => _encoderAcceptsBatch;
     public SpeechModelKind Kind => _kind;
     public string ModelId => SpeechModels.Id(_kind);
     /// <summary>"gpu" when DirectML accepted the session, otherwise "cpu".</summary>
@@ -99,6 +102,7 @@ public sealed class Recognizer : IDisposable
                     DeviceActual = "gpu";
                     Provider = "directml";
                     IntraOpThreads = gpuThreads;
+                    _encoderAcceptsBatch = AcceptsBatch(_encoder, "audio_signal");
                     return;
                 }
             }
@@ -116,6 +120,7 @@ public sealed class Recognizer : IDisposable
             DeviceActual = "cpu";
             Provider = "cpu";
             IntraOpThreads = cpuThreads;
+            _encoderAcceptsBatch = AcceptsBatch(_encoder, "audio_signal");
             return;
         }
 
@@ -130,6 +135,7 @@ public sealed class Recognizer : IDisposable
                 DeviceActual = "gpu";
                 Provider = "directml";
                 IntraOpThreads = gpuThreads;
+                _encoderAcceptsBatch = AcceptsBatch(_ctc, "features");
                 return;
             }
         }
@@ -143,6 +149,7 @@ public sealed class Recognizer : IDisposable
         DeviceActual = "cpu";
         Provider = "cpu";
         IntraOpThreads = cpuThreads;
+        _encoderAcceptsBatch = AcceptsBatch(_ctc, "features");
     }
 
     private static InferenceSession Open(string path, bool gpu, int threads)
@@ -158,6 +165,65 @@ public sealed class Recognizer : IDisposable
         };
         if (gpu) options.AppendExecutionProvider_DML(0);
         return new InferenceSession(path, options);
+    }
+
+    /// <summary>True when the named input's first dimension is a dynamic symbolic batch.</summary>
+    private static bool AcceptsBatch(InferenceSession? session, string inputName)
+    {
+        if (session == null) return false;
+        if (!session.InputMetadata.TryGetValue(inputName, out var meta)) return false;
+        var dims = meta.Dimensions;
+        if (dims == null || dims.Length < 1) return false;
+        // ONNX Runtime uses -1 for a dynamic dimension.
+        return dims[0] < 0;
+    }
+
+    /// <summary>
+    /// Abort any in-flight <c>Run</c> on this session (file workers).
+    /// Dictation still uses <see cref="CancelOwned"/> so a stray Escape cannot kill a Hermes/file pass.
+    /// </summary>
+    public void CancelRun()
+    {
+        Interlocked.Increment(ref _kill);
+        _terminateSet = true;
+        try { _runOptions.Terminate = true; }
+        catch { /* the pass ends on its own */ }
+    }
+
+    /// <summary>
+    /// Several pieces in one encoder/CTC forward when <see cref="EncoderAcceptsBatch"/>.
+    /// Per-item decode keeps the same greedy path as a single piece. Order matches the input.
+    /// </summary>
+    public string[] TranscribeBatch(IReadOnlyList<float[]> pieces, CancellationToken cancel = default)
+    {
+        if (pieces.Count == 0) return Array.Empty<string>();
+        if (pieces.Count == 1)
+            return new[] { TranscribePiece(pieces[0]) };
+        if (!_encoderAcceptsBatch)
+        {
+            var one = new string[pieces.Count];
+            for (int i = 0; i < pieces.Count; i++)
+            {
+                cancel.ThrowIfCancellationRequested();
+                one[i] = TranscribePiece(pieces[i]);
+            }
+            return one;
+        }
+        cancel.ThrowIfCancellationRequested();
+        lock (_runLock)
+        {
+            DisarmTerminate();
+            try
+            {
+                return _kind == SpeechModelKind.V3E2eRnnt
+                    ? DecodeRnntBatch(pieces, cancel)
+                    : DecodeCtcBatch(pieces, cancel);
+            }
+            finally
+            {
+                if (_terminateSet) DisarmTerminate();
+            }
+        }
     }
 
     /// <summary>
@@ -426,6 +492,180 @@ public sealed class Recognizer : IDisposable
             }
         }
         return hyp;
+    }
+
+    private string[] DecodeCtcBatch(IReadOnlyList<float[]> pieces, CancellationToken cancel)
+    {
+        int nMels = _cfg.Features.NMels;
+        int b = pieces.Count;
+        var featsList = new float[b][];
+        var frames = new int[b];
+        var sampleLens = new int[b];
+        int maxFrames = 0;
+        for (int i = 0; i < b; i++)
+        {
+            cancel.ThrowIfCancellationRequested();
+            if (pieces[i].Length < _cfg.Features.WinLength)
+            {
+                featsList[i] = Array.Empty<float>();
+                frames[i] = 0;
+                sampleLens[i] = pieces[i].Length;
+                continue;
+            }
+            var (feats, fr) = _features.Compute(pieces[i]);
+            featsList[i] = feats;
+            frames[i] = fr;
+            sampleLens[i] = pieces[i].Length;
+            if (fr > maxFrames) maxFrames = fr;
+        }
+        var texts = new string[b];
+        if (maxFrames == 0)
+        {
+            for (int i = 0; i < b; i++) texts[i] = "";
+            return texts;
+        }
+
+        var packed = new float[b * nMels * maxFrames];
+        var lengths = new long[b];
+        for (int i = 0; i < b; i++)
+        {
+            lengths[i] = frames[i] == 0 ? 0 : _features.OutLen(sampleLens[i]);
+            int fr = frames[i];
+            if (fr == 0) continue;
+            for (int m = 0; m < nMels; m++)
+                Array.Copy(featsList[i], m * fr, packed, i * nMels * maxFrames + m * maxFrames, fr);
+        }
+
+        using var featsValue = OrtValue.CreateTensorValueFromMemory(OrtMemoryInfo.DefaultInstance,
+            packed.AsMemory(), new long[] { b, nMels, maxFrames });
+        using var lenValue = OrtValue.CreateTensorValueFromMemory(OrtMemoryInfo.DefaultInstance,
+            lengths.AsMemory(), new long[] { b });
+        using var outs = _ctc!.Run(_runOptions,
+            new Dictionary<string, OrtValue> { ["features"] = featsValue, ["feature_lengths"] = lenValue },
+            _ctc.OutputNames);
+        var logits = outs[0];
+        var shape = logits.GetTensorTypeAndShape().Shape;
+        var data = logits.GetTensorDataAsSpan<float>().ToArray();
+        int classes = _ctcVocab!.Count;
+        int time;
+        bool classesLast;
+        // Expected batched: [B, T, C] or [B, C, T]
+        if (shape.Length == 3 && shape[0] == b && shape[2] == classes) { time = (int)shape[1]; classesLast = true; }
+        else if (shape.Length == 3 && shape[0] == b && shape[1] == classes) { time = (int)shape[2]; classesLast = false; }
+        else throw new InvalidDataException($"unexpected batched CTC output shape {string.Join('x', shape)} for batch {b}, {classes} classes");
+
+        int blank = _ctcVocab.BlankId;
+        var kinds = _ctcVocab.Kinds;
+        var script = Script;
+
+        for (int i = 0; i < b; i++)
+        {
+            cancel.ThrowIfCancellationRequested();
+            if (frames[i] == 0) { texts[i] = ""; continue; }
+            int limit = Math.Min(time, (frames[i] - 1) / _cfg.SubsamplingFactor + 1);
+            int baseOff = i * time * classes;
+
+            CtcScriptDecoder.Path Greedy(bool allowLatin, bool allowCyrillic)
+            {
+                int prev = -1;
+                var ids = new List<int>();
+                double sum = 0;
+                for (int t = 0; t < limit; t++)
+                {
+                    int best = blank;
+                    float bestValue = float.NegativeInfinity;
+                    for (int c = 0; c < classes; c++)
+                    {
+                        var kind = c < kinds.Length ? kinds[c] : CtcScriptDecoder.TokenKind.Neutral;
+                        if (kind == CtcScriptDecoder.TokenKind.Latin && !allowLatin) continue;
+                        if (kind == CtcScriptDecoder.TokenKind.Cyrillic && !allowCyrillic) continue;
+                        float v = classesLast
+                            ? data[baseOff + t * classes + c]
+                            : data[i * classes * time + c * time + t];
+                        if (v > bestValue) { bestValue = v; best = c; }
+                    }
+                    if (bestValue > float.NegativeInfinity) sum += bestValue;
+                    if (best != blank && best != prev) ids.Add(best);
+                    prev = best;
+                }
+                return new CtcScriptDecoder.Path(_ctcVocab.Decode(ids), sum, limit);
+            }
+
+            texts[i] = CtcScriptDecoder.Choose(script, Greedy);
+        }
+        return texts;
+    }
+
+    private string[] DecodeRnntBatch(IReadOnlyList<float[]> pieces, CancellationToken cancel)
+    {
+        int nMels = _cfg.Features.NMels;
+        int b = pieces.Count;
+        var featsList = new float[b][];
+        var frames = new int[b];
+        var sampleLens = new int[b];
+        int maxFrames = 0;
+        for (int i = 0; i < b; i++)
+        {
+            cancel.ThrowIfCancellationRequested();
+            if (pieces[i].Length < _cfg.Features.WinLength)
+            {
+                featsList[i] = Array.Empty<float>();
+                frames[i] = 0;
+                sampleLens[i] = pieces[i].Length;
+                continue;
+            }
+            var (feats, fr) = _features.Compute(pieces[i]);
+            featsList[i] = feats;
+            frames[i] = fr;
+            sampleLens[i] = pieces[i].Length;
+            if (fr > maxFrames) maxFrames = fr;
+        }
+        var texts = new string[b];
+        if (maxFrames == 0)
+        {
+            for (int i = 0; i < b; i++) texts[i] = "";
+            return texts;
+        }
+
+        var packed = new float[b * nMels * maxFrames];
+        var lengths = new long[b];
+        for (int i = 0; i < b; i++)
+        {
+            lengths[i] = frames[i] == 0 ? 0 : _features.OutLen(sampleLens[i]);
+            int fr = frames[i];
+            if (fr == 0) continue;
+            for (int m = 0; m < nMels; m++)
+                Array.Copy(featsList[i], m * fr, packed, i * nMels * maxFrames + m * maxFrames, fr);
+        }
+
+        using var featsValue = OrtValue.CreateTensorValueFromMemory(OrtMemoryInfo.DefaultInstance,
+            packed.AsMemory(), new long[] { b, nMels, maxFrames });
+        using var lenValue = OrtValue.CreateTensorValueFromMemory(OrtMemoryInfo.DefaultInstance,
+            lengths.AsMemory(), new long[] { b });
+        using var encOut = _encoder!.Run(_runOptions,
+            new Dictionary<string, OrtValue> { ["audio_signal"] = featsValue, ["length"] = lenValue },
+            _encoder.OutputNames);
+
+        var encShape = encOut[0].GetTensorTypeAndShape().Shape;
+        // [B, encD, encT]
+        if (encShape.Length != 3 || encShape[0] != b)
+            throw new InvalidDataException($"unexpected batched encoder shape {string.Join('x', encShape)} for batch {b}");
+        int encD = (int)encShape[1], encT = (int)encShape[2];
+        var encodedAll = encOut[0].GetTensorDataAsSpan<float>().ToArray();
+        var encLens = encOut[1].GetTensorDataAsSpan<int>().ToArray();
+
+        for (int i = 0; i < b; i++)
+        {
+            cancel.ThrowIfCancellationRequested();
+            if (frames[i] == 0) { texts[i] = ""; continue; }
+            // encoded layout [B, encD, encT] → slice item i into [encD, encT] contiguous for GreedyRnnt
+            var encoded = new float[encD * encT];
+            for (int d = 0; d < encD; d++)
+                Array.Copy(encodedAll, i * encD * encT + d * encT, encoded, d * encT, encT);
+            int encLen = Math.Min(encLens[i], encT);
+            texts[i] = _tokenizer!.Decode(GreedyRnnt(encoded, encD, encT, encLen));
+        }
+        return texts;
     }
 
     public void Dispose()

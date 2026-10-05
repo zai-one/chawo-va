@@ -313,12 +313,18 @@ public partial class SettingsWindow : Window
         FileFolderButton.Content = L.T("Папка…", "Folder…");
         FileRunButton.Content = L.T("Расшифровать", "Transcribe");
         FileStopButton.Content = L.T("Остановить", "Stop");
+        FileSpeedLabel.Text = L.T("Скорость длинных записей", "Speed for long recordings");
+        FileSpeedHint.Text = L.T(
+            "Сколько кусков распознаётся одновременно. Больше — быстрее, но нужно больше памяти. Диктовку не замедляет.",
+            "How many pieces are recognized at once. More is faster, but needs more memory. Does not slow dictation.");
+        FillFileSpeedBox();
         FileFfmpegButton.Content = L.T("Скачать ffmpeg", "Download ffmpeg");
         FilePickButton.IsEnabled = !_fileRunning;
         FileFolderButton.IsEnabled = !_fileRunning;
         FileRunButton.IsEnabled = !_fileRunning;
         FileFfmpegButton.IsEnabled = !_fileRunning && _downloadFfmpeg != null;
         FilePathBox.IsEnabled = !_fileRunning;
+        FileSpeedBox.IsEnabled = !_fileRunning;
         FileStopButton.Visibility = _fileRunning ? Visibility.Visible : Visibility.Collapsed;
         FileStatus.Text = _fileLine.Length > 0
             ? _fileLine
@@ -514,8 +520,32 @@ public partial class SettingsWindow : Window
         FileRunButton.IsEnabled = !running;
         FileFfmpegButton.IsEnabled = !running && _downloadFfmpeg != null;
         FilePathBox.IsEnabled = !running;
+        FileSpeedBox.IsEnabled = !running;
         FileStopButton.Visibility = running ? Visibility.Visible : Visibility.Collapsed;
         if (!running) FileFfmpegStatus.Text = _ffmpegStatus?.Invoke() ?? FfmpegTool.StatusLine();
+    }
+
+    private void FillFileSpeedBox()
+    {
+        var keep = _settings.FileParallelism;
+        FileSpeedBox.Items.Clear();
+        FileSpeedBox.Items.Add(new ComboBoxItem { Content = L.T("Авто", "Auto"), Tag = FileParallelismKind.Auto });
+        FileSpeedBox.Items.Add(new ComboBoxItem { Content = L.T("Бережно — 1 поток", "Gentle — 1 thread"), Tag = FileParallelismKind.Gentle1 });
+        FileSpeedBox.Items.Add(new ComboBoxItem { Content = L.T("2 потока", "2 threads"), Tag = FileParallelismKind.Two });
+        FileSpeedBox.Items.Add(new ComboBoxItem { Content = L.T("4 потока", "4 threads"), Tag = FileParallelismKind.Four });
+        FileSpeedBox.Items.Add(new ComboBoxItem { Content = L.T("Максимум", "Maximum"), Tag = FileParallelismKind.Max });
+        foreach (ComboBoxItem it in FileSpeedBox.Items)
+            if ((FileParallelismKind)it.Tag! == keep) FileSpeedBox.SelectedItem = it;
+        if (FileSpeedBox.SelectedItem == null) FileSpeedBox.SelectedIndex = 0;
+    }
+
+    private void FileSpeed_Changed(object sender, SelectionChangedEventArgs e)
+    {
+        if (_loading || FileSpeedBox.SelectedItem is not ComboBoxItem it || it.Tag is not FileParallelismKind kind)
+            return;
+        if (_settings.FileParallelism == kind) return;
+        _settings.FileParallelism = kind;
+        _apply();
     }
 
     private void FilePick_Click(object sender, RoutedEventArgs e)

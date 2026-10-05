@@ -13,7 +13,7 @@
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <StartupObject>ChawoVA.App.ChawoApp</StartupObject>
     <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
-    <Version>1.17.4</Version>
+    <Version>1.18.0</Version>
     <Product>Chawo Voice Assistant</Product>
     <AssemblyTitle>Chawo Voice Assistant</AssemblyTitle>
     <Description>Chawo Voice Assistant</Description>
