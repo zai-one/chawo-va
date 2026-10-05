@@ -1,18 +1,18 @@
 #!/usr/bin/env python3
-"""Build src/Assets/app.ico: the Chawo coral tile (chawo.ai /icon.svg) for the .exe,
+"""Build src/Assets/app.ico: the same mark as tray-dark.ico for the .exe,
 every window's title bar and the taskbar button.
 
-Same mark as the tray icons (tray-dark/light.ico): four bars on a rounded tile,
-3rd bar short and accented. Here the tile is brand coral #EF5143 with cream bars
-and an almost-black 3rd bar, so it reads on both dark and light Windows 11 taskbars.
+Dark tile #171717, cream bars #FFF3E2, 3rd bar coral #EF5143 — identical colours
+to tray-dark.ico. A 1 px (2 px at 256) #3A3A3A edge keeps the dark tile readable
+on a dark Windows 11 taskbar. No coral tile anywhere.
 
 Windows 11 app icons leave a small margin: the tile fills 87.5–90 % of the frame
 (16→14, 20→18, 24→22, 32→28, 40→36, 48→42, 64→56, 256→224). Every size has its own
 hand-tuned pixel grid (bar rows/columns snapped to whole pixels), so nothing is a
-blurry downscale. 256 is the exact brand geometry (7 px per SVG unit).
+blurry downscale. 256 follows the brand geometry (7 px per SVG unit).
 
     python3 tools/make_app_icon.py            # writes app.ico + iconset/app/*.png
-    python3 tools/make_app_icon.py --preview /workspace/chawo-icons-1.17.3
+    python3 tools/make_app_icon.py --preview /workspace/chawo-icons-1.17.4
 
 Needs Pillow. Entries < 256 are 32-bit DIB (with AND mask), 256 is PNG — the layout
 Windows itself uses, and what WPF's IconBitmapDecoder picks frames from.
@@ -28,37 +28,42 @@ from PIL import Image, ImageDraw
 
 ROOT = Path(__file__).resolve().parents[1]
 ASSETS = ROOT / "src" / "Assets"
-CORAL = (0xEF, 0x51, 0x43, 255)
+# Same palette as tray-dark.ico (sampled from iconset/tray-dark/*.png).
+TILE = (0x17, 0x17, 0x17, 255)
 CREAM = (0xFF, 0xF3, 0xE2, 255)
-INK = (0x0A, 0x0A, 0x0A, 255)
+CORAL = (0xEF, 0x51, 0x43, 255)
+EDGE = (0x3A, 0x3A, 0x3A, 255)
 SS = 16  # supersampling; all straight edges sit on whole pixels so only corners get AA
 
-# size: pad, tile corner radius, bar radius, rows [(y, h)] x4, cols [(x0, x1)] x4 (tile px)
-# Brand (32-unit SVG): inset 1, bar h 6, gap 2; bar1/4 x 5→31, bar2 1→12, bar3 1→14; tile rx 7, bar rx 3.
+# size: pad, tile corner radius, bar radius, edge width (tile px),
+#        rows [(y, h)] x4, cols [(x0, x1)] x4 (tile px, including the edge ring)
+# Brand (32-unit SVG): inset 1, bar h 6, gap 2; bar1/4 x 5→31, bar2 1→12, bar3 1→14;
+# tile rx 7, bar rx 3. Tray-dark fills the frame; here a pad leaves Win11 margin.
 SPECS: dict[int, dict] = {
-    16: dict(pad=1, rx=3, br=0, rows=[(1, 3), (5, 2), (8, 2), (11, 3)],
+    16: dict(pad=1, rx=3, br=0, edge=1, rows=[(1, 3), (5, 2), (8, 2), (11, 3)],
              cols=[(2, 13), (1, 6), (1, 7), (2, 13)]),
-    20: dict(pad=1, rx=4, br=0, rows=[(1, 4), (6, 3), (10, 3), (14, 4)],
+    20: dict(pad=1, rx=4, br=0, edge=1, rows=[(1, 4), (6, 3), (10, 3), (14, 4)],
              cols=[(3, 17), (1, 7), (1, 8), (3, 17)]),
-    24: dict(pad=1, rx=5, br=0, rows=[(1, 5), (7, 4), (12, 4), (17, 5)],
+    24: dict(pad=1, rx=5, br=0, edge=1, rows=[(1, 5), (7, 4), (12, 4), (17, 5)],
              cols=[(3, 21), (1, 8), (1, 10), (3, 21)]),
-    32: dict(pad=2, rx=6, br=1, rows=[(1, 5), (8, 5), (15, 5), (22, 5)],
+    32: dict(pad=2, rx=6, br=1, edge=1, rows=[(1, 5), (8, 5), (15, 5), (22, 5)],
              cols=[(4, 27), (1, 10), (1, 12), (4, 27)]),
-    40: dict(pad=2, rx=8, br=3, rows=[(1, 7), (10, 7), (19, 7), (28, 7)],
+    40: dict(pad=2, rx=8, br=3, edge=1, rows=[(1, 7), (10, 7), (19, 7), (28, 7)],
              cols=[(6, 35), (1, 14), (1, 16), (6, 35)]),
-    48: dict(pad=3, rx=9, br=4, rows=[(2, 8), (12, 8), (22, 8), (32, 8)],
+    48: dict(pad=3, rx=9, br=4, edge=1, rows=[(2, 8), (12, 8), (22, 8), (32, 8)],
              cols=[(7, 41), (1, 16), (1, 18), (7, 41)]),
-    64: dict(pad=4, rx=12, br=5, rows=[(2, 10), (16, 10), (30, 10), (44, 10)],
+    64: dict(pad=4, rx=12, br=5, edge=1, rows=[(2, 10), (16, 10), (30, 10), (44, 10)],
              cols=[(9, 54), (2, 21), (2, 25), (9, 54)]),
-    256: dict(pad=16, rx=49, br=21, rows=[(7, 42), (63, 42), (119, 42), (175, 42)],
+    256: dict(pad=16, rx=49, br=21, edge=2, rows=[(7, 42), (63, 42), (119, 42), (175, 42)],
               cols=[(35, 217), (7, 84), (7, 98), (35, 217)]),
 }
-BAR_COLORS = [CREAM, CREAM, INK, CREAM]
+BAR_COLORS = [CREAM, CREAM, CORAL, CREAM]
 
 
 def render(size: int) -> Image.Image:
     s = SPECS[size]
     t = size - 2 * s["pad"]
+    edge = s["edge"]
     for y, h in s["rows"]:
         assert 0 <= y and y + h <= t, (size, y, h)
     for x0, x1 in s["cols"]:
@@ -66,10 +71,17 @@ def render(size: int) -> Image.Image:
     tile = Image.new("RGBA", (t * SS, t * SS), (0, 0, 0, 0))
     d = ImageDraw.Draw(tile)
     box = (0, 0, t * SS - 1, t * SS - 1)
-    d.rounded_rectangle(box, radius=s["rx"] * SS, fill=CORAL)
+    # Outer ring #3A3A3A, then dark fill inset — thin edge so the tile reads on a dark taskbar.
+    d.rounded_rectangle(box, radius=s["rx"] * SS, fill=EDGE)
+    inset = edge * SS
+    inner = (inset, inset, t * SS - 1 - inset, t * SS - 1 - inset)
+    inner_rx = max(0, (s["rx"] - edge) * SS)
+    d.rounded_rectangle(inner, radius=inner_rx, fill=TILE)
     for (y, h), (x0, x1), c in zip(s["rows"], s["cols"], BAR_COLORS):
         r = min(s["br"] * SS, h * SS // 2)
-        d.rounded_rectangle((x0 * SS, y * SS, x1 * SS - 1, (y + h) * SS - 1), radius=r, fill=c)
+        d.rounded_rectangle(
+            (x0 * SS, y * SS, x1 * SS - 1, (y + h) * SS - 1), radius=r, fill=c
+        )
     mask = Image.new("L", tile.size, 0)
     ImageDraw.Draw(mask).rounded_rectangle(box, radius=s["rx"] * SS, fill=255)
     alpha = Image.composite(tile.getchannel("A"), Image.new("L", tile.size, 0), mask)

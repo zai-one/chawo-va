@@ -1745,9 +1745,10 @@ public partial class ChawoApp : Application
     // ── icons ────────────────────────────────────────────────────
     // tray-dark.ico  = cream mark on dark tile  → dark notification area (SystemUsesLightTheme=0)
     // tray-light.ico = dark mark on cream tile  → light notification area (SystemUsesLightTheme=1)
-    // app.ico        = coral tile, the brand mark at 87.5–90 % of the frame (16…256, hand-tuned).
-    //                  Used for the .exe, every window's title bar and the taskbar button: coral
-    //                  reads on both taskbar themes, a dark tile vanished on the dark taskbar.
+    // app.ico        = same mark as tray-dark (dark tile #171717, cream bars, 3rd bar coral) at
+    //                  87.5–90 % of the frame (16…256, hand-tuned), with a thin #3A3A3A edge so
+    //                  the tile reads on a dark taskbar. Used for the .exe, every window title
+    //                  bar and the taskbar button. Tray icons are unchanged.
 
     private void LoadThemeIcons()
     {
@@ -1827,8 +1828,8 @@ public partial class ChawoApp : Application
     }
 
     /// <summary>
-    /// Call from any Window after InitializeComponent: title bar and taskbar get the coral app.ico.
-    /// Without it WPF would still fall back to the .exe icon, which is the same app.ico.
+    /// Call from any Window after InitializeComponent: title bar and taskbar get app.ico
+    /// (dark-tile mark, same as tray-dark). Without it WPF falls back to the .exe icon.
     /// </summary>
     public void AttachWindowIcon(Window window)
     {
