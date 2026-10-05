@@ -292,13 +292,16 @@ public partial class SettingsWindow : Window
         if (string.IsNullOrWhiteSpace(HostCheckStatus.Text))
             HostCheckStatus.Text = L.T("Проверка только спрашивает /v1/health. Модель не скачивается.",
                                        "The check only asks /v1/health. No model is downloaded.");
-        FileHeading.Text = L.T("Файл диалога", "Dialogue file");
+                FileHeading.Text = L.T("Расшифровать файл", "Transcribe a file");
         FileNote.Text = L.T(
-            "Укажите путь к записи на этом компьютере. Это не загрузка: файл читается на месте. Нужен WAV 16 бит или Ogg/Opus. Длинная запись режется на куски не длиннее 24 секунд, по паузам, и идёт по порядку. Рядом появится текст с тем же именем и расширением .txt. Если этот ПК — клиент, файл уходит на хост, а текст всё равно пишется здесь. Модель сама не скачивается.",
-            "Choose a recording on this PC. This is not an upload: the file is read in place. It must be 16-bit WAV or Ogg/Opus. A long recording is split into pieces of at most 24 seconds, on pauses, and transcribed in order. A text file with the same name and a .txt extension is written beside it. If this PC is a client, the file goes to the host and the text is still written here. The model is not downloaded.");
-        FilePickButton.Content = L.T("Указать файл", "Choose a file");
+            "Путь к записи на этом компьютере. WAV 16 бит или Ogg/Opus. Длинная запись режется на куски не длиннее 24 секунд. Рядом появится .txt с тем же именем. В режиме клиента файл уходит на хост, текст пишется здесь. Модель сама не скачивается.",
+            "Path to a recording on this PC. 16-bit WAV or Ogg/Opus. Long audio is split into pieces of at most 24 seconds. A .txt with the same name is written beside it. In client mode the file goes to the host; the text is still written here. The model is not downloaded.");
+        FilePickButton.Content = L.T("Обзор", "Browse");
+        FileRunButton.Content = L.T("Расшифровать", "Transcribe");
         FileStopButton.Content = L.T("Остановить", "Stop");
         FilePickButton.IsEnabled = !_fileRunning;
+        FileRunButton.IsEnabled = !_fileRunning;
+        FilePathBox.IsEnabled = !_fileRunning;
         FileStopButton.Visibility = _fileRunning ? Visibility.Visible : Visibility.Collapsed;
         FileStatus.Text = _fileLine.Length > 0
             ? _fileLine
@@ -489,20 +492,35 @@ public partial class SettingsWindow : Window
         if (!IsLoaded) return;
         FileStatus.Text = text;
         FilePickButton.IsEnabled = !running;
+        FileRunButton.IsEnabled = !running;
+        FilePathBox.IsEnabled = !running;
         FileStopButton.Visibility = running ? Visibility.Visible : Visibility.Collapsed;
     }
 
     private void FilePick_Click(object sender, RoutedEventArgs e)
     {
-        if (_fileRunning || _transcribeFile == null) return;
+        if (_fileRunning) return;
         var dlg = new Microsoft.Win32.OpenFileDialog
         {
-            Title = L.T("Указать файл", "Choose a file"),
+            Title = L.T("Обзор", "Browse"),
             Filter = "WAV, Ogg (*.wav;*.ogg)|*.wav;*.ogg",
             CheckFileExists = true,
         };
         if (dlg.ShowDialog(this) != true || string.IsNullOrWhiteSpace(dlg.FileName)) return;
-        _ = _transcribeFile(dlg.FileName);
+        FilePathBox.Text = dlg.FileName;
+    }
+
+    private void FileRun_Click(object sender, RoutedEventArgs e)
+    {
+        if (_fileRunning || _transcribeFile == null) return;
+        var path = (FilePathBox.Text ?? "").Trim().Trim('"');
+        if (path.Length == 0)
+        {
+            FileStatus.Text = L.T("Укажите путь к файлу или нажмите «Обзор».",
+                                  "Enter a file path or press Browse.");
+            return;
+        }
+        _ = _transcribeFile(path);
     }
 
     private void FileStop_Click(object sender, RoutedEventArgs e) => _cancelFile?.Invoke();

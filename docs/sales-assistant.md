@@ -225,3 +225,7 @@ Softphone на машине сообщает приложению (или тон
 ## Что остаётся за этим документом
 
 Как хранить привязки, какой движок у поиска по материалам, транспорт доставки карточки на ПК и стек бэкенда — не здесь. Контракт — сценарий выше: **привязка ПК один раз → событие (webhook / softphone / клавиша) → совпадение с этим ПК → CRM (или пусто) → скрипт / каталог / один RAG → карточка; инструкция tenant только для подсказки.**
+
+## Brand (desktop shell)
+
+Window chrome for the local stand-in follows [chawo.ai](https://chawo.ai) tokens (peach-cream background, coral accent, 12px card radius). The SaaS contract above does not depend on Windows chrome.

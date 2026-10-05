@@ -13,7 +13,7 @@
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <StartupObject>GigaPisar.App.PisarApp</StartupObject>
     <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
-    <Version>1.15.0</Version>
+    <Version>1.16.0</Version>
     <Product>Chawo VA</Product>
     <Company>Chawo</Company>
     <Copyright>MIT License</Copyright>
@@ -48,6 +48,9 @@
 
   <ItemGroup>
     <Content Include="Assets/app.ico">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="Assets/chawo-mark.svg">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
   </ItemGroup>

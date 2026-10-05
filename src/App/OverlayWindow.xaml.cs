@@ -31,10 +31,11 @@ public partial class OverlayWindow : Window
     // The website's wave palette, light to teal, one gradient per bar.
     private static readonly (string top, string bottom)[] Palette =
     {
-        ("#a8e063", "#1fa03a"), ("#a8e063", "#1fa03a"), ("#9adf55", "#17963f"), ("#8ad84c", "#10884a"),
-        ("#7fd648", "#0e9367"), ("#63cf62", "#009b82"), ("#4fc884", "#00a08c"), ("#3fc39b", "#00a08c"),
-        ("#38bfa5", "#008f92"), ("#35bcb0", "#008699"), ("#35bcb0", "#008699"), ("#35bcb0", "#008699"),
-        ("#35bcb0", "#008699"),
+        // Chawo accent ramp: coral-red → sunset-orange (from site :root)
+        ("#EF5143", "#C9382B"), ("#EF5143", "#C9382B"), ("#F26A4A", "#C9382B"), ("#F58352", "#B56A12"),
+        ("#F89A58", "#B56A12"), ("#FFB261", "#B56A12"), ("#FFB261", "#B56A12"), ("#FFB261", "#B56A12"),
+        ("#FFB261", "#B56A12"), ("#FFB261", "#B56A12"), ("#FFB261", "#B56A12"), ("#FFB261", "#B56A12"),
+        ("#FFB261", "#B56A12"),
     };
 
     private readonly Rectangle[] _bars = new Rectangle[BarCount];
@@ -329,16 +330,18 @@ public partial class OverlayWindow : Window
         catch { }
         if (light)
         {
-            Pill.Background = new SolidColorBrush(Color.FromArgb(0xF5, 0xFF, 0xFF, 0xFF));
-            Pill.BorderBrush = new SolidColorBrush(Color.FromArgb(0x1F, 0x00, 0x00, 0x00));
-            Label.Foreground = new SolidColorBrush(Color.FromArgb(0xD9, 0x00, 0x00, 0x00));
+            // peach-cream / almost-black from chawo.ai light frame
+            Pill.Background = new SolidColorBrush(Color.FromArgb(0xF5, 0xFF, 0xF3, 0xE2));
+            Pill.BorderBrush = new SolidColorBrush(Color.FromArgb(0x3D, 0x0A, 0x0A, 0x0A));
+            Label.Foreground = new SolidColorBrush(Color.FromArgb(0xD9, 0x0A, 0x0A, 0x0A));
             Live.Foreground = Label.Foreground;
         }
         else
         {
-            Pill.Background = new SolidColorBrush(Color.FromArgb(0xF2, 0x2C, 0x2C, 0x2C));
-            Pill.BorderBrush = new SolidColorBrush(Color.FromArgb(0x26, 0xFF, 0xFF, 0xFF));
-            Label.Foreground = new SolidColorBrush(Color.FromArgb(0xE6, 0xFF, 0xFF, 0xFF));
+            // surface / warm-sand from chawo.ai dark frame
+            Pill.Background = new SolidColorBrush(Color.FromArgb(0xF2, 0x17, 0x17, 0x17));
+            Pill.BorderBrush = new SolidColorBrush(Color.FromArgb(0x42, 0xFE, 0xE9, 0xCE));
+            Label.Foreground = new SolidColorBrush(Color.FromArgb(0xE6, 0xFE, 0xE9, 0xCE));
             Live.Foreground = Label.Foreground;
         }
     }

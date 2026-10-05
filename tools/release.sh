@@ -6,7 +6,7 @@ set -e -o pipefail
 cd "$(dirname "$0")/.."
 NOTES_RU="${1:?release notes (ru)}"
 NOTES_EN="${2:-$NOTES_RU}"
-REPO=moznoazachem/giga-pisar-win
+REPO=zai-one/chawo-va
 VERSION=$(sed -n 's|.*<Version>\(.*\)</Version>.*|\1|p' src/GigaPisar.csproj)
 [[ -n "$VERSION" ]] || { echo "no <Version> in csproj"; exit 1; }
 git diff --quiet || { echo "commit your changes first"; exit 1; }

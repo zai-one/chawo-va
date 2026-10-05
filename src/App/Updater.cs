@@ -1,4 +1,4 @@
-// Manual update check against GitHub releases of zai-one/giga-pisar-win.
+// Manual update check against GitHub releases of zai-one/chawo-va.
 // The app tells the user when a newer release exists and gives its page.
 // It does not download or install the update.
 
@@ -21,9 +21,9 @@ public sealed class UpdateInfo
 
 public static class Updater
 {
-    /// <summary>This fork only. Not the upstream repository and not update.json.</summary>
-    public const string ReleasesApi = "https://api.github.com/repos/zai-one/giga-pisar-win/releases/latest";
-    public const string ReleasesPage = "https://github.com/zai-one/giga-pisar-win/releases";
+    /// <summary>This repository only. Not moznoazachem/giga-pisar-win and not update.json.</summary>
+    public const string ReleasesApi = "https://api.github.com/repos/zai-one/chawo-va/releases/latest";
+    public const string ReleasesPage = "https://github.com/zai-one/chawo-va/releases";
 
     public static readonly TimeSpan CheckInterval = TimeSpan.FromHours(6);
     public static readonly TimeSpan FirstCheckDelay = TimeSpan.FromSeconds(45);
@@ -32,7 +32,7 @@ public static class Updater
     public static string UpdatesDir => Path.Combine(Settings.LocalDataDir, "updates");
 
     /// <summary>
-    /// Asks GitHub for the latest non-draft release of zai-one/giga-pisar-win.
+    /// Asks GitHub for the latest non-draft release of zai-one/chawo-va.
     /// Returns it only when it is newer than this build. Does not download anything.
     /// Null means this build is current (or there is no release yet).
     /// </summary>
@@ -61,7 +61,7 @@ public static class Updater
         Log.Write($"update check: local {local}, remote {remote} ({ReleasesApi})");
         if (remote <= local) return null;
         var html = root.TryGetProperty("html_url", out var urlEl) ? urlEl.GetString() ?? "" : "";
-        const string allowed = "https://github.com/zai-one/giga-pisar-win/";
+        const string allowed = "https://github.com/zai-one/chawo-va/";
         if (!html.StartsWith(allowed, StringComparison.OrdinalIgnoreCase))
             html = ReleasesPage + "/tag/v" + verText;
         var body = root.TryGetProperty("body", out var bodyEl) ? bodyEl.GetString() ?? "" : "";

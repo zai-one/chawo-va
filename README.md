@@ -1,25 +1,29 @@
-# Giga Pisar for Windows (zai-one fork)
+# Chawo VA
 
-Push-to-talk dictation for Windows 10/11. Speech stays on this computer.
-This fork (`gpu-mimo-hermes`) changes three things relative to
-[moznoazachem/giga-pisar-win](https://github.com/moznoazachem/giga-pisar-win) 1.0.7:
+Windows voice assistant for dictation and a local sales trial (card, catalog, RAG folder).
+Window title **Chawo VA**; executable is still `GigaPisar.exe`. Speech stays on this computer.
 
-- a choice of GigaAM model and of CPU or the video card
-- an optional Xiaomi MiMo brain (off until you turn it on)
-- a localhost HTTP decoder for Hermes
+This repository is a standalone public copy of work that began as a fork of
+[moznoazachem/giga-pisar-win](https://github.com/moznoazachem/giga-pisar-win)
+(upstream tip used: 1.0.7). Upstream license: **MIT** (see `LICENSE`). Copyright (c) 2026 giga-pisar contributors; original authors [@moznoazachem](https://github.com/moznoazachem). GigaAM model weights remain under their own MIT notice in that file.
 
-On startup the normal settings window opens (Dictation, Brain, Edit selection, About).
-There is no download screen in front of it. The model is **not** downloaded
-on startup. A **Download the selected model** button in that window (and in
-the tray) fetches weights only after you pick the model and CPU or GPU.
-Closing the window hides it; the app stays in the notification area until
-**Quit**. **Check for updates** looks at releases of this fork only
-(`zai-one/giga-pisar-win`) and does not download them.
+Brand colors, mark and icon come from [chawo.ai](https://chawo.ai) (`/icon.svg` and site CSS). The site font **DIN Pro** is not bundled (commercial `@font-face` on the site); the UI uses **Arial** (the site's own CSS fallback) then Segoe UI.
+
+On startup the settings window opens. The model is **not** downloaded on startup.
+Closing the window hides it; the app stays in the tray until **Quit**.
+**Check for updates** asks only
+`https://api.github.com/repos/zai-one/chawo-va/releases/latest` and does not download the archive.
 
 
 ## По-русски: что добавлено и зачем
 
-Это форк обычного Гига Писаря для Windows (ветка `gpu-mimo-hermes`, версия 1.15.0). Ниже не список галочек, а зачем каждая правка.
+Это самостоятельный репозиторий **Chawo VA** (история ветки `gpu-mimo-hermes`, версия 1.16.0), выросший из форка Гига Писаря. Ниже не список галочек, а зачем каждая правка.
+
+**1.16.0: оформление Chawo, «Расшифровать файл» на Диктовке.** Иконка EXE / окна / трея из [chawo.ai/icon.svg](https://chawo.ai/icon.svg) (peach-cream `#FFF3E2`, bars `#171717`, accent coral `#EF5143`, `rx=7` на 32). Цвета и радиусы из CSS сайта; шрифт Arial (запасной у сайта вместо DIN Pro). Репозиторий `zai-one/chawo-va`; updates → `releases/latest`.
+
+**Расшифровка файла.** Раньше кнопка «Указать файл» жила внизу вкладки «Сеть» — её легко не заметить. Теперь на «Диктовке» блок **«Расшифровать файл»**: поле пути, **Обзор**, **Расшифровать**; рядом с исходником пишется `.txt`. Локально и в режиме клиента (файл на хост) — как раньше.
+
+**Откуда качаются веса речи (без смены источника в 1.16.0).** `v3_e2e_rnnt` — архив int8 `https://github.com/moznoazachem/giga-pisar-cli/releases/latest/download/gigaam-v3-onnx-int8.tar.gz` (с проверкой SHA-256 файлов). `multilingual_large_ctc` — fp32 ONNX с `https://huggingface.co/istupakov/gigaam-multilingual-large-ctc-onnx/resolve/main/` (четыре файла + SHA-256). У официальных `ai-sage/GigaAM-v3` и `ai-sage/GigaAM-Multilingual` готовых ONNX нет (только PyTorch); `salute-developers/GigaAM` предлагает экспорт `to_onnx` самому. Совпадающего официального ONNX под текущий загрузчик нет — URL не менялись.
 
 **1.15.0: сценарий SaaS — как звонок попадает на этот ПК.** В [`docs/sales-assistant.md`](docs/sales-assistant.md) переписан путь: компьютер привязывают один раз (сеанс менеджера или id softphone / трубки); добавочный в момент всплытия никто не печатает. Звонок замечается одним из трёх способов (альтернативы, первое совпадение побеждает): webhook телефонии, локальное событие softphone, горячая клавиша уже на линии. Нет совпадения с этим ПК — карточки нет. Дальше сервис грузит CRM по номеру (пусто, пока CRM нет), стадию и скрипт, каталог или аналог, один фрагмент RAG. Инструкция tenant для живой подсказки: пусто = только паразиты и не сокращать; свой текст перекрывает — как у мозга диктовки, но не для транскрипта. Панель на вкладке «Продажи» подписана **«Звонок (стенд)»**: это замена события без сети, не продукт. Сети и CRM по-прежнему нет.
 
@@ -57,7 +61,7 @@ Closing the window hides it; the app stays in the notification area until
 
 **Живая строка, пока клавиша зажата.** Модель GigaAM в этой программе не потоковая: она не выдаёт слова по одному, как Google. Пока вы держите клавишу диктовки, раз в секунду (и только если прошлый проход уже закончился) программа прогоняет уже записанный кусок и показывает черновик на плашке у курсора. Плашка поверх всех окон и не забирает фокус. Отпустили клавишу — черновик выбрасывается, по всей записи делается один окончательный проход, и вставляется только он, одним разом, как раньше. Черновик в текст не печатается и второй вставки не делает. Если к моменту отпускания черновик ещё считается, этот проход прерывается и не задерживает окончательный. Плашка пропадает, когда диктовка кончилась. Галочка плашки по-прежнему её прячет целиком.
 
-**Уже скачанная модель не качается снова.** При старте и по кнопке «Скачать» программа ищет файлы выбранной модели и, если они целые, просто их грузит. Смотрит папку этого форка `%LOCALAPPDATA%\GigaPisar\models\…`, папку оригинального Гига Писаря `%LOCALAPPDATA%\GigaPisar\model` (там лежит v3), те же имена в `%APPDATA%\GigaPisar`, и папки `model` / `models` рядом с EXE. В окне написано «уже на диске» и полный путь. Пока файла нет, сама она ничего не скачивает.
+**Уже скачанная модель не качается снова.** При старте и по кнопке «Скачать» программа ищет файлы выбранной модели и, если они целые, просто их грузит. Смотрит папку этого репозитория `%LOCALAPPDATA%\GigaPisar\models\…`, папку оригинального Гига Писаря `%LOCALAPPDATA%\GigaPisar\model` (там лежит v3), те же имена в `%APPDATA%\GigaPisar`, и папки `model` / `models` рядом с EXE. В окне написано «уже на диске» и полный путь. Пока файла нет, сама она ничего не скачивает.
 
 **Старт и стоп видно.** В окне «Диктовка» строка состояния: модель не загружена, готово и жду клавишу, слушаю, распознаю. Диктовка по-прежнему с зажатой клавиши. Остановить запись или уже идущее распознавание: кнопка «Стоп» или Escape. Остановленное не вставляется. Скачивание само не начинается.
 
@@ -67,7 +71,7 @@ Closing the window hides it; the app stays in the notification area until
 
 **Трей Windows.** Крестик на окне программу не убивает: окно прячется, а Писарь остаётся у часов. Двойной щелчок по значку или пункт «Открыть окно» возвращает настройки. «Свернуть в трей» делает то же, что крестик. Процесс заканчивается только пунктом «Выход» (и тем выходом, который уже был). Тогда же снимается запрет сна, если он был включён. Отдельного «старт/стоп прослушивания» в программе не было: диктовка по-прежнему с зажатой клавишей, а расшифровщик Hermes слушает, пока Писарь запущен.
 
-**Проверка обновлений только этого форка.** В «О программе» написана текущая версия и есть кнопка «Проверить обновления». Тот же пункт есть в меню трея. Кнопка один раз спрашивает последний релиз `https://github.com/zai-one/giga-pisar-win/releases` (API `https://api.github.com/repos/zai-one/giga-pisar-win/releases/latest`). Адрес оригинала и любые другие сайты не опрашиваются. По таймеру проверка не ходит. Если версия новее, программа показывает номер и ссылку на страницу релиза и спрашивает, открыть ли её в браузере. Сама она архив не скачивает и не ставит.
+**Проверка обновлений только этого репозитория.** В «О программе» написана текущая версия и есть кнопка «Проверить обновления». Тот же пункт есть в меню трея. Кнопка один раз спрашивает последний релиз `https://github.com/zai-one/chawo-va/releases` (API `https://api.github.com/repos/zai-one/chawo-va/releases/latest`). Адрес оригинала и любые другие сайты не опрашиваются. По таймеру проверка не ходит. Если версия новее, программа показывает номер и ссылку на страницу релиза и спрашивает, открыть ли её в браузере. Сама она архив не скачивает и не ставит.
 
 **Выбор модели мозга и своя инструкция (1.5.0).** На вкладке «Мозг», когда стоит «На компьютере», один список. Qwen3 4B, 2,1 ГБ: тот же файл, что раньше, `Qwen3-4B-Instruct-2507-Q3_K_M.gguf`. Qwen3.5 4B, 2,3 ГБ: `Qwen3.5-4B-Q3_K_M.gguf` с Hugging Face `unsloth/Qwen3.5-4B-GGUF`. Третий пункт — своя ссылка. Это страница файла или адрес `resolve` на huggingface.co (или hf.co), и имя должно кончаться на `.gguf`. Страница `blob` превращается в `resolve`. Если это не `.gguf`, программа пишет «Нужна ссылка Hugging Face на файл .gguf.» и ничего не качает. Кнопка «Скачать модель мозга» один раз забирает движок llama.cpp и выбранный файл в `%LOCALAPPDATA%\GigaPisar\brain\`. При запуске программы и при смене «Где думает» загрузка не начинается. Свой файл проверяется по заголовку GGUF и не запускается как программа. Ключ для него не нужен и никуда не отправляется. Qwen3.5 по умолчанию думает вслух. Движок этой сборки, llama.cpp b10701, запускается как `llama-server --jinja --reasoning off`, а в запрос ещё ставится `enable_thinking: false`. Если в ответе всё же остался блок `<think>`, он вырезается и в документ не попадает. Поле «Инструкция мозгу» пустое, пока вы сами не напишете, и лежит в `settings.json`. Пустое поле не меняет правила. Если текст есть, локальный мозг получает его как системную инструкцию: туда можно записать правило перевода, и команда «Писарь, …» по-прежнему дописывается в конец. Облако, включая Xiaomi MiMo, это поле не читает. Запрос к Xiaomi остаётся прежним.
 
@@ -101,7 +105,7 @@ Closing the window hides it; the app stays in the notification area until
 
 **Галочка «не давать компьютеру уснуть».** Пока Писарь слушает и галочка включена, вызывается `SetThreadExecutionState`: Windows не усыпляет ПК от простоя, иначе расшифровщик замолчит посреди очереди голосовых. Ручное выключение это не блокирует. Сняли галочку или закрыли программу (слушатель остановился) — запрет сна снимается.
 
-Проверка обновлений есть только по кнопке и только у этого форка (`zai-one/giga-pisar-win`). Репозиторий автора оригинала не опрашивается. Обновление само не скачивается.
+Проверка обновлений есть только по кнопке и только у этого репозитория (`zai-one/chawo-va`). Репозиторий автора оригинала не опрашивается. Обновление само не скачивается.
 
 ## Speech model
 
@@ -268,7 +272,7 @@ After that, anyone on the local network can.
   A Brain API key is stored there encrypted with Windows DPAPI for the current user.
 - Optionally keeps the last take as `last.wav` in the same folder for
   troubleshooting (off by default; deleted when the option is turned off).
-- Does **not** check `moznoazachem/giga-pisar-win` for updates. A manual **Check for updates** button asks GitHub for the latest release of `zai-one/giga-pisar-win` only, shows the page URL, and does not download it. There is no timer.
+- Does **not** check `moznoazachem/giga-pisar-win` for updates. A manual **Check for updates** button asks GitHub for the latest release of `zai-one/chawo-va` only, shows the page URL, and does not download it. There is no timer.
 
 ## Layout
 
@@ -337,7 +341,7 @@ never leaves it, including audio posted to the Hermes port. That port is
 `127.0.0.1` until you open it for the LAN (`0.0.0.0:17831`).
 
 **Check for updates** (About, or the tray menu) is manual. It requests
-`https://api.github.com/repos/zai-one/giga-pisar-win/releases/latest` and no
+`https://api.github.com/repos/zai-one/chawo-va/releases/latest` and no
 other host. It does not run on a timer and does not download the release.
 
 Network traffic happens only when you ask for it:
@@ -355,3 +359,9 @@ uninstaller.
 ## License
 
 MIT.
+
+
+## Attribution
+
+Based on [moznoazachem/giga-pisar-win](https://github.com/moznoazachem/giga-pisar-win), MIT License.
+Copyright (c) 2026 giga-pisar contributors. Original work by [@moznoazachem](https://github.com/moznoazachem).

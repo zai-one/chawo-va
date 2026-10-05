@@ -4,24 +4,25 @@
         WindowStyle="None" AllowsTransparency="True" Background="Transparent"
         Topmost="True" ShowInTaskbar="False" ShowActivated="False" Focusable="False"
         ResizeMode="NoResize" SizeToContent="WidthAndHeight"
-        Title="Chawo VA">
-    <Border Margin="16" Padding="14,12" CornerRadius="10" MaxWidth="400"
-            Background="#F7FFFFFF" BorderBrush="#33000000" BorderThickness="1">
+        Title="Chawo VA"
+        FontFamily="{StaticResource ChawoFont}">
+    <Border Margin="16" Padding="14,12" CornerRadius="{StaticResource ChawoCardRadius}" MaxWidth="400"
+            Background="{StaticResource ChawoBgBrush}" BorderBrush="{StaticResource ChawoBorderBrush}" BorderThickness="1">
         <Border.Effect>
-            <DropShadowEffect BlurRadius="16" ShadowDepth="2" Direction="270" Opacity="0.28" Color="#000000"/>
+            <DropShadowEffect BlurRadius="16" ShadowDepth="2" Direction="270" Opacity="0.28" Color="#0A0A0A"/>
         </Border.Effect>
         <StackPanel>
             <TextBlock x:Name="CallHead" Text="звонок" Visibility="Collapsed"
-                       FontSize="11" FontWeight="SemiBold" Foreground="#99000000" Margin="0,0,0,4"/>
-            <TextBlock x:Name="WhoText" FontSize="13.5" Foreground="#D9000000" TextWrapping="Wrap" Visibility="Collapsed"/>
-            <TextBlock x:Name="ScriptText" Margin="0,4,0,8" FontSize="13" Foreground="#CC000000" TextWrapping="Wrap" Visibility="Collapsed"/>
+                       FontSize="11" FontWeight="SemiBold" Foreground="{StaticResource ChawoMutedBrush}" Margin="0,0,0,4"/>
+            <TextBlock x:Name="WhoText" FontSize="13.5" Foreground="{StaticResource ChawoInkBrush}" TextWrapping="Wrap" Visibility="Collapsed"/>
+            <TextBlock x:Name="ScriptText" Margin="0,4,0,8" FontSize="13" Foreground="{StaticResource ChawoInkBrush}" Opacity="0.85" TextWrapping="Wrap" Visibility="Collapsed"/>
             <TextBlock x:Name="Badge" Text="похоже" Visibility="Collapsed"
-                       FontSize="12" FontWeight="SemiBold" Foreground="#C05600" Margin="0,0,0,4"/>
-            <TextBlock x:Name="NameText" FontSize="15" FontWeight="SemiBold" Foreground="#D9000000" TextWrapping="Wrap"/>
-            <TextBlock x:Name="LineText" Margin="0,4,0,0" FontSize="13.5" Foreground="#CC000000" TextWrapping="Wrap"/>
+                       FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource ChawoWarnBrush}" Margin="0,0,0,4"/>
+            <TextBlock x:Name="NameText" FontSize="15" FontWeight="SemiBold" Foreground="{StaticResource ChawoInkBrush}" TextWrapping="Wrap"/>
+            <TextBlock x:Name="LineText" Margin="0,4,0,0" FontSize="13.5" Foreground="{StaticResource ChawoInkBrush}" Opacity="0.9" TextWrapping="Wrap"/>
             <TextBlock x:Name="RagLabel" Margin="0,10,0,0" FontSize="11" FontWeight="SemiBold"
-                       Foreground="#99000000" Visibility="Collapsed" Text="из материалов"/>
-            <TextBlock x:Name="RagText" Margin="0,2,0,0" FontSize="12.5" Foreground="#B3000000"
+                       Foreground="{StaticResource ChawoMutedBrush}" Visibility="Collapsed" Text="из материалов"/>
+            <TextBlock x:Name="RagText" Margin="0,2,0,0" FontSize="12.5" Foreground="{StaticResource ChawoInkBrush}" Opacity="0.8"
                        TextWrapping="Wrap" Visibility="Collapsed"/>
         </StackPanel>
     </Border>

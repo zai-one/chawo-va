@@ -19,8 +19,8 @@ public enum DictatePhase { NoModel, Idle, Listening, Recognizing }
 public partial class PisarApp : Application
 {
     public static readonly string Version = ReadVersion();
-    public const string SiteUrl = "https://gigapisar.github.io";
-    public const string RepoUrl = "https://github.com/zai-one/giga-pisar-win";
+    public const string SiteUrl = "https://chawo.ai";
+    public const string RepoUrl = "https://github.com/zai-one/chawo-va";
 
     private static Mutex? _instanceMutex;
     /// <summary>A second launch (Start menu, desktop shortcut) signals the running instance to open Settings.</summary>

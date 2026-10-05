@@ -4,21 +4,17 @@
         xmlns:app="clr-namespace:GigaPisar.App"
         Width="920" Height="560" MinWidth="820" MinHeight="420"
         ResizeMode="CanResize" WindowStartupLocation="CenterScreen"
-        FontFamily="Segoe UI Variable, Segoe UI" FontSize="13">
-    <Window.Resources>
-        <Style x:Key="NavItem" TargetType="ListBoxItem" BasedOn="{StaticResource {x:Type ListBoxItem}}">
-            <Setter Property="Padding" Value="10,8"/>
-            <Setter Property="Margin" Value="0,1"/>
-        </Style>
-    </Window.Resources>
+        Background="{StaticResource ChawoBgBrush}">
     <Grid>
         <Grid.ColumnDefinitions>
             <ColumnDefinition Width="200"/>
             <ColumnDefinition Width="*"/>
         </Grid.ColumnDefinitions>
 
-        <ListBox x:Name="Nav" Margin="10,14,6,14" BorderThickness="0" Background="Transparent"
-                 SelectionChanged="Nav_Changed" ItemContainerStyle="{StaticResource NavItem}">
+        <!-- Left nav strip: warm sand like site frame surface (light) -->
+        <Border Grid.Column="0" Background="{StaticResource ChawoSurfaceBrush}" Margin="0"/>
+        <ListBox x:Name="Nav" Grid.Column="0" Margin="10,14,6,14"
+                 SelectionChanged="Nav_Changed">
             <ListBoxItem>
                 <StackPanel Orientation="Horizontal">
                     <TextBlock Text="&#xE720;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="16" VerticalAlignment="Center"/>
@@ -66,7 +62,8 @@
                     <TextBlock x:Name="ModeLabel" Margin="0,14,0,4" FontWeight="SemiBold"/>
                     <ComboBox x:Name="ModeBox" MinWidth="240" HorizontalAlignment="Left" SelectionChanged="Mode_Changed"/>
                     <TextBlock x:Name="ModeHint" Margin="0,4,0,0" Opacity="0.7" TextWrapping="Wrap"/>
-                    <Border Margin="0,14,0,0" Padding="10,8" CornerRadius="6" BorderThickness="1" BorderBrush="#40808080">
+                    <Border Margin="0,14,0,0" Padding="10,8" CornerRadius="{StaticResource ChawoCardRadius}"
+                            Background="{StaticResource ChawoCardBrush}" BorderThickness="1" BorderBrush="{StaticResource ChawoBorderBrush}">
                         <DockPanel>
                             <Button x:Name="StopButton" DockPanel.Dock="Right" MinWidth="96" Padding="14,5" Margin="12,0,0,0"
                                     Click="Stop_Click" IsEnabled="False" FontWeight="SemiBold"/>
@@ -102,6 +99,19 @@
                     <CheckBox x:Name="RestoreClipBox" Margin="22,4,0,0" Click="RestoreClip_Click"/>
                     <CheckBox x:Name="AutostartBox" Margin="0,10,0,0" Click="Autostart_Click"/>
                     <TextBlock x:Name="TrayHint" Margin="0,8,0,0" Opacity="0.7" TextWrapping="Wrap"/>
+                    <StackPanel x:Name="FilePanel" Margin="0,18,0,0">
+                        <TextBlock x:Name="FileHeading" FontWeight="SemiBold"/>
+                        <TextBlock x:Name="FileNote" Margin="0,4,0,8" Opacity="0.75" TextWrapping="Wrap"/>
+                        <DockPanel LastChildFill="True">
+                            <Button x:Name="FilePickButton" DockPanel.Dock="Right" Margin="8,0,0,0" Padding="12,4" Click="FilePick_Click"/>
+                            <TextBox x:Name="FilePathBox" Padding="7,5" VerticalContentAlignment="Center"/>
+                        </DockPanel>
+                        <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
+                            <Button x:Name="FileRunButton" Padding="12,4" Click="FileRun_Click" FontWeight="SemiBold"/>
+                            <Button x:Name="FileStopButton" Margin="8,0,0,0" Padding="12,4" Click="FileStop_Click" Visibility="Collapsed"/>
+                        </StackPanel>
+                        <TextBlock x:Name="FileStatus" Margin="0,6,0,0" Opacity="0.85" TextWrapping="Wrap"/>
+                    </StackPanel>
                     <Button x:Name="CheckUpdatesButton" HorizontalAlignment="Left" Margin="0,16,0,0" Padding="12,4" Click="CheckUpdates_Click"/>
                 </StackPanel>
 
@@ -251,15 +261,6 @@
                         <TextBox x:Name="RemotePortBox" Padding="7,5" Width="120" HorizontalAlignment="Left" LostFocus="Remote_LostFocus"/>
                         <Button x:Name="CheckHostButton" HorizontalAlignment="Left" Margin="0,12,0,0" Padding="12,4" Click="CheckHost_Click"/>
                         <TextBlock x:Name="HostCheckStatus" Margin="0,6,0,0" Opacity="0.75" TextWrapping="Wrap"/>
-                    </StackPanel>
-                    <StackPanel x:Name="FilePanel" Margin="0,18,0,0">
-                        <TextBlock x:Name="FileHeading" FontWeight="SemiBold"/>
-                        <TextBlock x:Name="FileNote" Margin="0,4,0,0" Opacity="0.75" TextWrapping="Wrap"/>
-                        <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
-                            <Button x:Name="FilePickButton" Padding="12,4" Click="FilePick_Click"/>
-                            <Button x:Name="FileStopButton" Margin="8,0,0,0" Padding="12,4" Click="FileStop_Click" Visibility="Collapsed"/>
-                        </StackPanel>
-                        <TextBlock x:Name="FileStatus" Margin="0,6,0,0" Opacity="0.85" TextWrapping="Wrap"/>
                     </StackPanel>
                 </StackPanel>
             </Grid>
