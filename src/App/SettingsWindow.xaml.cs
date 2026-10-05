@@ -39,7 +39,7 @@ public partial class SettingsWindow : Window
     /// <summary>Last open section, kept while Pisar runs.</summary>
     private static int _lastPage;
 
-    public enum Page { Dictation, Speech, Dictionary, Sales, Brain, Network }
+    public enum Page { Dictation, File, Speech, Dictionary, Sales, Brain, Network }
 
     public SettingsWindow(Settings settings, Action apply, Action unpin, Func<BrainSource, Task> selectBrain,
         Func<Task>? downloadSpeech = null, Action? speechChanged = null, Func<string>? speechStatus = null,
@@ -80,7 +80,7 @@ public partial class SettingsWindow : Window
         if (Nav.SelectedIndex < 0) { Nav.SelectedIndex = _lastPage; return; }
         _lastPage = Nav.SelectedIndex;
         if (_lastPage > (int)Page.Network) _lastPage = 0;
-        UIElement[] pages = { DictationPage, SpeechPage, DictionaryPage, SalesPage, BrainPage, NetworkPage };
+        UIElement[] pages = { DictationPage, FilePage, SpeechPage, DictionaryPage, SalesPage, BrainPage, NetworkPage };
         for (int i = 0; i < pages.Length; i++)
             pages[i].Visibility = i == _lastPage ? Visibility.Visible : Visibility.Collapsed;
         if (_lastPage == (int)Page.Brain && _settings.Brain == BrainSource.Server) ServerPanel.FocusKey();
@@ -92,6 +92,7 @@ public partial class SettingsWindow : Window
         _loading = true;
         Title = L.T($"Chawo VA {PisarApp.Version}", $"Chawo VA {PisarApp.Version}");
         NavDictation.Text = L.T("Диктовка", "Dictation");
+        NavFile.Text = L.T("Расшифровка файла", "File transcription");
         NavSpeech.Text = L.T("Распознавание", "Speech");
         NavDictionary.Text = L.T("Словарь", "Dictionary");
         NavSales.Text = "Продажи";
@@ -292,7 +293,7 @@ public partial class SettingsWindow : Window
         if (string.IsNullOrWhiteSpace(HostCheckStatus.Text))
             HostCheckStatus.Text = L.T("Проверка только спрашивает /v1/health. Модель не скачивается.",
                                        "The check only asks /v1/health. No model is downloaded.");
-                FileHeading.Text = L.T("Расшифровать файл", "Transcribe a file");
+                FileHeading.Text = L.T("Расшифровка файла", "File transcription");
         FileNote.Text = L.T(
             "Путь к записи на этом компьютере. WAV 16 бит или Ogg/Opus. Длинная запись режется на куски не длиннее 24 секунд. Рядом появится .txt с тем же именем. В режиме клиента файл уходит на хост, текст пишется здесь. Модель сама не скачивается.",
             "Path to a recording on this PC. 16-bit WAV or Ogg/Opus. Long audio is split into pieces of at most 24 seconds. A .txt with the same name is written beside it. In client mode the file goes to the host; the text is still written here. The model is not downloaded.");

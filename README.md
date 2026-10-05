@@ -21,7 +21,7 @@ Closing the window hides it; the app stays in the tray until **Quit**.
 
 **1.16.0: оформление Chawo, «Расшифровать файл» на Диктовке.** Иконка EXE / окна / трея из [chawo.ai/icon.svg](https://chawo.ai/icon.svg) (peach-cream `#FFF3E2`, bars `#171717`, accent coral `#EF5143`, `rx=7` на 32). Цвета и радиусы из CSS сайта; шрифт Arial (запасной у сайта вместо DIN Pro). Репозиторий `zai-one/chawo-va`; updates → `releases/latest`.
 
-**Расшифровка файла.** Раньше кнопка «Указать файл» жила внизу вкладки «Сеть» — её легко не заметить. Теперь на «Диктовке» блок **«Расшифровать файл»**: поле пути, **Обзор**, **Расшифровать**; рядом с исходником пишется `.txt`. Локально и в режиме клиента (файл на хост) — как раньше.
+**Расшифровка файла.** Раньше кнопка «Указать файл» была внизу вкладки «Сеть» — её легко не заметить. Теперь отдельный пункт меню **«Расшифровка файла»** (не в Диктовке и не в Сети): поле пути, **Обзор**, **Расшифровать**, строка статуса; рядом с исходником пишется `.txt`. Локально и в режиме клиента (файл на хост) — как раньше.
 
 **Откуда качаются веса речи (без смены источника в 1.16.0).** `v3_e2e_rnnt` — архив int8 `https://github.com/moznoazachem/giga-pisar-cli/releases/latest/download/gigaam-v3-onnx-int8.tar.gz` (с проверкой SHA-256 файлов). `multilingual_large_ctc` — fp32 ONNX с `https://huggingface.co/istupakov/gigaam-multilingual-large-ctc-onnx/resolve/main/` (четыре файла + SHA-256). У официальных `ai-sage/GigaAM-v3` и `ai-sage/GigaAM-Multilingual` готовых ONNX нет (только PyTorch); `salute-developers/GigaAM` предлагает экспорт `to_onnx` самому. Совпадающего официального ONNX под текущий загрузчик нет — URL не менялись.
 
