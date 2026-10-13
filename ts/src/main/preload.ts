@@ -19,6 +19,8 @@ const api = {
     fromUrl: (url: string) => ipcRenderer.invoke('file:url', url),
     downloadYtDlp: () => ipcRenderer.invoke('file:ytdlpDownload'),
     downloadDiarize: () => ipcRenderer.invoke('file:diarizeDownload'),
+    setBriefInstruction: (text: string) => ipcRenderer.invoke('file:briefInstruction', text),
+    runBrief: (path?: string) => ipcRenderer.invoke('file:runBrief', path),
     onState: (fn: (s: unknown) => void) => {
       const h = (_e: unknown, s: unknown) => fn(s);
       ipcRenderer.on('file:state', h);

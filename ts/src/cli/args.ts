@@ -8,7 +8,7 @@ export const FORMATS = ['txt', 'srt'] as const;
 export type OutputFormat = (typeof FORMATS)[number];
 
 export interface CliOptions {
-  command: 'transcribe' | 'help' | 'version';
+  command: 'transcribe' | 'brief' | 'help' | 'version';
   inputs: string[];
   /** Empty = not given (txt). */
   formats: OutputFormat[];
@@ -24,6 +24,8 @@ export interface CliOptions {
   skipExisting: boolean;
   quiet: boolean;
   lang: 'Russian' | 'English' | null;
+  /** Override MeetingBriefInstruction; null = settings / built-in default. */
+  instruction: string | null;
 }
 
 export type ParseResult = { ok: true; options: CliOptions } | { ok: false; error: string };
@@ -42,7 +44,7 @@ const SCRIPTS: Record<string, CtcScript> = { auto: 'auto', ru: 'russian', russia
 const LANGS: Record<string, 'Russian' | 'English'> = { ru: 'Russian', russian: 'Russian', en: 'English', english: 'English' };
 
 /** Options that take a value: --out DIR and --out=DIR both work. */
-const VALUED = new Set(['--format', '-f', '--out', '-o', '--model', '--device', '--threads', '-j', '--script', '--model-dir', '--lang']);
+const VALUED = new Set(['--format', '-f', '--out', '-o', '--model', '--device', '--threads', '-j', '--script', '--model-dir', '--lang', '--instruction']);
 
 function blank(command: CliOptions['command']): CliOptions {
   return {
@@ -60,6 +62,7 @@ function blank(command: CliOptions['command']): CliOptions {
     skipExisting: false,
     quiet: false,
     lang: null,
+    instruction: null,
   };
 }
 
@@ -69,9 +72,9 @@ export function parseArgs(argv: readonly string[]): ParseResult {
   const first = args[0];
   if (first === '--help' || first === '-h' || first === 'help') return { ok: true, options: blank('help') };
   if (first === '--version' || first === '-v' || first === 'version') return { ok: true, options: blank('version') };
-  if (first !== 'transcribe') return { ok: false, error: `unknown command: ${first}` };
+  if (first !== 'transcribe' && first !== 'brief') return { ok: false, error: `unknown command: ${first}` };
 
-  const o = blank('transcribe');
+  const o = blank(first === 'brief' ? 'brief' : 'transcribe');
   let onlyFiles = false;
   for (let i = 1; i < args.length; i++) {
     let a = args[i];
@@ -159,12 +162,20 @@ export function parseArgs(argv: readonly string[]): ParseResult {
       case '-q':
         o.quiet = true;
         break;
+      case '--instruction':
+        if (!v) return { ok: false, error: '--instruction is empty' };
+        o.instruction = v;
+        break;
       default:
         return { ok: false, error: `unknown option: ${a}` };
     }
   }
   if (o.inputs.includes('-')) return { ok: false, error: 'reading audio from stdin is not supported; pass a file path' };
   if (o.inputs.length === 0) return { ok: false, error: 'no files given' };
+  if (o.command === 'brief') {
+    if (o.formats.length > 0) return { ok: false, error: 'brief writes .brief.txt (or --stdout); drop --format' };
+    if (o.model || o.device || o.threads || o.script || o.modelDir) return { ok: false, error: 'brief takes a transcript .txt (speech options are for transcribe)' };
+  }
   if (o.stdout && o.outDir) return { ok: false, error: '--stdout and --out cannot be used together' };
   if (o.stdout && o.formats.some((f) => f !== 'txt')) return { ok: false, error: '--stdout prints text only; drop --format srt' };
   return { ok: true, options: o };
@@ -172,10 +183,11 @@ export function parseArgs(argv: readonly string[]): ParseResult {
 
 export function helpText(t: (ru: string, en: string) => string): string {
   return t(
-    `Chawo Voice Assistant — расшифровка файлов из командной строки. Всё локально, ничего не отправляется.
+    `Chawo Voice Assistant — расшифровка файлов и «Кратко и задачи» из командной строки. Всё локально, ничего не отправляется.
 
 Использование:
   chawo-va transcribe <файлы или папки…> [параметры]
+  chawo-va brief <расшифровки.txt…> [параметры]
 
 Параметры:
   -f, --format txt,srt   какие файлы писать (по умолчанию txt)
@@ -192,17 +204,26 @@ export function helpText(t: (ru: string, en: string) => string): string {
   -q, --quiet            без прогресса
   -h, --help / -v, --version
 
+Параметры brief:
+      --instruction «…»  своя инструкция формата (иначе — из настроек / встроенная)
+      --stdout           печатать карточку в stdout вместо .brief.txt
+  -o, --out <папка>      куда писать .brief.txt
+      --lang ru|en       язык сообщений
+  -q, --quiet
+
 Чего нет в параметрах, берётся из настроек приложения (settings.json, только чтение).
 Модель не скачивается: сначала скачайте её в приложении («Распознавание»).
 WAV и Ogg/Opus читаются сами, остальные форматы (MP3, M4A, FLAC, …) — через ffmpeg.
 Папки — без подпапок, как в приложении.
+brief читает готовый .txt (рядом с записью или .brain.txt) и пишет .brief.txt через Мозг.
 
 Коды выхода: 0 — всё готово, 1 — часть файлов не удалась, 2 — ошибка параметров,
-3 — нет модели, 130 — прервано (Ctrl+C).`,
-    `Chawo Voice Assistant — file transcription from the command line. Everything is local; nothing is uploaded.
+3 — нет модели / Мозга, 130 — прервано (Ctrl+C).`,
+    `Chawo Voice Assistant — file transcription and «Brief and tasks» from the command line. Everything is local; nothing is uploaded.
 
 Usage:
   chawo-va transcribe <files or folders…> [options]
+  chawo-va brief <transcript.txt…> [options]
 
 Options:
   -f, --format txt,srt   which files to write (default txt)
@@ -219,12 +240,20 @@ Options:
   -q, --quiet            no progress
   -h, --help / -v, --version
 
+brief options:
+      --instruction "…"  custom format instruction (else settings / built-in)
+      --stdout           print the card to stdout instead of .brief.txt
+  -o, --out <dir>        where to write .brief.txt
+      --lang ru|en       message language
+  -q, --quiet
+
 Anything not given falls back to the app's settings (settings.json, read-only).
 No model is downloaded: download it in the app first (Speech page).
 WAV and Ogg/Opus are read natively; other formats (MP3, M4A, FLAC, …) need ffmpeg.
 Folders are not searched recursively, same as in the app.
+brief reads a finished .txt (beside the recording or .brain.txt) and writes .brief.txt via the Brain.
 
-Exit codes: 0 all done, 1 some files failed, 2 bad arguments, 3 no model, 130 interrupted (Ctrl+C).`,
+Exit codes: 0 all done, 1 some files failed, 2 bad arguments, 3 no model/Brain, 130 interrupted (Ctrl+C).`,
   );
 }
 

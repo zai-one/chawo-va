@@ -201,4 +201,17 @@ describe('log', () => {
     expect(existsSync(logPath())).toBe(true);
     expect(readFileSync(logPath(), 'utf8')).toContain('hello from test');
   });
+  it('MeetingBriefEnabled / MeetingBriefInstruction round-trip', () => {
+    const s = defaults();
+    expect(s.MeetingBriefEnabled).toBe(false);
+    expect(s.MeetingBriefInstruction).toBe('');
+    s.MeetingBriefEnabled = true;
+    s.MeetingBriefInstruction = 'Только риски';
+    const obj = toJsonObject(s);
+    expect(obj).toMatchObject({ MeetingBriefEnabled: true, MeetingBriefInstruction: 'Только риски' });
+    expect(fromJsonObject(obj).settings.MeetingBriefEnabled).toBe(true);
+    expect(fromJsonObject(obj).settings.MeetingBriefInstruction).toBe('Только риски');
+    expect(fromJsonObject({}).settings.MeetingBriefEnabled).toBe(false);
+  });
+
 });

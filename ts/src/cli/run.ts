@@ -47,6 +47,20 @@ export interface Engine {
   dispose(): Promise<void>;
 }
 
+export interface BriefBrain {
+  /** 'None' | 'Local' | 'Cloud' — same as FileBrain.target. */
+  target: 'None' | 'Local' | 'Cloud';
+  /** Saved MeetingBriefInstruction (may be empty → built-in default). */
+  instruction: string;
+  ask: (
+    prompt: string,
+    text: string,
+    maxTokens: number,
+    status: (line: string) => void,
+    signal: AbortSignal,
+  ) => Promise<string>;
+}
+
 export interface CliDeps {
   version: string;
   out(text: string): void;
@@ -61,11 +75,16 @@ export interface CliDeps {
   openEngine(cfg: EngineConfig): Promise<Engine>;
   load16k(path: string, signal: AbortSignal): Promise<Float32Array>;
   outputPath(source: string): string;
+  /** .brief.txt path beside a transcript .txt. */
+  briefOutputPath(transcriptTxt: string): string;
   isDirectory(path: string): boolean;
   exists(path: string): boolean;
   collectFromFolder(folder: string): string[];
   mkdirp(dir: string): void;
   writeFile(path: string, text: string): void;
+  readFile(path: string): string;
+  /** Brain for `brief` (Local / Server). Tests inject a fake ask. */
+  briefBrain(): BriefBrain;
   log(line: string): void;
   now(): number;
   signal: AbortSignal;
@@ -95,11 +114,94 @@ export async function runCli(argv: readonly string[], d: CliDeps): Promise<numbe
     d.out(`chawo-va ${d.version}\n`);
     return EXIT_OK;
   }
+  if (o.command === 'brief') return brief(o, d);
   return transcribe(o, defaults, d);
 }
 
 function message(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
+}
+
+
+async function brief(o: CliOptions, d: CliDeps): Promise<number> {
+  const t = d.t;
+  const say = (line: string) => {
+    if (!o.quiet) d.err(line + '\n');
+  };
+  const fail = (line: string) => d.err(line + '\n');
+
+  const files: string[] = [];
+  let failed = 0;
+  for (const input of o.inputs) {
+    if (d.isDirectory(input)) {
+      fail(t(`Ошибка: brief ждёт файл .txt, не папку: ${input}`, `Error: brief wants a .txt file, not a folder: ${input}`));
+      failed++;
+      continue;
+    }
+    if (!d.exists(input)) {
+      fail(t(`Ошибка: такого файла нет: ${input}`, `Error: no such file: ${input}`));
+      failed++;
+      continue;
+    }
+    if (!files.includes(input)) files.push(input);
+  }
+  if (files.length === 0) return EXIT_FAILED;
+
+  const brain = d.briefBrain();
+  if (brain.target === 'None') {
+    fail(
+      t(
+        'Ошибка: Мозг не настроен. Скачайте локальную модель на «Мозге» или укажите сервер в настройках.',
+        'Error: the Brain is not set up. Download a local model on Brain, or configure a server in settings.',
+      ),
+    );
+    return EXIT_NO_MODEL;
+  }
+
+  // Lazy import keeps the CLI entry light when only transcribing.
+  const { runBriefAsync } = await import('../main/brain/meetingBrief');
+  const instruction = o.instruction ?? brain.instruction;
+
+  if (o.outDir && !o.stdout) d.mkdirp(o.outDir);
+
+  for (let i = 0; i < files.length; i++) {
+    if (d.signal.aborted) break;
+    const src = files[i]!;
+    const prefix = files.length > 1 ? `[${i + 1}/${files.length}] ` : '';
+    say(prefix + src);
+    try {
+      const transcript = d.readFile(src);
+      const result = await runBriefAsync({
+        targetKind: brain.target,
+        transcript,
+        instruction,
+        status: (line) => say(prefix + line),
+        signal: d.signal,
+        ask: brain.ask,
+      });
+      if (o.stdout) {
+        if (files.length > 1) d.out(`==> ${src} <==\n`);
+        d.out(result.text.endsWith('\n') ? result.text : result.text + '\n');
+      } else {
+        const beside = d.briefOutputPath(src);
+        const out = o.outDir ? join(o.outDir, basename(beside)) : beside;
+        d.writeFile(out, result.text);
+        say(prefix + t(`Готово: ${out}`, `Done: ${out}`) + (result.warning ? ` (${result.warning})` : ''));
+      }
+      d.log(`cli brief ${src} ok`);
+    } catch (e) {
+      if (d.signal.aborted) break;
+      failed++;
+      fail(prefix + t(`Ошибка: ${src}: ${message(e)}`, `Error: ${src}: ${message(e)}`));
+      d.log(`cli brief ${src} failed: ${message(e)}`);
+    }
+  }
+
+  if (d.signal.aborted) {
+    fail(t('Прервано.', 'Interrupted.'));
+    return EXIT_INTERRUPTED;
+  }
+  return failed > 0 ? EXIT_FAILED : EXIT_OK;
 }
 
 async function transcribe(o: CliOptions, defaults: CliDefaults, d: CliDeps): Promise<number> {

@@ -14,6 +14,9 @@ import { findComplete, looksComplete } from './main/models/speechModelStore';
 import { settingsPath } from './main/paths';
 import { defaults as settingsDefaults, fromJsonObject, toCtcScript, toFileParallelism, toSpeechDeviceKind, toSpeechModelKind } from './main/settings';
 import { collectFromFolder, load16k, outputPath } from './main/file/fileTranscript';
+import * as MeetingBrief from './main/brain/meetingBrief';
+import * as FileBrain from './main/brain/fileBrain';
+import type { SettingsData } from './main/settings';
 import type { SpeechModelKind } from './core/speechModels';
 
 const RATE = 16000;
@@ -27,7 +30,7 @@ function version(): string {
 }
 
 /** settings.json read-only (load() may migrate and save; the CLI must not touch the app's file). */
-export function readDefaults(): CliDefaults {
+function readSettings(): SettingsData {
   let s = settingsDefaults();
   try {
     const path = settingsPath();
@@ -35,6 +38,11 @@ export function readDefaults(): CliDefaults {
   } catch {
     /* defaults */
   }
+  return s;
+}
+
+export function readDefaults(): CliDefaults {
+  const s = readSettings();
   return {
     model: toSpeechModelKind(s.SpeechModel),
     device: toSpeechDeviceKind(s.SpeechDevice),
@@ -84,6 +92,7 @@ export function realDeps(signal: AbortSignal): CliDeps {
     openEngine,
     load16k,
     outputPath,
+    briefOutputPath: (txt) => MeetingBrief.outputPath(txt),
     isDirectory: (p) => {
       try {
         return statSync(p).isDirectory();
@@ -95,6 +104,16 @@ export function realDeps(signal: AbortSignal): CliDeps {
     collectFromFolder,
     mkdirp: (dir) => mkdirSync(dir, { recursive: true }),
     writeFile: (p, text) => writeFileSync(p, text, 'utf8'),
+    readFile: (p) => readFileSync(p, 'utf8'),
+    briefBrain: () => {
+      const s = readSettings();
+      const target = MeetingBrief.target(s);
+      return {
+        target,
+        instruction: s.MeetingBriefInstruction,
+        ask: FileBrain.createAsk(s, target === 'None' ? 'Local' : target),
+      };
+    },
     log: (line) => Log.write(line),
     now: () => Date.now(),
     signal,

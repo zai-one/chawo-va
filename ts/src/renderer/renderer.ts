@@ -13,11 +13,21 @@ interface FileState {
   items: FileItem[];
   status: string;
   busy: boolean;
-  options: { timestamps: boolean; srt: boolean; extra: string[]; parallelism: string; diarize: boolean };
+  options: { timestamps: boolean; srt: boolean; extra: string[]; parallelism: string; diarize: boolean; brief: boolean };
   ffmpeg: { line: string; canDownload: boolean; installed: boolean };
   url: { line: string; canDownload: boolean; installed: boolean; managed: boolean; busy: boolean; folder: string };
   diarization: { onDisk: boolean; ready: boolean; downloading: boolean; line: string; canDownload: boolean };
   lastOutput: string | null;
+  brief: {
+    enabled: boolean;
+    instruction: string;
+    defaultInstruction: string;
+    where: string;
+    available: boolean;
+    text: string;
+    path: string | null;
+    busy: boolean;
+  };
   ru: boolean;
 }
 interface FileApi {
@@ -34,6 +44,8 @@ interface FileApi {
   fromUrl(url: string): Promise<FileState>;
   downloadYtDlp(): Promise<FileState>;
   downloadDiarize(): Promise<FileState>;
+  setBriefInstruction(text: string): Promise<FileState>;
+  runBrief(path?: string): Promise<FileState>;
   onState(fn: (s: FileState) => void): () => void;
   onToast(fn: (s: string) => void): () => void;
 }
@@ -1525,7 +1537,41 @@ function renderFile(): void {
     ),
   );
 
-  const link = el('input', { type: 'text', id: 'file-url', value: urlDraft, spellcheck: false, autocomplete: 'off', placeholder: 'https://www.youtube.com/watch?v=…' });
+
+  // «Кратко и задачи» — after a meeting/file transcript, via the Brain (local by default).
+  const br = s.brief ?? { enabled: false, instruction: '', defaultInstruction: '', where: '', available: false, text: '', path: null, busy: false };
+  const briefOn = el('input', { type: 'checkbox', checked: br.enabled || s.options.brief, disabled: !br.available && !br.enabled });
+  briefOn.addEventListener('change', () => void bridge.file.setOptions({ brief: briefOn.checked }).then(apply));
+  const instr = el('textarea', { rows: 4, spellcheck: true }) as HTMLTextAreaElement;
+  instr.value = br.instruction || br.defaultInstruction;
+  instr.placeholder = br.defaultInstruction;
+  instr.addEventListener('change', () => void bridge.file.setBriefInstruction(instr.value).then((st) => { fileState = st; }));
+  const make = button(L('Составить по последней расшифровке', 'Build from the last transcript'), () => void bridge.file.runBrief().then(apply), 'primary');
+  make.disabled = s.busy || br.busy || !br.available || !s.lastOutput;
+  const briefBox = el('fieldset', { className: 'meeting-brief' },
+    el('legend', { textContent: L('Кратко и задачи', 'Brief and tasks') }),
+    el('label', {}, briefOn, L(' После расшифровки писать .brief.txt', ' After transcription also write .brief.txt')),
+    el('p', { className: 'muted hint', textContent: br.available
+      ? L(`Мозг: ${br.where}. Инструкцию формата можно править — Мозг следует ей.`, `Brain: ${br.where}. You can edit the format instruction — the Brain follows it.`)
+      : L('Нужен Мозг: скачайте локальную модель на «Мозге» или настройте свой сервер. Расшифровка без этого всё равно работает.', 'Needs the Brain: download a local model on Brain, or set up your own server. Transcription still works without it.') }),
+    el('label', {}, L('Инструкция формата вывода', 'Output format instruction')),
+    instr,
+    el('div', { className: 'row' }, make),
+  );
+  if (br.text) {
+    const card = el('div', { className: 'card result brief-card' },
+      el('div', { className: 'card-head' },
+        el('strong', { textContent: L('Карточка', 'Card') }),
+        br.path ? button(L('Показать файл', 'Show file'), () => void bridge.file.reveal(br.path!), 'link') : el('span'),
+      ),
+      el('pre', { className: 'last-text', textContent: br.text }),
+    );
+    briefBox.append(card);
+  }
+  page.append(briefBox);
+
+
+    const link = el('input', { type: 'text', id: 'file-url', value: urlDraft, spellcheck: false, autocomplete: 'off', placeholder: 'https://www.youtube.com/watch?v=…' });
   const go = () => {
     if (!urlDraft.trim()) return;
     void bridge.file.fromUrl(urlDraft).then((st) => {

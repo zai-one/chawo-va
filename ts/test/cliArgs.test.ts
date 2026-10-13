@@ -78,6 +78,15 @@ describe('cli args', () => {
     expect(ok(['transcribe', 'a', '--stdout', '-f', 'txt']).stdout).toBe(true);
   });
 
+
+  it('brief command + --instruction; rejects speech-only flags', () => {
+    expect(ok(['brief', 'a.txt']).command).toBe('brief');
+    expect(ok(['brief', 'a.txt', '--instruction', 'Только задачи']).instruction).toBe('Только задачи');
+    expect(err(['brief', 'a.txt', '-f', 'srt'])).toContain('brief writes');
+    expect(err(['brief', 'a.txt', '--model', 'v3'])).toContain('transcript');
+    expect(err(['brief', '--instruction'])).toContain('needs a value');
+  });
+
   it('help in both languages names every option and the exit codes', () => {
     for (const lang of [(ru: string) => ru, (_: string, en: string) => en]) {
       const h = helpText(lang);

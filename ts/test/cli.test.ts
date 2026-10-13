@@ -32,6 +32,11 @@ function harness(opts: {
   engineFails?: string;
   isTTY?: boolean;
   onTranscribe?: (h: Harness) => void;
+  /** Seed file contents for readFile (brief). */
+  fileText?: Record<string, string>;
+  briefTarget?: 'None' | 'Local' | 'Cloud';
+  briefInstruction?: string;
+  briefAsk?: (prompt: string, text: string) => Promise<string>;
 } = {}): Harness {
   let lang: 'ru' | 'en' = 'en';
   const h = { out: [], err: [], files: new Map(), opened: [], disposed: 0, logs: [], ac: new AbortController() } as unknown as Harness;
@@ -71,15 +76,31 @@ function harness(opts: {
       return path.includes('silent') ? new Float32Array(0) : new Float32Array(16000 * 65);
     },
     outputPath,
+    briefOutputPath: (txt) => (txt.endsWith('.brain.txt') ? txt.slice(0, -'.brain.txt'.length) : txt.replace(/\.txt$/i, '')) + '.brief.txt',
     isDirectory: (p) => Boolean(opts.dirs?.[p]),
-    exists: (p) => existing.has(p) || h.files.has(p),
+    exists: (p) => existing.has(p) || h.files.has(p) || Boolean(opts.fileText?.[p]),
     collectFromFolder: (p) => opts.dirs?.[p] ?? [],
     mkdirp: () => undefined,
     writeFile: (p, text) => h.files.set(p, text),
+    readFile: (p) => {
+      if (opts.fileText?.[p] !== undefined) return opts.fileText[p]!;
+      if (h.files.has(p)) return h.files.get(p)!;
+      throw new Error('no such file: ' + p);
+    },
+    briefBrain: () => ({
+      target: opts.briefTarget ?? 'Local',
+      instruction: opts.briefInstruction ?? '',
+      ask: async (prompt, text) => {
+        if (opts.briefAsk) return opts.briefAsk(prompt, text);
+        return 'Кратко\n- тест\n\nЗадачи\n- сделать дело\n';
+      },
+    }),
     log: (l) => h.logs.push(l),
     now: () => (clock += 1500),
     signal: h.ac.signal,
   };
+  // Seed fileText into existing set
+  for (const k of Object.keys(opts.fileText ?? {})) existing.add(k);
   return h;
 }
 
@@ -269,5 +290,44 @@ describe('readDefaults (settings.json read-only)', () => {
     process.env.CHAWO_APPDATA = dir;
     const { readDefaults } = await import('../src/cli');
     expect(readDefaults()).toMatchObject({ model: 'v3_e2e_rnnt', device: 'gpu', threads: 'auto', timestamps: true });
+  });
+});
+
+describe('runCli brief', () => {
+  it('writes .brief.txt beside the transcript via injected ask', async () => {
+    const h = harness({
+      fileText: { '/rec/meet.txt': 'Иван: сделаем отчёт к пятнице. Мария согласна.' },
+      briefAsk: async () => 'Кратко\n- Обсудили отчёт\n\nЗадачи\n- Иван: отчёт к пятнице\n',
+    });
+    expect(await run(h, 'brief', '/rec/meet.txt')).toBe(EXIT_OK);
+    expect(h.files.get('/rec/meet.brief.txt')).toContain('Задачи');
+    expect(h.files.get('/rec/meet.brief.txt')).toContain('Иван');
+    expect(h.err.join('')).toContain('Done: /rec/meet.brief.txt');
+  });
+
+  it('--instruction override and --stdout', async () => {
+    const seen: string[] = [];
+    const h = harness({
+      fileText: { '/a.txt': 'Hello world meeting.' },
+      briefAsk: async (prompt) => {
+        seen.push(prompt);
+        return 'Summary\n- Hi\n\nTasks\n- none\n';
+      },
+    });
+    expect(await run(h, 'brief', '/a.txt', '--instruction', 'Use English headings only.', '--stdout')).toBe(EXIT_OK);
+    expect(seen[0]).toContain('Use English headings only.');
+    expect(h.out.join('')).toContain('Summary');
+    expect([...h.files.keys()]).toEqual([]);
+  });
+
+  it('no Brain → EXIT_NO_MODEL', async () => {
+    const h = harness({ fileText: { '/a.txt': 'x' }, briefTarget: 'None' });
+    expect(await run(h, 'brief', '/a.txt')).toBe(EXIT_NO_MODEL);
+    expect(h.err.join('')).toMatch(/Brain is not set up|Мозг не настроен/);
+  });
+
+  it('rejects --format on brief', async () => {
+    const h = harness();
+    expect(await run(h, 'brief', 'a.txt', '-f', 'srt')).toBe(EXIT_USAGE);
   });
 });
