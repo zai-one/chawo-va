@@ -1,0 +1,13 @@
+/* Dark only. Palette follows the WPF app: near-black surfaces, coral accent. */
+:root { color-scheme: dark; --bg: #14161a; --panel: #1c1f24; --line: #2a2e35; --text: #e6e8eb; --muted: #8b929c; --accent: #ff6b5a; }
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text); font: 14px/1.45 "Segoe UI", system-ui, sans-serif; }
+body { display: flex; }
+.nav { width: 200px; background: var(--panel); border-right: 1px solid var(--line); padding: 16px 8px; display: flex; flex-direction: column; gap: 2px; }
+.brand { font-weight: 600; font-size: 18px; padding: 4px 12px 16px; color: var(--accent); }
+.nav button { all: unset; padding: 8px 12px; border-radius: 6px; cursor: pointer; color: var(--muted); }
+.nav button:hover { background: var(--line); color: var(--text); }
+.nav button.active { background: var(--line); color: var(--text); }
+main { flex: 1; padding: 24px 32px; overflow: auto; }
+h1 { font-size: 20px; font-weight: 600; margin: 0 0 12px; }
+.muted { color: var(--muted); }

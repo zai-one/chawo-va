@@ -1,0 +1,10 @@
+// Platform-neutral core: no Electron, no Windows APIs. Shared by the desktop app and a future CLI/server.
+export * from './transcriptFormat';
+export * from './wordReplace';
+export * from './speechModels';
+export * from './ctcScriptDecoder';
+export * from './tokenizer';
+export * from './modelConfig';
+export * from './features';
+export * from './audio';
+export * from './fileParallel';
