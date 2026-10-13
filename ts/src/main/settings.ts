@@ -7,6 +7,7 @@ import { DEFAULT_RULES, formatRules, parseRules, type ReplacePair } from '../cor
 import type { CtcScript, SpeechDeviceKind, SpeechModelKind } from '../core/speechModels';
 import type { FileParallelismKind } from '../core/fileParallel';
 import { HERMES_PORT } from '../core/speechModels';
+import { DEFAULT_IDLE_UNLOAD_MINUTES, normalizeIdleMinutes } from '../core/idleTimer';
 import { write as logWrite } from './log';
 import { appDataDir, settingsPath } from './paths';
 import { providerIdFromUrl } from './brainProviders';
@@ -85,6 +86,8 @@ export interface SettingsData {
   VadEnabled: boolean;
   /** Stop a take after this many ms of silence following speech; 0 = off (settings.json only for now). */
   VadAutoStopMs: number;
+  /** Unload the speech model and the local Brain after this many idle minutes (0, 5, 15, 30, 60; 0 = never). */
+  IdleUnloadMinutes: number;
   WordReplacementRules: string;
   /** «запятая», «новая строка» … → marks in a dictated phrase (IDEAS №9). Off by default. */
   SpokenPunctuation: boolean;
@@ -147,6 +150,7 @@ export function defaults(): SettingsData {
     SimpleSyntax: false,
     VadEnabled: true,
     VadAutoStopMs: 0,
+    IdleUnloadMinutes: DEFAULT_IDLE_UNLOAD_MINUTES,
     WordReplacementRules: '',
     SpokenPunctuation: false,
     SpokenNumbers: false,
@@ -393,6 +397,7 @@ export function fromJsonObject(raw: Record<string, unknown>): { settings: Settin
   d.SimpleSyntax = asBool(raw.SimpleSyntax, d.SimpleSyntax);
   d.VadEnabled = asBool(raw.VadEnabled, d.VadEnabled);
   d.VadAutoStopMs = Math.min(60_000, Math.max(0, asInt(raw.VadAutoStopMs, d.VadAutoStopMs)));
+  d.IdleUnloadMinutes = raw.IdleUnloadMinutes === undefined ? d.IdleUnloadMinutes : normalizeIdleMinutes(raw.IdleUnloadMinutes);
   d.WordReplacementRules = asString(raw.WordReplacementRules, d.WordReplacementRules);
   d.SpokenPunctuation = asBool(raw.SpokenPunctuation, d.SpokenPunctuation);
   d.SpokenNumbers = asBool(raw.SpokenNumbers, d.SpokenNumbers);
@@ -478,6 +483,7 @@ export function toJsonObject(s: SettingsData): Record<string, unknown> {
     SimpleSyntax: s.SimpleSyntax,
     VadEnabled: s.VadEnabled,
     VadAutoStopMs: s.VadAutoStopMs,
+    IdleUnloadMinutes: s.IdleUnloadMinutes,
     WordReplacementRules: s.WordReplacementRules,
     SpokenPunctuation: s.SpokenPunctuation,
     SpokenNumbers: s.SpokenNumbers,

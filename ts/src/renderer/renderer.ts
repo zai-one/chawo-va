@@ -72,6 +72,9 @@ interface SpeechState {
   cpuThreads: number;
   cores: number;
   threadsHint: string;
+  idleMinutes: number;
+  idleChoices: { value: number; label: string }[];
+  idleHint: string;
   status: string;
   download: { kind: string; percent: number | null; text: string; running: boolean; failed: boolean } | null;
   vad: { enabled: boolean; onDisk: boolean; downloading: boolean; canDownload: boolean; note: string } | null;
@@ -81,6 +84,7 @@ interface SpeechApi {
   select(kind: string): Promise<SpeechState>;
   setDevice(d: 'Gpu' | 'Cpu'): Promise<SpeechState>;
   setThreads(n: number): Promise<SpeechState>;
+  setIdle(minutes: number): Promise<SpeechState>;
   download(kind: string): Promise<SpeechState>;
   cancel(): Promise<SpeechState>;
   dismiss(): Promise<SpeechState>;
@@ -1437,6 +1441,12 @@ function renderSpeech(): void {
     if (v.canDownload) hint.append(' ', button(L('Скачать (2 МБ)', 'Download (2 MB)'), () => void bridge.speech.downloadVad().then(applySpeech), 'link'));
     page.append(hint);
   }
+
+  page.append(el('label', { className: 'block', textContent: L('Выгружать модели при простое', 'Unload models when idle') }));
+  const idle = el('select');
+  for (const c of s.idleChoices) idle.append(el('option', { value: String(c.value), textContent: c.label, selected: c.value === s.idleMinutes }));
+  idle.addEventListener('change', () => void bridge.speech.setIdle(Number(idle.value)).then(applySpeech));
+  page.append(idle, el('p', { className: 'muted hint', textContent: s.idleHint }));
 
   page.append(el('p', { className: 'muted line', textContent: s.status }));
 }

@@ -178,7 +178,11 @@ if (!app.requestSingleInstanceLock()) {
       sales: (text) => sales.session.show(text),
       // Leaving Sales mode closes the stand-in call and hides the card (App.ApplySettings).
       changed: () => sales.session.settingsChanged(),
+      // A Hermes request on this PC's recognizer keeps it loaded.
+      idleBusy: () => hermesTranscribe.inFlight() > 0,
     });
+    // The local Brain follows the same «Выгружать модели при простое» delay.
+    LocalBrain.setIdleSource(() => settings.IdleUnloadMinutes * 60_000);
     // Windows: the global hold key and inserting into other apps (KeyboardHook / TextInserter) live in a
     // small helper exe. Elsewhere the in-window hold button is the way to dictate for now.
     if (process.platform === 'win32') {
@@ -204,6 +208,7 @@ if (!app.requestSingleInstanceLock()) {
       load: () => dictation.session.ensureLoaded(),
       modelName: () => settings.SpeechModel,
       pauses: (x) => filePauses(settings, x, 16000),
+      used: () => dictation.session.touchIdle(),
     });
     const network = registerNetworkIpc(() => win, { get: () => settings }, {
       transcribe: hermesTranscribe,
@@ -215,6 +220,10 @@ if (!app.requestSingleInstanceLock()) {
       changed: () => dictation.session.speechChanged(),
       session: () => dictation.session.sessionLine(),
       beforeDelete: () => dictation.session.release(),
+      idleChanged: () => {
+        dictation.session.touchIdle();
+        LocalBrain.idleChanged();
+      },
     });
     registerDictionaryIpc({ get: () => settings });
     const brain = registerBrainIpc(() => win, { get: () => settings }, { lastApp: () => lastApp });

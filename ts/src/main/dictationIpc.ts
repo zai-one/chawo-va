@@ -51,7 +51,7 @@ export interface DictationIpc {
 export function registerDictationIpc(
   getWindow: () => BrowserWindow | null,
   settings: { get: () => SettingsData },
-  opts: { changed?: () => void; overlay?: OverlayWindow; sales?: (transcript: string) => void; keys?: () => GlobalKeys | null; record?: (take: TakeRecord) => void; phase?: (phase: CuePhase) => void; onApp?: (app: ForegroundApp | null, ruleIndex: number | null) => void } = {},
+  opts: { changed?: () => void; overlay?: OverlayWindow; sales?: (transcript: string) => void; keys?: () => GlobalKeys | null; record?: (take: TakeRecord) => void; phase?: (phase: CuePhase) => void; onApp?: (app: ForegroundApp | null, ruleIndex: number | null) => void; idleBusy?: () => boolean } = {},
 ): DictationIpc {
   const send = (channel: string, payload: unknown) => {
     const w = getWindow();
@@ -114,6 +114,7 @@ export function registerDictationIpc(
     onApp: opts.onApp,
     record: opts.record,
     sales: opts.sales,
+    idleBusy: opts.idleBusy,
     inserter: () => {
       const k = opts.keys?.() ?? null;
       return k && k.state === 'ready' ? k : null;

@@ -160,6 +160,28 @@ describe('SpeechController', () => {
   });
 });
 
+describe('speech page: «Выгружать модели при простое»', () => {
+  it('offers never/5/15/30/60 with 15 selected; saves only real choices and re-arms the timers', () => {
+    let rearm = 0;
+    const { s, ctl, saves } = make({ idleChanged: () => void rearm++ });
+    const st = ctl.state();
+    expect(st.idleMinutes).toBe(15);
+    expect(st.idleChoices.map((c) => c.value)).toEqual([0, 5, 15, 30, 60]);
+    expect(st.idleChoices.map((c) => c.label)).toEqual(['Не выгружать', 'Через 5 мин', 'Через 15 мин', 'Через 30 мин', 'Через 1 час']);
+    expect(st.idleHint).toMatch(/локальный Мозг/);
+    ctl.setIdleMinutes(15);
+    ctl.setIdleMinutes(7);
+    ctl.setIdleMinutes(Number.NaN);
+    expect(saves()).toBe(0);
+    expect(rearm).toBe(0);
+    ctl.setIdleMinutes(0);
+    expect(s.IdleUnloadMinutes).toBe(0);
+    expect(saves()).toBe(1);
+    expect(rearm).toBe(1);
+    expect(ctl.state().idleMinutes).toBe(0);
+  });
+});
+
 describe('speech page: «Обрезать тишину (VAD)»', () => {
   function fakeVad(opts: { fail?: string } = {}) {
     const v = {

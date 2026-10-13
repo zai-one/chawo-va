@@ -36,6 +36,7 @@ import { applyRule, exeKey, findRule, type ForegroundApp } from '../../core/appR
 import * as Log from '../log';
 import type { OverlaySink } from '../overlay/overlayModel';
 import type { SelectionReaderLike, TextInserterLike } from '../native/nativeHelper';
+import { IdleTimer, type IdleClock } from '../../core/idleTimer';
 import { findComplete } from '../models';
 import {
   effectiveWordReplacementRules,
@@ -107,6 +108,10 @@ export interface SessionHooks {
   sales?: (transcript: string) => void;
   /** A finished take with text, for «История». Errors here never affect the take. */
   record?: (take: TakeRecord) => void;
+  /** Someone else is using the open recognizer (Hermes requests): idle unload waits. */
+  idleBusy?: () => boolean;
+  /** Fake timers for the idle unload in tests. */
+  idleClock?: IdleClock;
 }
 
 /** What «История» keeps of a take: the text before and after the Brain, no audio. */
@@ -181,6 +186,9 @@ export class DictationSession {
   private fgTask: Promise<ForegroundApp | null> | null = null;
   private readonly trim: NonNullable<SessionHooks['trim']>;
   private watch: SilenceWatch | null = null;
+  private readonly idle: IdleTimer;
+  /** The last session was closed by the idle unload (the status says so instead of «not loaded»). */
+  private idleUnloaded = false;
 
   constructor(hooks: SessionHooks) {
     this.h = { find: findComplete, open: openRecognizer, platform: process.platform, ...hooks };
@@ -189,6 +197,12 @@ export class DictationSession {
       ?? ((s, body, command, status, signal, selection) => transformAsync(s, body, command, status, signal, selection ?? false, hooks.fetch ?? globalThis.fetch));
     this.remote = hooks.remote ?? ((s, samples, rate, signal) => RemoteSpeech.transcribe(s, samples, rate, signal));
     this.trim = hooks.trim ?? ((s, samples, rate) => trimTake(s, samples, rate));
+    this.idle = new IdleTimer({
+      ms: () => this.h.settings().IdleUnloadMinutes * 60_000,
+      busy: () => this.isBusy || this.loading !== null || (this.h.idleBusy?.() ?? false),
+      onIdle: () => this.unloadIdle(),
+      clock: hooks.idleClock,
+    });
     this.buf.onTakeTooLong = () => {
       Log.write('take too long, stopping');
       void this.stopTake().then(() => {
@@ -579,6 +593,7 @@ export class DictationSession {
       this.selectionAtPress = null;
       if (this.takeAbort === abort) this.takeAbort = null;
       this.disposeRetired();
+      if (this.rec) this.idle.touch();
       this.push();
     }
     return result;
@@ -780,6 +795,8 @@ export class DictationSession {
         }
         this.rec = r;
         this.recKey = key;
+        this.idleUnloaded = false;
+        this.idle.touch();
         this.loadNote = r.deviceNote && r.deviceActual === 'cpu'
           ? t('Видеокарта не поднялась, считаю на процессоре.', 'The video card did not start, running on the processor.')
           : '';
@@ -822,7 +839,23 @@ export class DictationSession {
     if (!this.busy) await this.disposeRetired();
   }
 
+  /** The open recognizer was just used outside a take (a Hermes request): restart the idle delay. */
+  touchIdle(): void {
+    if (this.rec) this.idle.touch();
+  }
+
+  /** Nobody dictated for «Выгружать модели при простое» minutes: free the memory. The next key press loads it again. */
+  private unloadIdle(): void {
+    if (!this.rec || this.isBusy) return;
+    Log.write(`speech model idle for ${this.h.settings().IdleUnloadMinutes} min, releasing memory`);
+    this.retire();
+    this.idleUnloaded = true;
+    this.push();
+  }
+
   private retire(): void {
+    this.idle.cancel();
+    this.idleUnloaded = false;
     if (this.rec) this.retired.push(this.rec);
     this.rec = null;
     this.recKey = '';
@@ -847,7 +880,10 @@ export class DictationSession {
     const s = this.h.settings();
     const rec = this.rec;
     if (!rec || rec.kind !== toSpeechModelKind(s.SpeechModel)) {
-      return this.loadError ? t('Файлы на месте, но сессия не загружена. ', 'The files are there, but the session is not loaded. ') + this.loadError : null;
+      if (this.loadError) return t('Файлы на месте, но сессия не загружена. ', 'The files are there, but the session is not loaded. ') + this.loadError;
+      return this.idleUnloaded
+        ? t('Выгружена из памяти после простоя, загрузится при следующей диктовке.', 'Unloaded from memory after being idle; it loads again on the next take.')
+        : null;
     }
     const gpu = rec.deviceActual === 'gpu';
     const where = gpu

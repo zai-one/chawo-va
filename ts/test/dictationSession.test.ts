@@ -647,3 +647,92 @@ describe('DictationSession: global hold key takes go into the focused app', () =
     expect(sess.view().status).toBe('Слишком коротко. Держите клавишу, пока говорите.');
   });
 });
+
+/** Manual clock for the idle unload: run() fires whatever is pending. */
+function manualClock() {
+  let next = 1;
+  const pending = new Map<number, { fn: () => void; ms: number }>();
+  return {
+    clock: {
+      setTimeout: (fn: () => void, ms: number) => {
+        const id = next++;
+        pending.set(id, { fn, ms });
+        return id;
+      },
+      clearTimeout: (h: unknown) => void pending.delete(h as number),
+    },
+    pending: () => [...pending.values()].map((p) => p.ms),
+    run: () => {
+      const list = [...pending.entries()];
+      pending.clear();
+      for (const [, p] of list) p.fn();
+    },
+  };
+}
+
+describe('DictationSession idle unload (IDEAS №13)', () => {
+  it('unloads the recognizer after the idle delay and the next take loads it again', async () => {
+    const c = manualClock();
+    const { s, sess, opened, recs } = make({ idleClock: c.clock });
+    expect(s.IdleUnloadMinutes).toBe(15);
+    sess.startTake();
+    feed(sess, speech(1));
+    await sess.stopTake();
+    expect(sess.current()).toBe(recs[0]);
+    expect(c.pending()).toEqual([15 * 60_000]);
+    c.run();
+    await Promise.resolve();
+    expect(sess.current()).toBeNull();
+    expect(recs[0].disposed).toBe(1);
+    expect(sess.sessionLine()).toBe('Выгружена из памяти после простоя, загрузится при следующей диктовке.');
+    expect(sess.phase).toBe('Idle');
+    // Lazy warm-up: the key press starts loading while the user speaks.
+    sess.startTake();
+    expect(opened).toHaveLength(2);
+    feed(sess, speech(1));
+    expect(await sess.stopTake()).toBe('привет мир');
+    expect(recs).toHaveLength(2);
+    expect(sess.sessionLine()).toMatch(/^Загружена v3_e2e_rnnt/);
+  });
+
+  it('never unloads at 0 minutes', async () => {
+    const c = manualClock();
+    const { sess, recs } = make({ idleClock: c.clock }, (x) => { x.IdleUnloadMinutes = 0; });
+    await sess.ensureLoaded();
+    expect(c.pending()).toEqual([]);
+    expect(sess.current()).toBe(recs[0]);
+  });
+
+  it('waits while recording or while Hermes uses the recognizer', async () => {
+    const c = manualClock();
+    let hermes = true;
+    const { sess, recs } = make({ idleClock: c.clock, idleBusy: () => hermes }, (x) => { x.IdleUnloadMinutes = 5; });
+    await sess.ensureLoaded();
+    expect(c.pending()).toEqual([5 * 60_000]);
+    c.run();
+    expect(sess.current()).toBe(recs[0]);
+    expect(c.pending()).toEqual([5 * 60_000]);
+    hermes = false;
+    sess.startTake();
+    c.run();
+    expect(sess.current()).toBe(recs[0]);
+    sess.cancelTake();
+    c.run();
+    await Promise.resolve();
+    expect(sess.current()).toBeNull();
+    expect(recs[0].disposed).toBe(1);
+  });
+
+  it('touchIdle restarts the delay only while something is loaded; release cancels it', async () => {
+    const c = manualClock();
+    const { s, sess } = make({ idleClock: c.clock });
+    sess.touchIdle();
+    expect(c.pending()).toEqual([]);
+    await sess.ensureLoaded();
+    s.IdleUnloadMinutes = 30;
+    sess.touchIdle();
+    expect(c.pending()).toEqual([30 * 60_000]);
+    await sess.release();
+    expect(c.pending()).toEqual([]);
+  });
+});

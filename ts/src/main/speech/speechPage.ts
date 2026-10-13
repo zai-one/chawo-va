@@ -7,6 +7,7 @@
 import { cpus } from 'node:os';
 import type { SpeechModelKind } from '../../core/speechModels';
 import { isRussian, t } from '../../core/strings';
+import { IDLE_UNLOAD_MINUTES, normalizeIdleMinutes } from '../../core/idleTimer';
 import * as Log from '../log';
 import { tryEndpoint } from '../network/remoteSpeech';
 import {
@@ -78,6 +79,10 @@ export interface SpeechStateDto {
   cpuThreads: number;
   cores: number;
   threadsHint: string;
+  /** «Выгружать модели при простое»: minutes, 0 = never. Covers the speech model and the local Brain. */
+  idleMinutes: number;
+  idleChoices: { value: number; label: string }[];
+  idleHint: string;
   status: string;
   download: SpeechDownloadDto | null;
   /** Null when the app runs without a VAD runtime (tests of other parts). */
@@ -104,6 +109,14 @@ export interface SpeechHooks {
   cores?: number;
   /** Silero VAD model (getVadRuntime() in the app). */
   vad?: VadModelLike;
+  /** «Выгружать модели при простое» changed: re-arm the idle timers with the new delay. */
+  idleChanged?: () => void;
+}
+
+export function idleLabel(minutes: number): string {
+  if (minutes <= 0) return t('Не выгружать', 'Never');
+  if (minutes === 60) return t('Через 1 час', 'After 1 hour');
+  return t(`Через ${minutes} мин`, `After ${minutes} min`);
 }
 
 export function modelLabel(kind: SpeechModelKind): string {
@@ -176,7 +189,7 @@ const isAbort = (e: unknown) =>
 export class SpeechController {
   private abort: AbortController | null = null;
   private dl: SpeechDownloadDto | null = null;
-  private readonly h: Required<Omit<SpeechHooks, 'changed' | 'push' | 'busy' | 'session' | 'vad'>> & SpeechHooks;
+  private readonly h: Required<Omit<SpeechHooks, 'changed' | 'push' | 'busy' | 'session' | 'vad' | 'idleChanged'>> & SpeechHooks;
 
   constructor(hooks: SpeechHooks) {
     this.h = {
@@ -232,6 +245,10 @@ export class SpeechController {
       cores,
       threadsHint: t(`Виден только на процессоре. «Все ядра» — это ${cores}. Расшифровку файлов настраивает «Скорость длинных записей» в разделе «Расшифровка файла».`,
         `Shown only for the processor. All cores means ${cores}. File transcription uses Speed for long recordings on the File transcription page.`),
+      idleMinutes: normalizeIdleMinutes(s.IdleUnloadMinutes),
+      idleChoices: IDLE_UNLOAD_MINUTES.map((m) => ({ value: m, label: idleLabel(m) })),
+      idleHint: t('Речевая модель и локальный Мозг освобождают память, если ими не пользоваться. Следующая диктовка загрузит модель снова, пока вы говорите.',
+        'The speech model and the local Brain free their memory when unused. The next take loads the model again while you speak.'),
       status: this.statusText(s, models.find((m) => m.selected) ?? null),
       download: this.dl,
       vad: this.vadState(s),
@@ -320,6 +337,15 @@ export class SpeechController {
     s.SpeechDevice = device;
     this.h.save(s);
     this.h.changed?.();
+  }
+
+  setIdleMinutes(n: number): void {
+    const s = this.h.settings();
+    if (!(IDLE_UNLOAD_MINUTES as readonly number[]).includes(n) || s.IdleUnloadMinutes === n) return;
+    s.IdleUnloadMinutes = n;
+    this.h.save(s);
+    this.h.idleChanged?.();
+    this.update();
   }
 
   setThreads(n: number): void {

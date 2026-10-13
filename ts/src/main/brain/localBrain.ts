@@ -1,7 +1,8 @@
 // The Brain on this computer: llama.cpp's llama-server with a small Qwen model. Port of src/App/LocalBrain.cs.
 // Nothing goes online except the one-time download of the engine (~18 MB) and the model (~2 GB), both pinned
 // by SHA-256, and only when the user presses Download. The server starts on the first command, listens on a
-// random loopback port with a random API key, and is stopped after 15 idle minutes (it holds ~2.5 GB).
+// random loopback port with a random API key, and is stopped after «Выгружать модели при простое» minutes
+// without a request (15 by default; it holds ~2.5 GB).
 // On app exit the child is killed; a Windows job object (kill even on a crash) is a later nicety.
 
 import { spawn as nodeSpawn, type ChildProcess } from 'node:child_process';
@@ -556,6 +557,8 @@ export type LocalBrainRuntime = {
   ensureStarted(s: SettingsData, tick: (sec: number) => void, signal: AbortSignal): Promise<void>;
   /** Kills the server (fakes may omit it). */
   stop?(): void;
+  /** Restart the idle delay (after a request, or when the setting changes). */
+  touch?(): void;
   /** Set when Vulkan failed and the CPU engine took over. */
   readonly deviceNote?: string | null;
 };
@@ -570,7 +573,8 @@ export interface RuntimeOptions {
   exeFor?: (kind: BrainDeviceKind) => string;
   modelPathFor?: (s: SettingsData) => string;
   logPath?: () => string;
-  idleStopMs?: number;
+  /** Idle delay in ms, or a getter for the live setting; 0 or less keeps the server running. */
+  idleStopMs?: number | (() => number);
   startTimeoutMs?: number;
   healthDelayMs?: number;
   healthTimeoutMs?: number;
@@ -659,7 +663,7 @@ export class LlamaServerRuntime implements LocalBrainRuntime {
       exeFor: serverExeFor,
       modelPathFor: modelPath,
       logPath,
-      idleStopMs: IdleStopMs,
+      idleStopMs: () => (idleSource ? idleSource() : IdleStopMs),
       startTimeoutMs: StartTimeoutMs,
       healthDelayMs: 400,
       healthTimeoutMs: 2000,
@@ -818,11 +822,21 @@ export class LlamaServerRuntime implements LocalBrainRuntime {
 
   private touchIdle(): void {
     if (this.idleTimer) clearTimeout(this.idleTimer);
+    this.idleTimer = null;
+    const o = this.o.idleStopMs;
+    const ms = typeof o === 'function' ? o() : o;
+    if (!(ms > 0)) return;
     this.idleTimer = setTimeout(() => {
-      Log.write('brain idle for 15 minutes, releasing memory');
+      this.idleTimer = null;
+      Log.write(`brain idle for ${Math.round(ms / 60_000)} min, releasing memory`);
       this.stop();
-    }, this.o.idleStopMs);
+    }, ms);
     this.idleTimer.unref?.();
+  }
+
+  /** A request just finished, or «Выгружать модели при простое» changed: count the delay from now (only while running). */
+  touch(): void {
+    if (this.running) this.touchIdle();
   }
 
   private closeLog(): void {
@@ -906,6 +920,15 @@ export function deviceNote(): string | null {
 /** LocalBrain.Stop: kills the server, clears the idle timer, closes the log. */
 export function stop(): void {
   activeRuntime.stop?.();
+}
+/** Live idle delay for the default runtime (set once by the app from its settings). */
+let idleSource: (() => number) | null = null;
+export function setIdleSource(ms: () => number): void {
+  idleSource = ms;
+  activeRuntime.touch?.();
+}
+export function idleChanged(): void {
+  activeRuntime.touch?.();
 }
 export async function ensureStarted(s: SettingsData, tick: (sec: number) => void, signal: AbortSignal): Promise<void> {
   return activeRuntime.ensureStarted(s, tick, signal);
