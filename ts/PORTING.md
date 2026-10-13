@@ -36,17 +36,17 @@ Re-align folder names and tooling with taptain-desktop once its layout is readab
 | App.HermesTranscribe | src/main/network/hermesTranscribe.ts (reuses DictationSession's recognizer, opens it from disk if needed, piece by piece, «model unloaded» on swap) | ✅ ported + tests |
 | App/HermesFirewall.cs | src/main/network/hermesFirewall.ts | ✅ Windows: same netsh script + one elevated powershell (exit code decides), WF.msc console; elsewhere a no-op (the page says the OS firewall is the user's call) + tests |
 | App/RemoteSpeech.cs (RemoteHostException, TryEndpoint, Transcribe, TranscribeBytes, Check) | src/main/network/remoteSpeech.ts (injectable fetch) | ✅ ported + tests (fake fetch and against a real HermesServer) |
-| App/SalesRag.cs | src/main/sales/salesRag.ts | 🟡 SuggestDictionary + helpers ported + tests; FindSnippet waits for the sales card |
-| App/Sales*.cs (catalog, card, rest) | src/main/sales/ | ⏳ |
+| App/SalesRag.cs | src/main/sales/salesRag.ts | ✅ SuggestDictionary + FindSnippet (word-against-word matching, see tick log) + tests |
+| App/SalesCatalog.cs, SalesFlow.cs, SalesCardWindow, App.ShowSales/PresentCall/PaintCall | src/main/sales/ (salesCatalog, salesFlow, salesCard, salesCardWindow, salesPage) + salesIpc.ts | ✅ catalog match, call stand-in, CRM boundary (always none), always-on-top card + tests |
 | App/KeepAwake.cs | src/main/network/keepAwake.ts (Electron `powerSaveBlocker` 'prevent-app-suspension'; no-op outside Electron) | ✅ ported + tests |
 | App/Updater.cs, Autostart.cs | src/main/system/ | ⏳ |
-| SettingsWindow, SalesCardWindow, Download/Update windows, BrainServerPanel | src/renderer/ pages | 🟡 «Диктовка», «Расшифровка файла», «Распознавание», «Словарь», «Мозг» and «Сеть» pages work (DownloadWindow folded into the page as a progress card); «Продажи» is a placeholder |
+| SettingsWindow, SalesCardWindow, Download/Update windows, BrainServerPanel | src/renderer/ pages | 🟡 all seven pages work (DownloadWindow folded into the page as a progress card); SalesCardWindow is `salesCard.html` |
 | SettingsWindow network page (Role_Changed, Remote_LostFocus, CheckHost_Click, Lan_Click), App.StartHermes / RestartHermes / ApplyKeepAwake / HermesStatusText / LanUrls / ToggleLanAsync | src/main/network/networkPage.ts (NetworkController), src/main/networkIpc.ts, preload `network:`, renderer `renderNetwork` | ✅ ported + tests |
 | App/OverlayWindow.xaml(.cs) | src/main/overlay/overlayModel.ts (state, Tail, hint/caption timers, placement), overlayWindow.ts (frameless transparent always-on-top, never focused, drag → OverlayX/Y), overlayPreload.ts, src/renderer/overlay.html/.css/.ts (13 bars, ripple, live line) | ✅ listening / recognizing / status / hint / live draft + tests; caret placement (Win32) and Unpin button ⏳ |
 | SettingsWindow speech page, App.SpeechStatusText / DownloadSpeechAsync / DeleteSpeechModelAsync | src/main/speech/speechPage.ts (SpeechController), src/main/speechIpc.ts | ✅ ported + tests (live session line comes from DictationSession; GPU warmup ⏳) |
 | SettingsWindow dictionary page (FillDictionaryRows / PersistDictionary / SuggestDictionary_Click / AddSuggestion_Click) | src/main/dictionary/dictionaryPage.ts (DictionaryController), src/main/dictionaryIpc.ts | ✅ ported + tests |
 | SettingsWindow dictation page (Localize dictation block, FillStartCard, Mode/Hotkey/Insert/Overlay/Mic handlers, SetPhase), App.SetPhase | src/main/dictation/dictationPage.ts (DictationController), src/main/dictationIpc.ts | ✅ ported + tests (language box, copy-to-clipboard options, autostart, updates, unpin not on this page yet) |
-| App.HandlePressAsync / HandleReleaseAsync / RunBrainAsync / RequestStop / StartPartials / PartialTickAsync / ReloadSpeechAsync / SpeechStatusText | src/main/dictation/dictationSession.ts (DictationSession) | ✅ local or Client (RemoteSpeech) take → dictionary → Brain (every take / «Чаво, …») → simple syntax → clipboard, live drafts on the pill (remote too), cancel aborts the Brain / the host request + tests; Brain on a selection, ConfirmBrainMemory, sales card ⏳ |
+| App.HandlePressAsync / HandleReleaseAsync / RunBrainAsync / RequestStop / StartPartials / PartialTickAsync / ReloadSpeechAsync / SpeechStatusText | src/main/dictation/dictationSession.ts (DictationSession) | ✅ local or Client (RemoteSpeech) take → dictionary → Brain (every take / «Чаво, …») → simple syntax → clipboard, live drafts on the pill (remote too), cancel aborts the Brain / the host request + tests; sales card fed by drafts + the take in «Продажи» mode (drafts run with the pill off); Brain on a selection, ConfirmBrainMemory ⏳ |
 | SettingsWindow brain page (Localize brain part / UpdateBrainTexts / FillBrainModelRows), BrainServerPanel, App.SelectBrainAsync | src/main/brain/brainPage.ts (BrainController), src/main/brainIpc.ts | ✅ ported + tests; «Скачать» / «Скачать движок» on the rows + in-page «Скачиваю Мозг» card (progress, cancel, retry) ✅ |
 | App.RunFileQueueAsync / RunQueue / RunOneFile / TranscribeLocal / TranscribeRemote | src/main/file/fileRunner.ts, localTranscriber.ts, remoteTranscriber.ts, src/main/fileIpc.ts | ✅ local and Client paths + Brain hook (cloud and local FileBrain); a host error ends the run like WPF |
 | App/Strings.cs | src/core/strings.ts (ru/en `t()`) | ✅ ported |
@@ -401,3 +401,245 @@ Re-align folder names and tooling with taptain-desktop once its layout is readab
   itself, so «Числа цифрами» matters mostly for v3_ctc/v2. Gaps: English commands («comma») are not
   supported (the model writes English in Cyrillic anyway); no thousands separators; «два/три» alone
   become digits when numbers are on.
+- 2026-10-13 tick (branch `ts/feat-app-modes`, IDEAS.md №4): per-app modes. `src/core/appRules.ts` (no
+  Electron): `AppRule {Match, Edit: Default|Off|Custom, Instruction, SimpleSyntax: Default|On|Off}`,
+  `parseAppRules` (junk dropped, unknown → Default, ≤50 rules), `exeKey`, `ruleMatches` (program name
+  exact with/without .exe, or a ≥2-char piece of the window title, case-insensitive, ё = е; tokens split
+  on , ;), `findRule` (first active from the top), `applyRule` (returns a copy with BrainEveryTake /
+  BrainInstruction / SimpleSyntax overridden; Off keeps «Чаво, …» commands working).
+  `src/main/foreground/foregroundApp.ts`: `detectForeground` — Windows: one hidden PowerShell call with
+  GetForegroundWindow + GetWindowThreadProcessId (fallback until the native helper's `fg` from
+  `ts/feat-win-native` is merged; wire it then), Linux: `xprop -root _NET_ACTIVE_WINDOW` → `xprop -id`
+  pid/WM_CLASS/_NET_WM_NAME (C-escaped UTF-8 decoded) → `/proc/<pid>/exe`, macOS: osascript frontmost
+  process; our own window (electron / Chawo exe) → null; any failure → null; 2.5 s timeout. Settings:
+  `AppRules` (default []). Session: `foreground` is asked at key press only while `AppRules` is not
+  empty (an empty row counts, so the page can offer «Добавить для …»), awaited after recognition (≤3 s,
+  no added latency in practice), the rule's copy of the settings drives the Brain and simple syntax;
+  log line `app mode N for <exe>` (exe only, never the title); `onApp` → main keeps the last program
+  in memory and pushes the «Мозг» state. Page: «Для отдельных программ» at the bottom of «Мозг» —
+  one card per rule (match field, rewrite select hidden while the Brain is off, chat-style select,
+  instruction box only for «Переписывать по своей инструкции», ↑ to raise, «Удалить»), the line
+  «Последняя программа при диктовке: … Сработало правило N.», «Добавить правило» and «Добавить для
+  <exe>». IPC `brain:addRule/updateRule/removeRule/raiseRule` (patch fields validated in main).
+  Tests: `test/appRules.test.ts` (23: core, settings round trip, xprop/PowerShell/osascript parsing with
+  a fake exec, session with a fake focus — no rules → not asked, Custom → own instruction, Off → no
+  rewrite but commands work, chat-style both ways, failing detection → globals, page add/edit/raise/
+  remove/save counts, last-program lines RU/EN, cap). 332 green + 1 skipped (309 on ts-port).
+  Electron smoke on a real X11 session (`scripts/smoke-app-rules.cjs`: Xvfb :77 + xfwm4, an xmessage
+  window «Telegram — чат» focused with xdotool, fake mic from ru30.wav, real v3 model, fake
+  OpenAI-compatible server, global rewrite OFF, rule «xmessage → своя инструкция»): take 1 → the server
+  got system «APPMODE: пиши как в чате.», clipboard «по правилу: Русский язык. Русский язык», log
+  `app mode 1 for xmessage: edit=Custom simple=On`, page «Последняя программа при диктовке: xmessage.
+  Сработало правило 1.»; take 2 with the Chawo window focused → no server call, text as recognized,
+  page «…в фокусе было окно Chawo…»; «Добавить правило» → second rule in settings.json.
+  Gaps: Windows path is unit-tested with a fake exec only (needs a run on zai-redmibook; PowerShell
+  start costs ~0.3–1 s per take but runs while the key is held); Wayland-native windows are not
+  visible to xprop (XWayland ones are); switch Windows to the helper's `fg` after PR #1 merges.
+- 2026-10-13 tick (branch `ts/feat-mic-level`, IDEAS.md №7): sound cues + tray take state. The mic level
+  was already ported (pill bars and the page meter). `src/core/cues.ts` (no Electron):
+  `cueForTransition` (→Listening = start, Listening→Recognizing = stop, Listening→Idle/NoModel =
+  cancel, Recognizing→Idle = quiet), `cueTones` (two-tone rising fifth 660→990 Hz for start, falling
+  for stop, one 330 Hz tone for cancel; ≤0.1 gain, ≤0.3 s, so the start tone barely reaches the mic),
+  `CueTracker` (first phase is the baseline: no beep at app start; reads the setting on every change),
+  `trayStateFor`/`trayTooltip`. `src/core/trayDot.ts`: `paintDot` paints an anti-aliased dot with a dark
+  ring bottom-right on the BGRA bitmap from `nativeImage.toBitmap()` — red #EF5143 recording, amber
+  #FFB261 recognizing — so no new icon files (the iconset belongs to WPF). Wire-up: `dictationIpc`'s
+  `push` observes `session.phase`, sends `dictation:cue` {kind, tones} to the main page when
+  `SoundCues` is on and calls `opts.phase` → `main.ts` `showTrayPhase` (setImage + tooltip «… — идёт
+  запись / распознаю»; images cached per state, cleared on nativeTheme `updated`). The page synthesises
+  the tones with an OscillatorNode + 8 ms gain ramps (values clamped again in the page). New setting
+  `SoundCues` (default false) and one checkbox «Звуковые сигналы начала и конца записи» under the pill
+  checkbox on «Диктовка». Tests: `test/cues.test.ts` (22: transition table, tone limits/shape, tracker,
+  tray state/tooltips RU/EN, paintDot pixels/scaling/short buffer, settings round-trip, controller,
+  a real DictationSession take → start/stop, Escape → cancel, off → silent but the tray follows).
+  331 green + 1 skipped (309 on ts-port). Electron under xvfb (`scripts/smoke-cues.cjs`, fake mic from
+  ru30.wav, real v3 model): checkbox ticked → settings.json SoundCues true; hold 4 s → cue 1 start
+  (AudioContext running), release → 2 stop, text «Русский язык. Русский язык»; second press + Escape →
+  3 start, 4 cancel; tray tooltips idle → «идёт запись» → «распознаю» → idle → «идёт запись» → idle,
+  tray bitmap at the dot BGRA 67,81,239 (red) / 97,178,255 (amber) / plain glyph when idle.
+  Gaps: media pause (needs the Windows helper + GSMTC); cues are not heard through a real speaker
+  on the box (no audio device), and whether the start tone leaks into a take on laptop speakers
+  needs a check on zai-redmibook.
+- 2026-10-13 tick (branch `ts/feat-vad`, IDEAS.md №2): Silero VAD. `src/core/vad.ts` (no Electron):
+  Silero v5 window plumbing — 16 kHz, 512 new samples + 64 of context (576 in), state [2,B,128],
+  `input`/`state`/`sr` → `output`/`stateN` (`sileroScorer` wraps any ORT-like session); the scorer is
+  injected, so unit tests use a deterministic fake and never need weights. `speechProbabilities`
+  scores long audio as up to 16 contiguous «lanes» in one batch (1 per minute; each lane starts with
+  a fresh state) — 300 s in ~0.6 s on the box CPU, ~5 s per hour. `probsToSegments` = silero-vad
+  `get_speech_timestamps` (0.5/0.35, 250 ms min speech, 100 ms min silence, 30 ms pad); `segments`,
+  `trimSpeech` (100 ms kept, original audio when nothing is found), `pauseMidpoints`/`gapMidpoints`
+  (midpoints of ≥0.3 s gaps, a drop-in for `silences()` in `chunkBounds`), the `Vad` class (Silero
+  with a scorer, energy without), `energyProbabilities` (pure JS: window loudness vs the take's own
+  10th-percentile floor + 12 dB, kept in −50…−25 dBFS) and `SilenceWatch` (streaming energy
+  trailing-silence detector for auto-stop). `src/main/vad/vadModel.ts`: the 2 MB file at
+  `%LOCALAPPDATA%\ChawoVoiceAssistant\models\silero-vad\silero_vad.onnx` (or CHAWO_VAD_MODEL /
+  CHAWO_MODEL_DIR), downloaded only on a user action from the pinned official URL
+  (snakers4/silero-vad v5.1.2) with a SHA-256 check (.part removed on failure); `VadRuntime` loads
+  one CPU session lazily and shares it, a failed load is remembered per file+mtime and gives the
+  energy Vad — never a broken take. Wire-up: `Recognizer.splitRanges/pieceRanges(samples, rate,
+  pauses?)` — given pauses replace `silences()`, without them the split is byte-for-byte the old one;
+  `filePauses` feeds it for long files in the local and Client file paths («Ищу паузы в речи…») and
+  in Hermes (>25 s); no model, VAD off, an error or no speech at all → undefined → energy split.
+  Dictation: `stopTake` trims the take after `normalizeQuietTake` (silence/short-take checks and
+  KeepLastRecording still see the full take; the Client role posts the trimmed one; cancel during the
+  trim drops the take); without the model the take is untouched. New settings `VadEnabled` (default
+  true) and `VadAutoStopMs` (default 0 = off, clamped 0…60000, settings.json only until the toggle
+  mode exists): >0 → `SilenceWatch` on every appended chunk stops the take after that much silence
+  following speech. UI: one checkbox «Обрезать тишину (VAD)» on «Распознавание» with a status line
+  and «Скачать (2 МБ)» while the file is missing; a speech-model download the user starts brings the
+  VAD file along when VAD is on. Tests: vad (22 + 1 real-model case behind CHAWO_VAD_TEST_MODEL),
+  vadModel (9), dictationSession VAD (7), speechPage VAD (5), settings (1), hermes pauses (2),
+  fileRemote VAD split (1). 356 green + 2 skipped (309 on ts-port). Checks on the box with real
+  weights: ru30 Silero 14 segments vs energy 14; a synthetic noise file (bench_3min) → Silero 0
+  segments, energy 27; long300 (clean) energy vs VAD split → both 510/510 words; the first 120 s of it
+  with −30 dBFS hiss → energy finds 0 pauses and hard-cuts at 24/48/72/96 s losing a word, VAD cuts at
+  22.35/44.10/67.14/90.53/112.32 s with 204/204 words. Electron under xvfb (`scripts/smoke-vad.cjs`):
+  the checkbox and «Скачать (2 МБ)» on «Распознавание», a real download landed with the right SHA-256,
+  the line switched to «Silero VAD на диске…», unticking saved `VadEnabled: false`;
+  `smoke-dictation.cjs` with a 2 s silence + 5 s speech + 3 s silence fake mic → log «vad trim 7.94s →
+  2.85–7.20s», text on the clipboard. Gaps: auto-stop has no UI (waits for the toggle hotkey mode);
+  live drafts are not trimmed; dictation >25 s still splits inside the recognizer by energy.
+- 2026-10-13 tick (branch `ts/feat-history`, IDEAS.md №3): «История» — the dictation history page.
+  `src/main/history/historyStore.ts`: one JSON line per finished take in
+  `%LOCALAPPDATA%\ChawoVoiceAssistant\history.jsonl` (mode 0600, text only, no audio):
+  `{id, ts, raw, final, command, brain, brainFailed, seconds}` — `raw` is the recognition after the
+  dictionary and before the Brain (with the «Чаво, …» command if said), `final` what went to the
+  clipboard. A broken/half-written line is skipped; edits rewrite through a .tmp + rename. Search:
+  every word, case-insensitive, ё = е, over final + raw + command. New setting `HistoryKeep`
+  (Off / Day / Week (default) / Month / Forever; unknown values fall back to Week), plus a hard cap
+  of 2000 entries; pruning on every add and whenever the page is drawn; switching to «Не хранить»
+  deletes the file at once and nothing is recorded after that. `historyPage.ts` (HistoryController,
+  no Electron): newest first, 200 rows drawn (search reaches all), «сегодня/вчера HH:MM» stamps,
+  tags «Мозг» / «Мозг не справился», «Копировать», «Копировать без мозга» (only when the text
+  differs), «Мозг заново» (re-parses a «Чаво, …» command from `raw`, else the usual cleanup; the
+  answer replaces `final` and goes to the clipboard; a failure or empty answer leaves the entry; one
+  run at a time; deleting the entry mid-run aborts it), «Удалить», «Очистить всё» behind a yes/no
+  box. DictationSession got a `record` hook (errors in it never touch the take; silence and
+  cancelled takes are not recorded); `historyIpc.ts` + preload + the renderer page (a typed search
+  redraws only the list, so the caret stays). Tests: historyStore (9), historyPage (14),
+  dictationBrain history cases (4). 336 green (309 on ts-port). Smoke under xvfb
+  (`scripts/smoke-history.cjs`, fake mic + a fake OpenAI-compatible Brain on 127.0.0.1): a real
+  v3_e2e_rnnt take → «сегодня 20:33 · 4,9 с | Русский язык. Русский язык — это», one line in the
+  file; «Копировать» → clipboard; search «РУССКИЙ» → «Найдено 1 из 1.» with focus kept, a missing
+  word → «Ничего не нашлось.»; «Мозг заново» → the server got the raw text, the entry shows «Мозг»,
+  the new text and «Распознано: …», clipboard updated; a second take → 2 entries; «Не хранить» →
+  «История выключена, удалено записей: 2.», file gone, and a take after that writes nothing.
+  Gaps: «Вставить снова» waits for `ts/feat-win-native` (from the Chawo window the focus is on
+  Chawo anyway, so copy is the honest action); Sales-mode takes are not recorded (Sales has its own
+  card); no audio replay (batch 2 п.10 is for files).
+- 2026-10-13 tick (branch `ts/feat-cli`, IDEAS.md №8): `chawo-va transcribe` — the file queue without
+  the window. `src/cli/args.ts` parses (`-f/--format txt,srt`, `-o/--out`, `-t/--timestamps` /
+  `--no-timestamps`, `--model v3|ctc`, `--device cpu|gpu`, `-j/--threads auto|1|2|4|max`,
+  `--script auto|ru|en`, `--model-dir`, `--stdout`, `--skip-existing`, `--lang ru|en`, `-q`,
+  `--help`, `--version`; `--opt=value` too; `--` ends options; stdin refused) and holds the bilingual
+  help. `src/cli/run.ts` (`runCli`, everything injected): folders expand without recursion like the
+  app, duplicates drop, missing inputs fail only themselves; output collisions under `--out` and
+  `--skip-existing` are settled before any model loads (nothing left → no model load); the model is
+  looked up the app's way (`findComplete`, `CHAWO_MODEL_DIR`) or taken from `--model-dir` if it
+  looks complete, never downloaded (exit 3 otherwise); one FileJob for the whole run (the app opens
+  one per file); progress redraws one stderr line with the app's `progressLine` only on a TTY;
+  per-file «Готово: path (00:05:00 · .srt · 17.2 с)»; `--stdout` prints the txt (`==> file <==`
+  headers for several); Ctrl+C aborts the job (second Ctrl+C exits) → «Прервано.», 130, nothing
+  half-written. `src/cli.ts` is the `bin` (`#!/usr/bin/env node`): settings.json is read with
+  `fromJsonObject` only (settings `load()` may migrate and save — the CLI must not touch the app's
+  file), WAV/Ogg-Opus natively, the rest via ffmpeg (no Chromium decoder outside Electron).
+  Tests: cliArgs (11), cli (19 incl. readDefaults leaves settings.json byte-identical), opt-in
+  cli.speech (real model). 340 green (309 on ts-port). Real runs on the box (v3_e2e_rnnt, CPU,
+  8 cores): a folder with two WAVs and an MP3 → `-f txt,srt -o out` six files, 1.4–1.6 s per 30 s
+  file, text matches the app; 5-min WAV in 17.2 s («Авто → 4× CPU»); `--stdout -q` pipes 707 bytes;
+  `--skip-existing` skips all three without loading the model; SIGINT 4 s into a 5-min file → 130,
+  no output; no model → 3 with the Russian hint; `--format pdf` → 2. Gaps: .vtt/.json/.md/.docx in
+  the CLI once `ts/feat-export-formats` lands; the packaged app has no CLI entry yet (run with
+  Node, or `ELECTRON_RUN_AS_NODE=1` against the app's `dist/cli.js`); no remote `--host` mode.
+- 2026-10-13 tick (branch `ts/feat-export-formats`, IDEAS.md №6, export part): extra transcript
+  files beside name.txt. `core/transcriptFormat.ts` gained `toVtt` (WEBVTT header, numbered cues,
+  `HH:MM:SS.mmm`, & < > escaped, 0.5 s minimum like .srt), `toJson` (`chawo-transcript` v1: source,
+  duration, joined text, segments with ms-rounded times — the shape a server backend would store),
+  `toMarkdown` (file name as heading, a paragraph per piece, `**[hh:mm:ss]**` when timestamps are on,
+  Markdown specials and leading list/heading markers escaped) and `needsTimings`. `core/
+  transcriptDocx.ts` builds a minimal WordprocessingML package (title, a paragraph per piece, grey
+  time mark, XML-invalid characters dropped) with no dependency; `main/file/transcriptExport.ts` zips
+  it with the existing `buildZip` (deflate) and writes the chosen formats (one failing format is noted
+  on the row, the others still land). Setting `FileExtraFormats` (vtt/json/md/docx, default none,
+  unknown names dropped; .srt keeps its WPF `FileSrt`); the page shows one row «Ещё сохранять рядом:
+  .srt .vtt .json .md .docx» replacing the old .srt box (no duplicate setting). Client role: a timed
+  format (.vtt/.json, or .md/.docx with timestamps) posts piece by piece like .srt. Tests:
+  transcriptExport (14) + a remote case; 323 green (309 on ts-port). Real run
+  (`scripts/smoke-export.cjs`, xvfb, real v3_e2e_rnnt on CPU, `ru30.wav`): the four boxes clicked →
+  settings.json `FileExtraFormats: ["vtt","json","md","docx"]`, the queue row «00:00:30 · .srt · .vtt
+  · .json · .md · .docx» in 6.4 s, all six files beside the WAV; ffprobe reads the .vtt as webvtt and
+  ffmpeg converts it to .srt, LibreOffice opens the .docx and its text matches the .txt. Gaps: the
+  transcript editor (click a phrase to play) is batch 2 item 10; Brain output stays .brain.txt only.
+- 2026-10-13 tick (branch `ts/feat-sales`): «Продажи». `salesCatalog.ts` = SalesCatalog (exact code as
+  its own word, longest wins → similar code → nearest name by shared letters ≥ 0.6; HasToken,
+  NameIsClose, WithRag). Deviation: WPF scored the nearest name on unfolded letters, so a capitalised
+  catalog name («Таптайн») never shared its capital with the lower-case transcript; the name is folded
+  now, like NameIsClose already did. `salesRag.ts` gained FindSnippet (SplitBlocks, Clip 220, file
+  name as source) and the file count for the page. Deviation: WPF counted a spoken word as present
+  when ≥4 of its letters occurred anywhere in the paragraph, so long paragraphs matched every word and
+  a short unrelated one won on size; now a word counts when it is a substring of the paragraph or
+  looks like one of its words (same first two letters, ≤3 letters length apart, ≥75 % shared).
+  `salesFlow.ts` = SalesFlow (TelephonyEvent/HandsetBinding/CrmClient shapes, Resolve, StandIn,
+  LookupClient always null, Compose, PreferSpokenHistory, who/script lines verbatim). `salesCard.ts`:
+  SalesCardModel (ShowModel/HideNow with the "same as shown" check) and SalesSession (App.ShowSales /
+  PresentCall / PaintCall and the ApplySettings branch: leaving Sales closes the call and hides the
+  card; a catalog edit repaints an open call). `salesCardWindow.ts` + `salesCard.html/css/ts` +
+  `salesCardPreload.ts`: frameless, transparent, always on top, focusable:false + showInactive, no
+  taskbar, bottom-right of the primary work area 12 px in (SalesCardWindow.Place), dark only, size
+  reported by the renderer. Addition: a small × on the card (WPF had no way to hide it except leaving
+  the mode); it hides the card and ends the stand-in call. `salesPage.ts` (SalesPageController) +
+  `salesIpc.ts` + preload `sales:` + renderer `renderSales`: catalog rows (code/name/line/similar
+  code, saved on every edit, empty rows not stored, outside changes reload), materials folder with the
+  WPF status lines and a native folder dialog, call stand-in (extension/number/manager kept for this
+  run only, WPF status lines). A one-line note says whether Sales mode is on; the mode itself stays on
+  «Диктовка» (no duplicate setting). DictationSession: live drafts run when ShowOverlay OR Mode=Sales;
+  in Sales mode each draft and the recognized take (before the dictionary, like WPF) go to the card,
+  Client role included; a throwing card is logged and the take goes on. Tests: salesCatalog (10),
+  salesFlow + card model + session (8), salesPage (8), session Sales cases (4); 339 green (309 on
+  ts-port). Real run (`scripts/smoke-sales.cjs`, xvfb, real v3_e2e_rnnt on CPU, fake mic with a 30 s
+  Russian WAV): rows typed into the page are saved to settings.json, folder picked → «Файлов
+  .txt/.md: 2.»; pill off + Dictation mode → no card; Sales mode → card at 2 s of holding with
+  «похоже · русский язык · Курс русского… · из материалов · Русский язык для взрослых…», window
+  focusable=false, always on top, x+width = screen − 12; stand-in without a manager → the WPF
+  "no binding" line and no card; with 101/+7…/Анна → «звонок · Анна · трубка 101 · … · клиент по
+  номеру не найден · скрипт стадии: нет данных», a take then adds the hit under it; × hides; back to
+  Dictation mode hides the card. Gaps: the card sits on the primary display only (like WPF); no
+  real CRM or telephony (boundary only, as in WPF). Next: approved batch 2 / top-8 ideas.
+
+- 2026-10-13 tick 15 (branch `ts/feat-win-native`): the Windows native helper — global hold key +
+  inserting the phrase into the focused app. Electron has no low-level keyboard hook and no key-up for
+  global shortcuts, so `native/win/ChawoNative.exe` (C#, .NET Framework 4.8 — built into Windows
+  10/11, 21 KB, no runtime to install, builds on Linux with the .NET SDK via `npm run build:native`;
+  the exe is not committed) ports KeyboardHook (hook thread with its own message loop, injected keys
+  ignored, Right/Left Ctrl split by LLKHF_EXTENDED, Left Ctrl + Win = 0x10000 with the real
+  GetAsyncKeyState check, Escape swallowed only while armed) and TextInserter (Paste: snapshot of
+  every HGLOBAL clipboard format → phrase with the three no-history/no-cloud formats → Ctrl+V →
+  800 ms → previous clipboard back if nobody copied meanwhile; Type: KEYEVENTF_UNICODE in batches of
+  8 with 8 ms pauses, \n → Enter; SendInput refused → Blocked; CopySelection = Ctrl+C + read +
+  restore; foreground process name for per-app modes later). One worker thread owns a message-only
+  window as clipboard owner and pumps messages while waiting (other apps SendMessage the owner), and
+  serialises clipboard work like the WPF ClipboardGate. Difference from WPF: no WinRT clipboard-history
+  API in .NET Framework, so «keep the phrase in Win+V» with restore waits 1.2 s when history is on
+  (registry) and leaves the phrase current when it is off. Protocol: stdin/stdout lines, text in
+  base64 (`src/main/native/helperProtocol.ts`); the helper exits on stdin EOF. `nativeHelper.ts`:
+  spawn, ready timeout, request ids + timeouts, hotkey/arm re-sent after a restart, crash while the
+  key is held → treated as release, ≤3 restarts a minute then «failed». Wiring: `dictationIpc`
+  hotDown → `session.startTake('hotkey')` → the window opens the mic (`dictation:hot` start), hotUp →
+  the window stops the mic and calls stop (3 s fallback: recognize what arrived), Escape → cancel +
+  drop the mic; Escape is armed while the take listens/recognizes; a hotkey change goes to the
+  helper. `DictationSession`: hotkey takes go through the inserter (InsertMode, CopyPhraseToClipboard,
+  RestoreClipboardAfterCopy) with the WPF hints (admin window, Brain failure «Вставлен текст без
+  правки»), helper gone → clipboard + hint, Type+Blocked also copies (so «текст лежит в буфере» is
+  true); the in-window button still copies. Page: WPF intro/step 2 when the key works, one note line
+  when it is starting/failed/missing/not Windows; the main window keeps `backgroundThrottling: false`
+  so a take from the tray records. Tests: helperProtocol (3), nativeHelper against a fake helper
+  script (13), dictationHotkey with a mocked ipcMain (7), session hotkey takes (8), page states (2);
+  342 green (309 before). Real run: `scripts/smoke-native-wine.cjs` — the real ChawoNative.exe under
+  Wine 10 + wine-mono on Xvfb through the same NativeHelper client: ready in ~0.3 s with the hook
+  installed, Type of «Привет, мир 👋\nвторая строка» into a focused WinForms text box, Paste appended
+  with the previous clipboard («OLD clipboard») back afterwards, foreground = InsertTarget,
+  copySelection read the select-all text and restored the clipboard, keep-phrase mode left the phrase
+  current with history off — all PASS. UI shot of «Диктовка» renders. Gaps: the hold key press itself
+  is not exercised for real (the hook ignores injected keys; needs a Windows keyboard), clipboard
+  history wait is the registry approximation, SelectionReader (UI Automation first) + Brain on a
+  selection, caret-placed pill and the llama-server job object are the next native pieces.

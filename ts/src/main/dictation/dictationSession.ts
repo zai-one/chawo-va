@@ -2,7 +2,8 @@
 // recognition → dictionary → Brain (every take or a «Чаво, …» command) → simple syntax → final text.
 // Port of App.HandlePressAsync / HandleReleaseAsync / RunBrainAsync / RequestStop / PartialTickAsync /
 // ReloadSpeechAsync / SpeechStatusText minus the parts that are not ported yet (Brain on a selection,
-// memory check before a cold local Brain, sales card, inserting into other apps). In the Client role
+// memory check before a cold local Brain, inserting into other apps). In «Продажи» mode the live
+// drafts run even with the pill off and every draft and the finished recognition go to the sales card. In the Client role
 // the take (and the live drafts) go to the host through RemoteSpeech instead of a local recognizer.
 // No Electron imports: the clipboard, the WAV writer, the pill and the Brain come in as hooks, and
 // tests pass a fake recognizer and a fake OpenAI-compatible fetch. The recognizer is opened on demand
@@ -23,13 +24,17 @@ import {
 } from '../../core/takeBuffer';
 import { applyRules } from '../../core/wordReplace';
 import { applySpoken } from '../../core/spokenText';
+import { SilenceWatch } from '../../core/vad';
+import { trimTake } from '../vad/vadModel';
 import { parseCommand, serverConfigured, transformAsync } from '../brain/brain';
 import * as LocalBrain from '../brain/localBrain';
 import { BrainException, type FetchLike } from '../brain/speechCleanup';
 import * as RemoteSpeech from '../network/remoteSpeech';
 import { RemoteHostException } from '../network/remoteSpeech';
+import { applyRule, exeKey, findRule, type ForegroundApp } from '../../core/appRules';
 import * as Log from '../log';
 import type { OverlaySink } from '../overlay/overlayModel';
+import type { TextInserterLike } from '../native/nativeHelper';
 import { findComplete } from '../models';
 import {
   effectiveWordReplacementRules,
@@ -50,7 +55,7 @@ export interface RecognizerLike {
   /** ORT provider, for the Hermes health answer. */
   provider?: string;
   /** Pause split and one piece at a time (Hermes); the real Recognizer has both. */
-  pieceRanges?(samples16k: Float32Array): Array<{ from: number; to: number }>;
+  pieceRanges?(samples16k: Float32Array, pauses?: readonly number[]): Array<{ from: number; to: number }>;
   transcribePiece?(samples16k: Float32Array): Promise<string>;
   transcribeCancelable(samples: Float32Array, rate: number, stillWanted: (() => boolean) | null): Promise<string>;
   cancelOwned(): void;
@@ -79,8 +84,45 @@ export interface SessionHooks {
   fetch?: FetchLike;
   /** Live-draft pass interval while listening (WPF 1000 ms); 0 turns drafts off. */
   partialMs?: number;
+  /**
+   * The Windows helper for takes started by the global hold key: the phrase goes into the focused app
+   * (TextInserter). Null or missing: the phrase goes to the clipboard as for the in-window button.
+   */
+  inserter?: () => TextInserterLike | null;
   /** Client role: RemoteSpeech.transcribe (tests pass a fake host). Throws RemoteHostException. */
   remote?: (s: SettingsData, samples: Float32Array, rate: number, signal: AbortSignal) => Promise<string>;
+  /** The focused program at key press (per-app modes). Asked only while settings.AppRules is not empty. */
+  foreground?: () => Promise<ForegroundApp | null>;
+  /** The program seen for the last take and the index of the rule that fired (the «Мозг» page shows it). */
+  onApp?: (app: ForegroundApp | null, ruleIndex: number | null) => void;
+  /** VAD trim of a finished take (settings.VadEnabled); defaults to Silero when its model is on disk. */
+  trim?: (s: SettingsData, samples: Float32Array, rate: number) => Promise<Float32Array>;
+  /** App.ShowSales: the local catalog card. Called only in «Продажи» mode, with drafts and the recognized take. */
+  sales?: (transcript: string) => void;
+  /** A finished take with text, for «История». Errors here never affect the take. */
+  record?: (take: TakeRecord) => void;
+}
+
+/** What «История» keeps of a take: the text before and after the Brain, no audio. */
+export interface TakeRecord {
+  raw: string;
+  final: string;
+  command: string | null;
+  brain: boolean;
+  brainFailed: boolean;
+  seconds: number;
+}
+
+/** How long a release waits for the focus answer before the take goes on without a per-app rule. */
+const FOREGROUND_WAIT_MS = 3000;
+
+async function settleWithin<T>(p: Promise<T>, ms: number, fallback: T): Promise<T> {
+  let timer: NodeJS.Timeout | undefined;
+  try {
+    return await Promise.race([p, new Promise<T>((resolve) => { timer = setTimeout(() => resolve(fallback), ms); })]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
 }
 
 export function defaultBrainUsable(s: SettingsData): boolean {
@@ -94,6 +136,9 @@ const isAbort = (e: unknown) => e instanceof Error && (e.name === 'AbortError' |
 export interface StartResult {
   ok: boolean;
 }
+
+/** Who started the take: the in-window hold button (text to the clipboard) or the global key (inserted). */
+export type TakeSource = 'window' | 'hotkey';
 
 async function openRecognizer(dir: string, kind: SpeechModelKind, device: SpeechDeviceKind, threads: number, script: CtcScript): Promise<RecognizerLike> {
   const rec = await Recognizer.open(dir, kind, device, threads);
@@ -115,6 +160,7 @@ export class DictationSession {
   private abandon = false;
   private status = '';
   private lastText = '';
+  private source: TakeSource = 'window';
   private takeAbort: AbortController | null = null;
   private partialTimer: NodeJS.Timeout | null = null;
   private partialEpoch = 0;
@@ -124,6 +170,9 @@ export class DictationSession {
   private readonly brainUsable: (s: SettingsData) => boolean;
   private readonly transform: NonNullable<SessionHooks['transform']>;
   private readonly remote: NonNullable<SessionHooks['remote']>;
+  private fgTask: Promise<ForegroundApp | null> | null = null;
+  private readonly trim: NonNullable<SessionHooks['trim']>;
+  private watch: SilenceWatch | null = null;
 
   constructor(hooks: SessionHooks) {
     this.h = { find: findComplete, open: openRecognizer, platform: process.platform, ...hooks };
@@ -131,6 +180,7 @@ export class DictationSession {
     this.transform = hooks.transform
       ?? ((s, body, command, status, signal) => transformAsync(s, body, command, status, signal, false, hooks.fetch ?? globalThis.fetch));
     this.remote = hooks.remote ?? ((s, samples, rate, signal) => RemoteSpeech.transcribe(s, samples, rate, signal));
+    this.trim = hooks.trim ?? ((s, samples, rate) => trimTake(s, samples, rate));
     this.buf.onTakeTooLong = () => {
       Log.write('take too long, stopping');
       void this.stopTake().then(() => {
@@ -153,6 +203,20 @@ export class DictationSession {
   private hint(text: string): void {
     this.status = text;
     this.overlay?.showHint(text);
+  }
+
+  /** Live drafts: for the pill, or for the sales card (which needs them even with the pill off). */
+  private wantsDrafts(s: SettingsData): boolean {
+    return s.ShowOverlay || s.Mode === 'Sales';
+  }
+
+  private showSales(text: string): void {
+    if (this.h.settings().Mode !== 'Sales' || !this.h.sales) return;
+    try {
+      this.h.sales(text);
+    } catch (e) {
+      Log.write(`sales card: ${e instanceof Error ? e.message : String(e)}`);
+    }
   }
 
   private get client(): boolean {
@@ -186,7 +250,7 @@ export class DictationSession {
   }
 
   /** Key press / hold button down (HandlePressAsync). The renderer opens the mic only when ok. */
-  startTake(): StartResult {
+  startTake(source: TakeSource = 'window'): StartResult {
     if (this.isBusy) return { ok: false };
     if (this.client) {
       // No local model here: only the host address has to make sense.
@@ -207,21 +271,42 @@ export class DictationSession {
     }
     this.abandon = false;
     this.status = '';
+    this.fgTask = this.askForeground();
+    const autoStop = this.h.settings().VadAutoStopMs;
+    this.watch = autoStop > 0 ? new SilenceWatch(autoStop, SAMPLE_RATE) : null;
+    this.source = source;
     this.buf.start();
     this.overlay?.showListening();
-    if (this.h.settings().ShowOverlay) this.startPartials();
+    // Sales needs the live draft even when the pill is hidden. Dictation does not.
+    if (this.wantsDrafts(this.h.settings())) this.startPartials();
     this.push();
     return { ok: true };
   }
 
+  /** Per-app modes: ask which program has the focus now, while the key is down (no rules, no question). */
+  private askForeground(): Promise<ForegroundApp | null> | null {
+    if (!this.h.foreground || this.h.settings().AppRules.length === 0) return null;
+    try {
+      return this.h.foreground().catch(() => null);
+    } catch {
+      return null;
+    }
+  }
+
   appendPcm(chunk: ArrayLike<number>): void {
     this.buf.append(chunk);
+    if (this.watch && this.buf.isRecording && !this.busy && this.watch.push(chunk)) {
+      Log.write(`vad auto-stop after ${this.watch.limitMs} ms of silence`);
+      this.watch = null;
+      void this.stopTake();
+    }
   }
 
   /** getUserMedia failed in the renderer: drop the take and say why. */
   micFailed(name: string, message: string): void {
     Log.write(`mic failed: ${name}: ${message}`);
     this.buf.clear();
+    this.fgTask = null;
     this.stopPartials();
     this.overlay?.hideNow();
     this.status = micErrorText(name, message, this.h.platform);
@@ -239,6 +324,7 @@ export class DictationSession {
     this.takeAbort?.abort();
     if (this.buf.isRecording) {
       this.buf.clear();
+      this.fgTask = null;
       Log.write('take cancelled');
     }
     this.overlay?.hideNow();
@@ -264,6 +350,8 @@ export class DictationSession {
     const overlay = this.overlay;
     const samples = this.buf.stop();
     const peak = this.buf.takePeak;
+    const fgTask = this.fgTask;
+    this.fgTask = null;
     this.push();
     let result: string | null = null;
     try {
@@ -279,6 +367,10 @@ export class DictationSession {
       let text = '';
       let brainFailure: string | null = null;
       let brainCommand = false;
+      let simpleOn = this.h.settings().SimpleSyntax;
+      let raw = '';
+      let command: string | null = null;
+      let brainRan = false;
       if (!silent && samples.length > MIN_TAKE_SAMPLES) {
         const s = this.h.settings();
         if (s.KeepLastRecording) {
@@ -289,9 +381,16 @@ export class DictationSession {
           }
         }
         normalizeQuietTake(samples, peak);
+        // Silero cuts the silence around the phrase (no model → the take as it is).
+        const speech = s.VadEnabled ? await this.trim(s, samples, SAMPLE_RATE) : samples;
+        if (this.abandon) {
+          overlay?.hideNow();
+          Log.write('take cancelled');
+          return null;
+        }
         if (s.NetworkRole === 'Client') {
           try {
-            text = await this.remote(s, samples, SAMPLE_RATE, abort.signal);
+            text = await this.remote(s, speech, SAMPLE_RATE, abort.signal);
           } catch (e) {
             if (this.abandon || abort.signal.aborted) {
               overlay?.hideNow();
@@ -317,13 +416,14 @@ export class DictationSession {
               : flatText(noModelText());
             return null;
           }
-          text = await rec.transcribeCancelable(samples, SAMPLE_RATE, () => !this.abandon);
+          text = await rec.transcribeCancelable(speech, SAMPLE_RATE, () => !this.abandon);
         }
         if (this.abandon) {
           overlay?.hideNow();
           Log.write('recognize cancelled');
           return null;
         }
+        if (text.length > 0) this.showSales(text);
         // Dictionary on the finished recognition only, before the Brain sees the phrase. Not the live draft.
         if (text.length > 0) {
           const replaced = applyRules(text, effectiveWordReplacementRules(this.h.settings()));
@@ -335,14 +435,32 @@ export class DictationSession {
           if (spoken !== text) Log.write(`spoken marks/numbers: ${text.length} -> ${spoken.length} chars`);
           text = spoken;
         }
+        raw = text;
         // Brain on a selection waits for SelectionReader (Windows); a take is plain dictation here.
-        const now = this.h.settings();
+        // Per-app mode: the rule for the program that had the focus at key press overrides the edit settings.
+        let now = this.h.settings();
+        if (fgTask) {
+          const app = await settleWithin(fgTask, FOREGROUND_WAIT_MS, null);
+          const found = findRule(now.AppRules, app);
+          this.h.onApp?.(app, found?.index ?? null);
+          if (found && app) {
+            Log.write(`app mode ${found.index + 1} for ${exeKey(app.exe)}: edit=${found.rule.Edit} simple=${found.rule.SimpleSyntax}`);
+            now = applyRule(now, found.rule);
+          }
+          if (this.abandon) {
+            overlay?.hideNow();
+            return null;
+          }
+        }
+        simpleOn = now.SimpleSyntax;
         if (text.length > 0 && this.brainUsable(now)) {
           const cmd = parseCommand(text);
           if (cmd || now.BrainEveryTake) {
             const body = cmd?.body ?? text;
             if (cmd) Log.write(`brain command, ${body.length} chars`);
             brainCommand = cmd !== null;
+            command = cmd?.command ?? null;
+            brainRan = true;
             const { answer, failure } = await this.runBrain(now, body, cmd?.command ?? null, overlay, abort.signal);
             if (this.abandon) {
               overlay?.hideNow();
@@ -355,7 +473,6 @@ export class DictationSession {
       }
 
       // Simple syntax is for dictation only: a Brain answer to a command goes in as is.
-      const simpleOn = this.h.settings().SimpleSyntax;
       if (text.length > 0 && simpleOn && !brainCommand) {
         const simple = applySimpleSyntax(text);
         Log.write(`simple syntax: ${simple === text ? 'unchanged' : 'applied'}, ${text.length} chars`);
@@ -373,27 +490,27 @@ export class DictationSession {
         overlay?.hideNow();
         this.lastText = text;
         result = text;
-        let copied = true;
         try {
-          this.h.copy?.(text);
+          this.h.record?.({
+            raw: raw || text,
+            final: text,
+            command,
+            brain: brainRan,
+            brainFailed: brainFailure !== null,
+            seconds: samples.length / SAMPLE_RATE,
+          });
         } catch (e) {
-          copied = false;
-          Log.write(`clipboard: ${e instanceof Error ? e.message : String(e)}`);
+          Log.write(`history: ${e instanceof Error ? e.message : String(e)}`);
         }
-        if (brainFailure !== null) {
-          this.hint(copied
-            ? t(`Мозг не справился: ${brainFailure}. В буфере обмена текст без правки.`, `The Brain failed: ${brainFailure}. The clipboard has the text as recognized.`)
-            : t(`Мозг не справился: ${brainFailure}. В буфер обмена скопировать не получилось.`, `The Brain failed: ${brainFailure}. Could not copy to the clipboard.`));
-        } else {
-          this.status = copied
-            ? t('Готово. Фраза в буфере обмена: вставьте её Ctrl+V. Вставка прямо в другие программы появится позже.',
-              'Done. The phrase is on the clipboard: paste it with Ctrl+V. Inserting straight into other apps comes later.')
-            : t('Готово. В буфер обмена скопировать не получилось.', 'Done. Could not copy to the clipboard.');
-        }
+        const inserter = this.source === 'hotkey' ? this.h.inserter?.() ?? null : null;
+        if (inserter) await this.insertInto(inserter, text, brainFailure);
+        else this.copyOut(text, brainFailure);
       } else if (samples.length <= MIN_TAKE_SAMPLES) {
         // WPF just hides the pill on an accidental tap; the page says what happened.
         overlay?.hideNow();
-        this.status = t('Слишком коротко. Держите кнопку, пока говорите.', 'Too short. Keep holding the button while you speak.');
+        this.status = this.source === 'hotkey'
+          ? t('Слишком коротко. Держите клавишу, пока говорите.', 'Too short. Keep holding the key while you speak.')
+          : t('Слишком коротко. Держите кнопку, пока говорите.', 'Too short. Keep holding the button while you speak.');
       } else {
         const mic = this.h.micName?.() ?? '';
         this.hint(silent
@@ -413,6 +530,65 @@ export class DictationSession {
       this.push();
     }
     return result;
+  }
+
+  /** In-window take (or no helper): the phrase goes to the clipboard and the page. */
+  private copyOut(text: string, brainFailure: string | null): void {
+    let copied = true;
+    try {
+      this.h.copy?.(text);
+    } catch (e) {
+      copied = false;
+      Log.write(`clipboard: ${e instanceof Error ? e.message : String(e)}`);
+    }
+    if (brainFailure !== null) {
+      this.hint(copied
+        ? t(`Мозг не справился: ${brainFailure}. В буфере обмена текст без правки.`, `The Brain failed: ${brainFailure}. The clipboard has the text as recognized.`)
+        : t(`Мозг не справился: ${brainFailure}. В буфер обмена скопировать не получилось.`, `The Brain failed: ${brainFailure}. Could not copy to the clipboard.`));
+    } else {
+      this.status = copied
+        ? t('Готово. Фраза в буфере обмена: вставьте её Ctrl+V.', 'Done. The phrase is on the clipboard: paste it with Ctrl+V.')
+        : t('Готово. В буфер обмена скопировать не получилось.', 'Done. Could not copy to the clipboard.');
+    }
+  }
+
+  /** Global-key take: TextInserter.Insert into the focused app with the WPF hints. */
+  private async insertInto(inserter: TextInserterLike, text: string, brainFailure: string | null): Promise<void> {
+    const s = this.h.settings();
+    let r: 'Done' | 'Blocked';
+    try {
+      r = await inserter.insert(text, s.InsertMode, { keep: s.CopyPhraseToClipboard, restore: s.RestoreClipboardAfterCopy });
+    } catch (e) {
+      // The helper is gone: never drop the phrase, put it on the clipboard instead.
+      Log.write(`insert failed: ${e instanceof Error ? e.message : String(e)}`);
+      let copied = true;
+      try {
+        this.h.copy?.(text);
+      } catch {
+        copied = false;
+      }
+      this.hint(copied
+        ? t('Вставить не получилось. Фраза в буфере обмена: вставьте её Ctrl+V.', 'Could not insert. The phrase is on the clipboard: paste it with Ctrl+V.')
+        : t('Вставить не получилось. Фраза показана на странице «Диктовка».', 'Could not insert. The phrase is shown on the Dictation page.'));
+      return;
+    }
+    Log.write(`insert ${s.InsertMode}: ${r}, ${text.length} chars`);
+    if (r === 'Blocked') {
+      this.hint(t('Это окно запущено от администратора, вставить туда нельзя. Текст лежит в буфере обмена.',
+        'That window runs as administrator; typing into it is blocked. The text is on the clipboard.'));
+      // Typing leaves the clipboard alone (Paste already left the phrase there): make the hint true.
+      if (s.InsertMode === 'Type') {
+        try {
+          this.h.copy?.(text);
+        } catch {
+          /* the page still shows the phrase */
+        }
+      }
+    } else if (brainFailure !== null) {
+      this.hint(t(`Мозг не справился: ${brainFailure}. Вставлен текст без правки.`, `The Brain failed: ${brainFailure}. Inserted the text as recognized.`));
+    } else {
+      this.status = t('Готово. Фраза вставлена.', 'Done. The phrase is inserted.');
+    }
   }
 
   /**
@@ -472,8 +648,8 @@ export class DictationSession {
    */
   async partialTick(): Promise<void> {
     if (!this.buf.isRecording) return;
-    if (!this.h.settings().ShowOverlay) return; // Sales (needs drafts without the pill) is not ported
     const settings = this.h.settings();
+    if (!this.wantsDrafts(settings)) return;
     const remote = settings.NetworkRole === 'Client';
     const rec = this.rec;
     if ((!remote && !rec) || this.partialBusy) return;
@@ -498,7 +674,10 @@ export class DictationSession {
     this.partialTask = task;
     try {
       const text = await run;
-      if (wanted() && this.buf.isRecording && text.length > 0) this.overlay?.showPartial(text);
+      if (wanted() && this.buf.isRecording && text.length > 0) {
+        this.overlay?.showPartial(text);
+        this.showSales(text);
+      }
       if (text.length > 0) Log.write(`partial ${text.length} chars`);
     } catch (e) {
       if (e instanceof RemoteHostException) Log.write(`partial remote: ${e.english}`);

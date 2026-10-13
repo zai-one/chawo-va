@@ -319,3 +319,46 @@ describe('DictationSession and the pill', () => {
     expect(overlay.log).toEqual(['listening']);
   });
 });
+
+describe('DictationSession → «История»', () => {
+  it('plain take: raw = final after the dictionary, no Brain', async () => {
+    const recs: unknown[] = [];
+    const { take } = make({ record: (r) => void recs.push(r) });
+    await take('привет мир');
+    expect(recs).toEqual([{ raw: 'привет мир', final: 'привет мир', command: null, brain: false, brainFailed: false, seconds: 1 }]);
+  });
+
+  it('a «Чаво, …» command keeps the text before the Brain and the command', async () => {
+    const recs: { raw: string; final: string; command: string | null; brain: boolean }[] = [];
+    const { take } = make({
+      record: (r) => void recs.push(r),
+      brainUsable: () => true,
+      transform: async () => 'Hello world',
+    }, (x) => { x.Brain = 'Local'; });
+    expect(await take('привет мир. Чаво, переведи на английский')).toBe('Hello world');
+    expect(recs[0]).toMatchObject({ raw: 'привет мир. Chawo, переведи на английский', final: 'Hello world', command: 'переведи на английский', brain: true });
+  });
+
+  it('a failed Brain is recorded as failed; silence and cancelled takes are not recorded', async () => {
+    const recs: { final: string; brainFailed: boolean }[] = [];
+    const { take, sess } = make({
+      record: (r) => void recs.push(r),
+      brainUsable: () => true,
+      transform: async () => { throw new Error('down'); },
+    }, (x) => { x.Brain = 'Server'; x.BrainEveryTake = true; });
+    await take('как есть');
+    expect(recs).toEqual([expect.objectContaining({ final: 'как есть', brainFailed: true })]);
+    sess.startTake();
+    sess.appendPcm(new Float32Array(SAMPLE_RATE));
+    await sess.stopTake();
+    sess.startTake();
+    sess.cancelTake();
+    expect(recs).toHaveLength(1);
+  });
+
+  it('a throwing history hook never breaks the take', async () => {
+    const { take, copied } = make({ record: () => { throw new Error('disk full'); } });
+    expect(await take('привет')).toBe('привет');
+    expect(copied).toEqual(['привет']);
+  });
+});

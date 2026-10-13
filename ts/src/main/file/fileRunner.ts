@@ -12,11 +12,15 @@ import { t } from '../../core/strings';
 import { FileQueue, type FileQueueItem } from './fileQueue';
 import { MAX_BYTES, outputPath } from './fileTranscript';
 import { outputPath as brainOutputPath } from '../brain/fileBrain';
+import type { FileExtraFormat } from '../settings';
+import { writeExtras } from './transcriptExport';
 import * as Log from '../log';
 
 export interface FileRunOptions {
   timestamps: boolean;
   srt: boolean;
+  /** .vtt / .json / .md / .docx beside the .txt (setting FileExtraFormats). */
+  extra?: FileExtraFormat[];
   /** When true, try Brain post-edit after the raw .txt (via runBrain when provided). */
   useBrain: boolean;
 }
@@ -202,7 +206,7 @@ export class FileRunner {
     }
   }
 
-  /** Writes name.txt (and name.srt) beside the source. Returns the short note for the row. */
+  /** Writes name.txt (and name.srt, .vtt, .json, .md, .docx when chosen) beside the source. Returns the short note for the row. */
   private async one(
     item: FileQueueItem,
     prefix: string,
@@ -233,6 +237,14 @@ export class FileRunner {
     if (opts.srt) {
       writeFileSync(out.replace(/\.txt$/i, '.srt'), toSrt(segments), 'utf8');
       notes.push('.srt');
+    }
+    if (opts.extra?.length) {
+      const res = writeExtras(out, item.path, segments, samples.length / 16000, opts.extra, opts.timestamps);
+      notes.push(...res.written);
+      for (const f of res.failed) {
+        Log.write(`file export ${item.path}: ${f}`);
+        notes.push(f);
+      }
     }
 
     if (opts.useBrain && this.d.runBrain) {
