@@ -405,3 +405,58 @@ describe('DictationSession', () => {
     expect(sess.sessionLine()).toContain('Видеокарта не поднялась, считаю на процессоре.');
   });
 });
+
+describe('DictationSession in «Продажи» mode', () => {
+  it('drafts run with the pill off and go to the sales card; the recognized take too (before the dictionary)', async () => {
+    const sales: string[] = [];
+    const partials: string[] = [];
+    const overlay = {
+      showListening() {}, showRecognizing() {}, showStatus() {}, showHint() {}, showCaption() {}, hideNow() {},
+      showPartial(text: string) { partials.push(text); },
+    };
+    const { sess } = make({ partialMs: 0, overlay, sales: (t) => void sales.push(t) }, (x) => {
+      x.Mode = 'Sales'; x.ShowOverlay = false; x.WordReplacementRules = 'мир=Мир!';
+    });
+    sess.startTake();
+    await sess.ensureLoaded();
+    feed(sess, speech(1));
+    await sess.partialTick();
+    expect(sales).toEqual(['привет мир']);
+    expect(partials).toEqual([]); // pill is off
+    expect(await sess.stopTake()).toBe('привет Мир!');
+    expect(sales).toEqual(['привет мир', 'привет мир']);
+  });
+
+  it('Dictation mode: no drafts without the pill and nothing goes to the card', async () => {
+    const sales: string[] = [];
+    const { sess, recs } = make({ partialMs: 0, sales: (t) => void sales.push(t) }, (x) => { x.ShowOverlay = false; });
+    sess.startTake();
+    await sess.ensureLoaded();
+    feed(sess, speech(1));
+    await sess.partialTick();
+    expect(recs[0].calls).toHaveLength(0);
+    await sess.stopTake();
+    expect(sales).toEqual([]);
+  });
+
+  it('a throwing card does not break the take', async () => {
+    const { sess, copied } = make({ partialMs: 0, sales: () => { throw new Error('boom'); } }, (x) => { x.Mode = 'Sales'; });
+    sess.startTake();
+    feed(sess, speech(1));
+    expect(await sess.stopTake()).toBe('привет мир');
+    expect(copied).toEqual(['привет мир']);
+  });
+
+  it('client role in Sales mode: host drafts and the host take reach the card', async () => {
+    const sales: string[] = [];
+    let n = 0;
+    const { sess } = make({ remote: async () => `TP-${++n}`, partialMs: 0, sales: (t) => void sales.push(t) }, (x) => {
+      x.NetworkRole = 'Client'; x.RemoteHost = 'host.lan'; x.Mode = 'Sales'; x.ShowOverlay = false;
+    });
+    sess.startTake();
+    feed(sess, speech(1));
+    await sess.partialTick();
+    await sess.stopTake();
+    expect(sales).toEqual(['TP-1', 'TP-2']);
+  });
+});

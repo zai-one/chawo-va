@@ -27,7 +27,7 @@ export interface DictationIpc {
 export function registerDictationIpc(
   getWindow: () => BrowserWindow | null,
   settings: { get: () => SettingsData },
-  opts: { changed?: () => void; overlay?: OverlayWindow } = {},
+  opts: { changed?: () => void; overlay?: OverlayWindow; sales?: (transcript: string) => void } = {},
 ): DictationIpc {
   const send = (channel: string, payload: unknown) => {
     const w = getWindow();
@@ -72,6 +72,7 @@ export function registerDictationIpc(
     },
     micName: () => ctl.micName(),
     overlay: opts.overlay,
+    sales: opts.sales,
   });
   const ctl: DictationController = new DictationController({
     settings: settings.get,
