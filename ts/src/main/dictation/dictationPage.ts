@@ -86,7 +86,14 @@ export interface DictationHooks {
   take: () => TakeView;
   find?: (kind: SpeechModelKind) => string | null;
   platform?: NodeJS.Platform;
+  /**
+   * The global hold key (Windows native helper): on, starting, failed (with a reason), or none (not
+   * Windows, or the helper exe is not there). Missing: none.
+   */
+  globalKey?: () => GlobalKeyState;
 }
+
+export type GlobalKeyState = { kind: 'on' } | { kind: 'starting' } | { kind: 'failed'; reason: string } | { kind: 'none' };
 
 /** Settings.HotkeyTitle: the key's name, or "клавиша XX" for an id that is not in the list. */
 export function hotkeyTitle(vk: number): string {
@@ -172,15 +179,20 @@ export class DictationController {
     const listening = take.phase === 'Listening';
     const recognizing = take.phase === 'Recognizing';
     const key = hotkeyTitle(s.HotkeyVk);
+    const gk = this.h.globalKey?.() ?? { kind: 'none' };
+    const keyOn = gk.kind === 'on';
     const noModel = !client && !onDisk ? noModelText() : null;
     let status = take.loading && !take.status ? t('Загружаю модель…', 'Loading the model…') : take.status;
     // A press without a model repeats the hint that is already on the page (with its link): say it once.
     if (noModel && status === flatText(noModel)) status = '';
     return {
       ru: isRussian(),
-      intro: t('Зажмите клавишу и говорите. Отпустите, и появится текст. Пока работает кнопка ниже: текст показывается здесь и копируется в буфер обмена.',
-        'Hold the key and speak. Release and the text appears. For now the button below does it: the text shows here and goes to the clipboard.'),
-      startCard: s.StartHintDismissed ? null : this.startCard(s, onDisk, key),
+      intro: keyOn
+        ? t('Курсор в любой текст, зажмите клавишу и говорите. Отпустите, и текст появится сам.',
+          'Cursor in any text, hold the key and speak. Release and the text appears by itself.')
+        : t('Зажмите кнопку ниже и говорите. Отпустите, и появится текст: он показывается здесь и копируется в буфер обмена.',
+          'Hold the button below and speak. Release and the text appears: it shows here and goes to the clipboard.'),
+      startCard: s.StartHintDismissed ? null : this.startCard(s, onDisk, key, keyOn),
       mode: s.Mode,
       modeChoices: [
         { value: 'Dictation', label: 'Диктовка' },
@@ -195,8 +207,7 @@ export class DictationController {
         { value: 'Type', label: t('Печатать как с клавиатуры', 'Type like a keyboard') },
         { value: 'Paste', label: t('Через буфер обмена (Ctrl+V)', 'Through the clipboard (Ctrl+V)') },
       ],
-      keyNote: t(`Клавиша ${key} и вставка в другие программы в этой версии ещё не перенесены: выбор сохраняется и уже действует в WPF-приложении.`,
-        `The ${key} key and inserting into other apps are not ported to this version yet: the choice is saved and already works in the WPF app.`),
+      keyNote: this.keyNote(gk, key),
       showOverlay: s.ShowOverlay,
       overlayLabel: t('Показывать плашку: волна и черновик текста', 'Show the pill: wave and the draft text'),
       overlayTip: t('Пока клавиша зажата, на плашке волна и черновик. Вставляется не он, а окончательный проход после отпускания. Плашку можно перетащить мышью.',
@@ -229,7 +240,26 @@ export class DictationController {
     };
   }
 
-  private startCard(s: SettingsData, onDisk: boolean, key: string): NonNullable<DictationStateDto['startCard']> {
+  /** One line under the key and insert choices: only when the key does not simply work. */
+  private keyNote(gk: GlobalKeyState, key: string): string {
+    switch (gk.kind) {
+      case 'on':
+        return '';
+      case 'starting':
+        return t(`Включаю клавишу ${key}…`, `Turning on the ${key} key…`);
+      case 'failed':
+        return t(`Клавиша ${key} не включилась (${gk.reason}). Пока работает кнопка ниже: текст копируется в буфер обмена.`,
+          `The ${key} key did not turn on (${gk.reason}). The button below still works: the text goes to the clipboard.`);
+      case 'none':
+        return this.win
+          ? t(`Нет помощника ChawoNative.exe рядом с программой, поэтому клавиша ${key} и вставка в другие программы выключены. Работает кнопка ниже.`,
+            `ChawoNative.exe is missing next to the app, so the ${key} key and inserting into other apps are off. The button below works.`)
+          : t('Клавиша и вставка в другие программы пока есть только в Windows. Здесь работает кнопка ниже: текст копируется в буфер обмена.',
+            'The key and inserting into other apps are Windows-only for now. Here the button below works: the text goes to the clipboard.');
+    }
+  }
+
+  private startCard(s: SettingsData, onDisk: boolean, key: string, keyOn: boolean): NonNullable<DictationStateDto['startCard']> {
     const step1: TextPart[] = s.NetworkRole === 'Client'
       ? [t('1) Этот ПК — клиент: укажите адрес хоста в разделе ', '1) This PC is a client: set the host address under '),
         { link: t('«Сеть»', 'Network'), page: 'network' }, '.']
@@ -237,8 +267,11 @@ export class DictationController {
         { link: t('«Распознавание»', 'Speech'), page: 'speech' },
         onDisk ? t(' — уже на диске ✓', ' — already on disk ✓') : '.'];
     const step2: TextPart[] = [
-      t(`2) Зажмите кнопку «Удерживайте, чтобы говорить» и говорите. Отпустите — текст появится здесь и в буфере обмена. Клавиша ${key} пока работает в WPF-приложении.`,
-        `2) Hold the "Hold to talk" button and speak. Release, and the text shows here and on the clipboard. The ${key} key works in the WPF app for now.`),
+      keyOn
+        ? t(`2) Поставьте курсор в любое поле, зажмите ${key} и говорите. Отпустите — текст вставится сам.`,
+          `2) Put the cursor in any field, hold ${key} and speak. Release, and the text is inserted.`)
+        : t('2) Зажмите кнопку «Удерживайте, чтобы говорить» и говорите. Отпустите — текст появится здесь и в буфере обмена.',
+          '2) Hold the "Hold to talk" button and speak. Release, and the text shows here and on the clipboard.'),
     ];
     const step3: TextPart[] = [
       t('3) Длинную запись перетащите в это окно — текст ляжет рядом, в ', '3) Drop a long recording onto this window; the text lands beside it, see '),

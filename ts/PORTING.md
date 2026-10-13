@@ -36,17 +36,17 @@ Re-align folder names and tooling with taptain-desktop once its layout is readab
 | App.HermesTranscribe | src/main/network/hermesTranscribe.ts (reuses DictationSession's recognizer, opens it from disk if needed, piece by piece, «model unloaded» on swap) | ✅ ported + tests |
 | App/HermesFirewall.cs | src/main/network/hermesFirewall.ts | ✅ Windows: same netsh script + one elevated powershell (exit code decides), WF.msc console; elsewhere a no-op (the page says the OS firewall is the user's call) + tests |
 | App/RemoteSpeech.cs (RemoteHostException, TryEndpoint, Transcribe, TranscribeBytes, Check) | src/main/network/remoteSpeech.ts (injectable fetch) | ✅ ported + tests (fake fetch and against a real HermesServer) |
-| App/SalesRag.cs | src/main/sales/salesRag.ts | 🟡 SuggestDictionary + helpers ported + tests; FindSnippet waits for the sales card |
-| App/Sales*.cs (catalog, card, rest) | src/main/sales/ | ⏳ |
+| App/SalesRag.cs | src/main/sales/salesRag.ts | ✅ SuggestDictionary + FindSnippet (word-against-word matching, see tick log) + tests |
+| App/SalesCatalog.cs, SalesFlow.cs, SalesCardWindow, App.ShowSales/PresentCall/PaintCall | src/main/sales/ (salesCatalog, salesFlow, salesCard, salesCardWindow, salesPage) + salesIpc.ts | ✅ catalog match, call stand-in, CRM boundary (always none), always-on-top card + tests |
 | App/KeepAwake.cs | src/main/network/keepAwake.ts (Electron `powerSaveBlocker` 'prevent-app-suspension'; no-op outside Electron) | ✅ ported + tests |
 | App/Updater.cs, Autostart.cs | src/main/system/ | ⏳ |
-| SettingsWindow, SalesCardWindow, Download/Update windows, BrainServerPanel | src/renderer/ pages | 🟡 «Диктовка», «Расшифровка файла», «Распознавание», «Словарь», «Мозг» and «Сеть» pages work (DownloadWindow folded into the page as a progress card); «Продажи» is a placeholder |
+| SettingsWindow, SalesCardWindow, Download/Update windows, BrainServerPanel | src/renderer/ pages | 🟡 all seven pages work (DownloadWindow folded into the page as a progress card); SalesCardWindow is `salesCard.html` |
 | SettingsWindow network page (Role_Changed, Remote_LostFocus, CheckHost_Click, Lan_Click), App.StartHermes / RestartHermes / ApplyKeepAwake / HermesStatusText / LanUrls / ToggleLanAsync | src/main/network/networkPage.ts (NetworkController), src/main/networkIpc.ts, preload `network:`, renderer `renderNetwork` | ✅ ported + tests |
 | App/OverlayWindow.xaml(.cs) | src/main/overlay/overlayModel.ts (state, Tail, hint/caption timers, placement), overlayWindow.ts (frameless transparent always-on-top, never focused, drag → OverlayX/Y), overlayPreload.ts, src/renderer/overlay.html/.css/.ts (13 bars, ripple, live line) | ✅ listening / recognizing / status / hint / live draft + tests; caret placement (Win32) and Unpin button ⏳ |
 | SettingsWindow speech page, App.SpeechStatusText / DownloadSpeechAsync / DeleteSpeechModelAsync | src/main/speech/speechPage.ts (SpeechController), src/main/speechIpc.ts | ✅ ported + tests (live session line comes from DictationSession; GPU warmup ⏳) |
 | SettingsWindow dictionary page (FillDictionaryRows / PersistDictionary / SuggestDictionary_Click / AddSuggestion_Click) | src/main/dictionary/dictionaryPage.ts (DictionaryController), src/main/dictionaryIpc.ts | ✅ ported + tests |
 | SettingsWindow dictation page (Localize dictation block, FillStartCard, Mode/Hotkey/Insert/Overlay/Mic handlers, SetPhase), App.SetPhase | src/main/dictation/dictationPage.ts (DictationController), src/main/dictationIpc.ts | ✅ ported + tests (language box, copy-to-clipboard options, autostart, updates, unpin not on this page yet) |
-| App.HandlePressAsync / HandleReleaseAsync / RunBrainAsync / RequestStop / StartPartials / PartialTickAsync / ReloadSpeechAsync / SpeechStatusText | src/main/dictation/dictationSession.ts (DictationSession) | ✅ local or Client (RemoteSpeech) take → dictionary → Brain (every take / «Чаво, …») → simple syntax → clipboard, live drafts on the pill (remote too), cancel aborts the Brain / the host request + tests; Brain on a selection, ConfirmBrainMemory, sales card ⏳ |
+| App.HandlePressAsync / HandleReleaseAsync / RunBrainAsync / RequestStop / StartPartials / PartialTickAsync / ReloadSpeechAsync / SpeechStatusText | src/main/dictation/dictationSession.ts (DictationSession) | ✅ local or Client (RemoteSpeech) take → dictionary → Brain (every take / «Чаво, …») → simple syntax → clipboard, live drafts on the pill (remote too), cancel aborts the Brain / the host request + tests; sales card fed by drafts + the take in «Продажи» mode (drafts run with the pill off); Brain on a selection, ConfirmBrainMemory ⏳ |
 | SettingsWindow brain page (Localize brain part / UpdateBrainTexts / FillBrainModelRows), BrainServerPanel, App.SelectBrainAsync | src/main/brain/brainPage.ts (BrainController), src/main/brainIpc.ts | ✅ ported + tests; «Скачать» / «Скачать движок» on the rows + in-page «Скачиваю Мозг» card (progress, cancel, retry) ✅ |
 | App.RunFileQueueAsync / RunQueue / RunOneFile / TranscribeLocal / TranscribeRemote | src/main/file/fileRunner.ts, localTranscriber.ts, remoteTranscriber.ts, src/main/fileIpc.ts | ✅ local and Client paths + Brain hook (cloud and local FileBrain); a host error ends the run like WPF |
 | App/Strings.cs | src/core/strings.ts (ru/en `t()`) | ✅ ported |
@@ -393,3 +393,95 @@ Re-align folder names and tooling with taptain-desktop once its layout is readab
   no output; no model → 3 with the Russian hint; `--format pdf` → 2. Gaps: .vtt/.json/.md/.docx in
   the CLI once `ts/feat-export-formats` lands; the packaged app has no CLI entry yet (run with
   Node, or `ELECTRON_RUN_AS_NODE=1` against the app's `dist/cli.js`); no remote `--host` mode.
+- 2026-10-13 tick (branch `ts/feat-export-formats`, IDEAS.md №6, export part): extra transcript
+  files beside name.txt. `core/transcriptFormat.ts` gained `toVtt` (WEBVTT header, numbered cues,
+  `HH:MM:SS.mmm`, & < > escaped, 0.5 s minimum like .srt), `toJson` (`chawo-transcript` v1: source,
+  duration, joined text, segments with ms-rounded times — the shape a server backend would store),
+  `toMarkdown` (file name as heading, a paragraph per piece, `**[hh:mm:ss]**` when timestamps are on,
+  Markdown specials and leading list/heading markers escaped) and `needsTimings`. `core/
+  transcriptDocx.ts` builds a minimal WordprocessingML package (title, a paragraph per piece, grey
+  time mark, XML-invalid characters dropped) with no dependency; `main/file/transcriptExport.ts` zips
+  it with the existing `buildZip` (deflate) and writes the chosen formats (one failing format is noted
+  on the row, the others still land). Setting `FileExtraFormats` (vtt/json/md/docx, default none,
+  unknown names dropped; .srt keeps its WPF `FileSrt`); the page shows one row «Ещё сохранять рядом:
+  .srt .vtt .json .md .docx» replacing the old .srt box (no duplicate setting). Client role: a timed
+  format (.vtt/.json, or .md/.docx with timestamps) posts piece by piece like .srt. Tests:
+  transcriptExport (14) + a remote case; 323 green (309 on ts-port). Real run
+  (`scripts/smoke-export.cjs`, xvfb, real v3_e2e_rnnt on CPU, `ru30.wav`): the four boxes clicked →
+  settings.json `FileExtraFormats: ["vtt","json","md","docx"]`, the queue row «00:00:30 · .srt · .vtt
+  · .json · .md · .docx» in 6.4 s, all six files beside the WAV; ffprobe reads the .vtt as webvtt and
+  ffmpeg converts it to .srt, LibreOffice opens the .docx and its text matches the .txt. Gaps: the
+  transcript editor (click a phrase to play) is batch 2 item 10; Brain output stays .brain.txt only.
+- 2026-10-13 tick (branch `ts/feat-sales`): «Продажи». `salesCatalog.ts` = SalesCatalog (exact code as
+  its own word, longest wins → similar code → nearest name by shared letters ≥ 0.6; HasToken,
+  NameIsClose, WithRag). Deviation: WPF scored the nearest name on unfolded letters, so a capitalised
+  catalog name («Таптайн») never shared its capital with the lower-case transcript; the name is folded
+  now, like NameIsClose already did. `salesRag.ts` gained FindSnippet (SplitBlocks, Clip 220, file
+  name as source) and the file count for the page. Deviation: WPF counted a spoken word as present
+  when ≥4 of its letters occurred anywhere in the paragraph, so long paragraphs matched every word and
+  a short unrelated one won on size; now a word counts when it is a substring of the paragraph or
+  looks like one of its words (same first two letters, ≤3 letters length apart, ≥75 % shared).
+  `salesFlow.ts` = SalesFlow (TelephonyEvent/HandsetBinding/CrmClient shapes, Resolve, StandIn,
+  LookupClient always null, Compose, PreferSpokenHistory, who/script lines verbatim). `salesCard.ts`:
+  SalesCardModel (ShowModel/HideNow with the "same as shown" check) and SalesSession (App.ShowSales /
+  PresentCall / PaintCall and the ApplySettings branch: leaving Sales closes the call and hides the
+  card; a catalog edit repaints an open call). `salesCardWindow.ts` + `salesCard.html/css/ts` +
+  `salesCardPreload.ts`: frameless, transparent, always on top, focusable:false + showInactive, no
+  taskbar, bottom-right of the primary work area 12 px in (SalesCardWindow.Place), dark only, size
+  reported by the renderer. Addition: a small × on the card (WPF had no way to hide it except leaving
+  the mode); it hides the card and ends the stand-in call. `salesPage.ts` (SalesPageController) +
+  `salesIpc.ts` + preload `sales:` + renderer `renderSales`: catalog rows (code/name/line/similar
+  code, saved on every edit, empty rows not stored, outside changes reload), materials folder with the
+  WPF status lines and a native folder dialog, call stand-in (extension/number/manager kept for this
+  run only, WPF status lines). A one-line note says whether Sales mode is on; the mode itself stays on
+  «Диктовка» (no duplicate setting). DictationSession: live drafts run when ShowOverlay OR Mode=Sales;
+  in Sales mode each draft and the recognized take (before the dictionary, like WPF) go to the card,
+  Client role included; a throwing card is logged and the take goes on. Tests: salesCatalog (10),
+  salesFlow + card model + session (8), salesPage (8), session Sales cases (4); 339 green (309 on
+  ts-port). Real run (`scripts/smoke-sales.cjs`, xvfb, real v3_e2e_rnnt on CPU, fake mic with a 30 s
+  Russian WAV): rows typed into the page are saved to settings.json, folder picked → «Файлов
+  .txt/.md: 2.»; pill off + Dictation mode → no card; Sales mode → card at 2 s of holding with
+  «похоже · русский язык · Курс русского… · из материалов · Русский язык для взрослых…», window
+  focusable=false, always on top, x+width = screen − 12; stand-in without a manager → the WPF
+  "no binding" line and no card; with 101/+7…/Анна → «звонок · Анна · трубка 101 · … · клиент по
+  номеру не найден · скрипт стадии: нет данных», a take then adds the hit under it; × hides; back to
+  Dictation mode hides the card. Gaps: the card sits on the primary display only (like WPF); no
+  real CRM or telephony (boundary only, as in WPF). Next: approved batch 2 / top-8 ideas.
+
+- 2026-10-13 tick 15 (branch `ts/feat-win-native`): the Windows native helper — global hold key +
+  inserting the phrase into the focused app. Electron has no low-level keyboard hook and no key-up for
+  global shortcuts, so `native/win/ChawoNative.exe` (C#, .NET Framework 4.8 — built into Windows
+  10/11, 21 KB, no runtime to install, builds on Linux with the .NET SDK via `npm run build:native`;
+  the exe is not committed) ports KeyboardHook (hook thread with its own message loop, injected keys
+  ignored, Right/Left Ctrl split by LLKHF_EXTENDED, Left Ctrl + Win = 0x10000 with the real
+  GetAsyncKeyState check, Escape swallowed only while armed) and TextInserter (Paste: snapshot of
+  every HGLOBAL clipboard format → phrase with the three no-history/no-cloud formats → Ctrl+V →
+  800 ms → previous clipboard back if nobody copied meanwhile; Type: KEYEVENTF_UNICODE in batches of
+  8 with 8 ms pauses, \n → Enter; SendInput refused → Blocked; CopySelection = Ctrl+C + read +
+  restore; foreground process name for per-app modes later). One worker thread owns a message-only
+  window as clipboard owner and pumps messages while waiting (other apps SendMessage the owner), and
+  serialises clipboard work like the WPF ClipboardGate. Difference from WPF: no WinRT clipboard-history
+  API in .NET Framework, so «keep the phrase in Win+V» with restore waits 1.2 s when history is on
+  (registry) and leaves the phrase current when it is off. Protocol: stdin/stdout lines, text in
+  base64 (`src/main/native/helperProtocol.ts`); the helper exits on stdin EOF. `nativeHelper.ts`:
+  spawn, ready timeout, request ids + timeouts, hotkey/arm re-sent after a restart, crash while the
+  key is held → treated as release, ≤3 restarts a minute then «failed». Wiring: `dictationIpc`
+  hotDown → `session.startTake('hotkey')` → the window opens the mic (`dictation:hot` start), hotUp →
+  the window stops the mic and calls stop (3 s fallback: recognize what arrived), Escape → cancel +
+  drop the mic; Escape is armed while the take listens/recognizes; a hotkey change goes to the
+  helper. `DictationSession`: hotkey takes go through the inserter (InsertMode, CopyPhraseToClipboard,
+  RestoreClipboardAfterCopy) with the WPF hints (admin window, Brain failure «Вставлен текст без
+  правки»), helper gone → clipboard + hint, Type+Blocked also copies (so «текст лежит в буфере» is
+  true); the in-window button still copies. Page: WPF intro/step 2 when the key works, one note line
+  when it is starting/failed/missing/not Windows; the main window keeps `backgroundThrottling: false`
+  so a take from the tray records. Tests: helperProtocol (3), nativeHelper against a fake helper
+  script (13), dictationHotkey with a mocked ipcMain (7), session hotkey takes (8), page states (2);
+  342 green (309 before). Real run: `scripts/smoke-native-wine.cjs` — the real ChawoNative.exe under
+  Wine 10 + wine-mono on Xvfb through the same NativeHelper client: ready in ~0.3 s with the hook
+  installed, Type of «Привет, мир 👋\nвторая строка» into a focused WinForms text box, Paste appended
+  with the previous clipboard («OLD clipboard») back afterwards, foreground = InsertTarget,
+  copySelection read the select-all text and restored the clipboard, keep-phrase mode left the phrase
+  current with history off — all PASS. UI shot of «Диктовка» renders. Gaps: the hold key press itself
+  is not exercised for real (the hook ignores injected keys; needs a Windows keyboard), clipboard
+  history wait is the registry approximation, SelectionReader (UI Automation first) + Brain on a
+  selection, caret-placed pill and the llama-server job object are the next native pieces.

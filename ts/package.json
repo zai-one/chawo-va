@@ -18,7 +18,8 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
     "start": "npm run build && electron .",
-    "cli": "node dist/cli.js"
+    "cli": "node dist/cli.js",
+    "build:native": "dotnet build native/win/ChawoNative.csproj -c Release -o native/win/bin/out"
   },
   "devDependencies": {
     "@types/node": "^20.17.0",

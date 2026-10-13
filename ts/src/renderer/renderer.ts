@@ -3,11 +3,17 @@
 // «Диктовка» also owns the microphone: getUserMedia → AudioWorklet (mic-processor.js, 16 kHz mono) → main.
 
 interface FileItem { id: number; path: string; state: 'Queued' | 'Running' | 'Done' | 'Failed' | 'Stopped'; note: string; outputPath?: string }
+const EXTRA_FORMATS: readonly [string, [string, string]][] = [
+  ['vtt', ['Субтитры WebVTT для сайтов и плееров', 'WebVTT subtitles for web players']],
+  ['json', ['Фразы со временем для скриптов', 'Timed phrases for scripts']],
+  ['md', ['Markdown для заметок', 'Markdown for notes']],
+  ['docx', ['Документ Word', 'Word document']],
+];
 interface FileState {
   items: FileItem[];
   status: string;
   busy: boolean;
-  options: { timestamps: boolean; srt: boolean; parallelism: string };
+  options: { timestamps: boolean; srt: boolean; extra: string[]; parallelism: string };
   ffmpeg: { line: string; canDownload: boolean; installed: boolean };
   lastOutput: string | null;
   ru: boolean;
@@ -75,6 +81,44 @@ interface DictApi {
   remove(id: number): Promise<DictState>;
   suggest(): Promise<DictState>;
   addSuggestion(heard: string, written: string): Promise<DictState>;
+}
+interface SalesRowDto { id: number; Code: string; Name: string; Line: string; SimilarCode: string }
+interface SalesState {
+  ru: boolean;
+  intro: string;
+  callHeading: string;
+  callIntro: string;
+  extensionHeader: string;
+  numberHeader: string;
+  managerHeader: string;
+  showCallLabel: string;
+  call: { extension: string; number: string; manager: string; status: string };
+  codeHeader: string;
+  nameHeader: string;
+  lineHeader: string;
+  similarHeader: string;
+  addLabel: string;
+  deleteLabel: string;
+  rows: SalesRowDto[];
+  ragHeading: string;
+  ragIntro: string;
+  ragFolder: string;
+  ragFolderText: string;
+  pickLabel: string;
+  clearLabel: string;
+  canClear: boolean;
+  ragStatus: string;
+  modeNote: string;
+  salesMode: boolean;
+}
+interface SalesApi {
+  state(): Promise<SalesState>;
+  setRow(id: number, code: string, name: string, line: string, similar: string): Promise<SalesState>;
+  add(): Promise<{ id: number; state: SalesState }>;
+  remove(id: number): Promise<SalesState>;
+  pickFolder(): Promise<SalesState>;
+  clearFolder(): Promise<SalesState>;
+  showCall(extension: string, number: string, manager: string): Promise<SalesState>;
 }
 interface BrainRow { kind: string | null; label: string; selected: boolean; onDisk: boolean; path: string | null; canDownload: boolean; downloadLabel: string }
 interface BrainDownload { kind: string; title: string; intro: string; percent: number | null; text: string; running: boolean; failed: boolean }
@@ -188,7 +232,10 @@ interface DictationApi {
   micFailed(name: string, message: string): Promise<DictationState>;
   onState(fn: (s: DictationState) => void): () => void;
   onLevel(fn: (v: number) => void): () => void;
+  onHot(fn: (ev: HotEvent) => void): () => void;
 }
+/** The global hold key: the main side already started the take; this side only runs the mic. */
+type HotEvent = { kind: 'start'; micId: string } | { kind: 'stop' } | { kind: 'end' };
 interface NetworkState {
   ru: boolean;
   heading: string;
@@ -229,7 +276,7 @@ interface NetworkApi {
   setKeepAwake(v: boolean): Promise<NetworkState>;
   onState(fn: (s: NetworkState) => void): () => void;
 }
-const bridge = (window as unknown as { chawo: { file: FileApi; speech: SpeechApi; dict: DictApi; brain: BrainApi; dictation: DictationApi; network: NetworkApi } }).chawo;
+const bridge = (window as unknown as { chawo: { file: FileApi; speech: SpeechApi; dict: DictApi; brain: BrainApi; dictation: DictationApi; network: NetworkApi; sales: SalesApi } }).chawo;
 
 const titlesEn: Record<string, string> = {
   dictation: 'Dictation',
@@ -258,6 +305,7 @@ let dictState: DictState | null = null;
 let brainState: BrainState | null = null;
 let dictationState: DictationState | null = null;
 let networkState: NetworkState | null = null;
+let salesState: SalesState | null = null;
 let ru = true;
 const L = (r: string, e: string) => (ru ? r : e);
 
@@ -700,6 +748,44 @@ async function holdUp(): Promise<void> {
   void refreshMicDevices();
 }
 
+// ── the global hold key (Windows helper) ──
+// The key is seen by the main process; the take is already started there. The mic lives here, so the
+// main side asks us to open it, to stop it (then recognize), or to drop it (Escape). Window focus does
+// not matter: the window may be hidden in the tray.
+let hotJob: Promise<MicCapture | null> | null = null;
+
+async function hotOpen(micId: string): Promise<MicCapture | null> {
+  const cap = new MicCapture();
+  try {
+    await cap.start(micId, (c) => bridge.dictation.appendPcm(c));
+  } catch (e) {
+    await cap.stop().catch(() => undefined);
+    const err = e as DOMException;
+    applyDictation(await bridge.dictation.micFailed(err?.name ?? 'Error', err?.message ?? String(e)));
+    return null;
+  }
+  activeCapture = cap;
+  return cap;
+}
+
+async function hotClose(recognize: boolean): Promise<void> {
+  const job = hotJob;
+  hotJob = null;
+  const cap = job ? await job : null;
+  if (cap && activeCapture === cap) {
+    activeCapture = null;
+    await cap.stop();
+  } else if (cap) await cap.stop().catch(() => undefined);
+  if (recognize && cap) applyDictation(await bridge.dictation.stopTake());
+}
+
+bridge.dictation.onHot((ev) => {
+  if (ev.kind === 'start') {
+    if (hotJob) return;
+    hotJob = hotOpen(ev.micId);
+  } else void hotClose(ev.kind === 'stop');
+});
+
 function cancelTake(): void {
   holdPressed = false;
   void bridge.dictation.cancelTake().then(applyDictation);
@@ -800,7 +886,8 @@ function renderDictation(): void {
       (v) => void bridge.dictation.setHotkey(Number(v)).then(applyDictation)));
   form.append(el('span', { textContent: L('Как вставлять текст', 'How to insert text') }),
     selectOf(s.insertChoices, s.insertMode, (v) => void bridge.dictation.setInsertMode(v).then(applyDictation)));
-  page.append(form, el('p', { className: 'muted hint', textContent: s.keyNote }));
+  page.append(form);
+  if (s.keyNote) page.append(el('p', { className: 'muted hint', textContent: s.keyNote }));
 
   page.append(el('label', { className: 'block', textContent: L('Микрофон', 'Microphone') }));
   const mic = selectOf(s.micChoices, s.micId, (v) => void bridge.dictation.setMic(v).then(applyDictation));
@@ -874,6 +961,7 @@ function setLanguage(r: boolean): void {
   else if (current === 'dictionary') renderDictionary();
   else if (current === 'brain') renderBrain();
   else if (current === 'network') renderNetwork();
+  else if (current === 'sales') renderSales();
   else if (current !== 'file') show(current);
 }
 
@@ -924,6 +1012,84 @@ function renderDictionary(focusId?: number): void {
     }
     page.append(list);
   }
+  if (focusEl) focusEl.focus();
+}
+
+const applySales = (st: SalesState, focusId?: number) => {
+  salesState = st;
+  if (st.ru !== ru) setLanguage(st.ru);
+  else if (current === 'sales') renderSales(focusId);
+};
+
+function renderSales(focusId?: number): void {
+  const s = salesState;
+  page.replaceChildren(el('h1', { textContent: title('sales') }));
+  if (!s) return;
+  page.append(el('p', { className: 'muted', textContent: s.intro }));
+  page.append(el('p', { className: s.salesMode ? 'hint' : 'hint warn', textContent: s.modeNote }));
+
+  // Catalog: code, name, short line, similar code; saved on every edit, the page is not redrawn.
+  const table = el('div', { className: 'dict sales' },
+    el('div', { className: 'dict-row head muted' },
+      el('span', { textContent: s.codeHeader }),
+      el('span', { textContent: s.nameHeader }),
+      el('span', { textContent: s.lineHeader }),
+      el('span', { textContent: s.similarHeader }),
+      el('span'),
+    ),
+  );
+  let focusEl: HTMLInputElement | null = null;
+  for (const r of s.rows) {
+    const box = (value: string, label: string) => {
+      const i = el('input', { type: 'text', value, spellcheck: false });
+      i.setAttribute('aria-label', label);
+      return i;
+    };
+    const code = box(r.Code, s.codeHeader);
+    const name = box(r.Name, s.nameHeader);
+    const line = box(r.Line, s.lineHeader);
+    const similar = box(r.SimilarCode, s.similarHeader);
+    const send = () => void bridge.sales.setRow(r.id, code.value, name.value, line.value, similar.value).then((st) => { salesState = st; });
+    for (const i of [code, name, line, similar]) i.addEventListener('input', send);
+    const del = button(s.deleteLabel, () => void bridge.sales.remove(r.id).then((st) => applySales(st)));
+    table.append(el('div', { className: 'dict-row' }, code, name, line, similar, del));
+    if (r.id === focusId) focusEl = code;
+  }
+  page.append(table);
+  page.append(el('div', { className: 'row' },
+    button(s.addLabel, () => void bridge.sales.add().then((res) => applySales(res.state, res.id))),
+  ));
+
+  // Materials folder (local RAG).
+  const rag = el('fieldset', {}, el('legend', { textContent: s.ragHeading }), el('p', { className: 'muted hint', textContent: s.ragIntro }));
+  const folder = el('input', { type: 'text', value: s.ragFolderText, readOnly: true, spellcheck: false });
+  folder.setAttribute('aria-label', s.ragHeading);
+  const clear = button(s.clearLabel, () => void bridge.sales.clearFolder().then((st) => applySales(st)));
+  clear.disabled = !s.canClear;
+  rag.append(el('div', { className: 'folder-row' }, folder,
+    button(s.pickLabel, () => void bridge.sales.pickFolder().then((st) => applySales(st))),
+    clear,
+  ));
+  rag.append(el('p', { className: 'muted hint', textContent: s.ragStatus }));
+  page.append(rag);
+
+  // Call stand-in.
+  const call = el('fieldset', {}, el('legend', { textContent: s.callHeading }), el('p', { className: 'muted hint', textContent: s.callIntro }));
+  const field = (value: string, label: string) => {
+    const i = el('input', { type: 'text', value, spellcheck: false, autocomplete: 'off' });
+    i.setAttribute('aria-label', label);
+    return el('label', { className: 'stack' }, el('span', { className: 'muted', textContent: label }), i);
+  };
+  const ext = field(s.call.extension, s.extensionHeader);
+  const num = field(s.call.number, s.numberHeader);
+  const mgr = field(s.call.manager, s.managerHeader);
+  const val = (l: HTMLElement) => (l.querySelector('input') as HTMLInputElement).value;
+  call.append(el('div', { className: 'call-row' }, ext, num, mgr));
+  call.append(el('div', { className: 'row' },
+    button(s.showCallLabel, () => void bridge.sales.showCall(val(ext), val(num), val(mgr)).then((st) => applySales(st))),
+  ));
+  if (s.call.status) call.append(el('p', { className: 'muted hint', textContent: s.call.status }));
+  page.append(call);
   if (focusEl) focusEl.focus();
 }
 
@@ -1037,8 +1203,19 @@ function renderFile(): void {
 
   const ts = el('input', { type: 'checkbox', checked: s.options.timestamps });
   ts.addEventListener('change', () => void bridge.file.setOptions({ timestamps: ts.checked }).then(apply));
+  // One row for every extra file; .srt keeps its own WPF setting, the others share FileExtraFormats.
+  const formats = el('span', { className: 'formats' });
   const srt = el('input', { type: 'checkbox', checked: s.options.srt });
   srt.addEventListener('change', () => void bridge.file.setOptions({ srt: srt.checked }).then(apply));
+  formats.append(el('label', { title: L('Субтитры SubRip', 'SubRip subtitles') }, srt, ' .srt'));
+  for (const [f, tip] of EXTRA_FORMATS) {
+    const box = el('input', { type: 'checkbox', checked: s.options.extra.includes(f) });
+    box.addEventListener('change', () => {
+      const next = EXTRA_FORMATS.map(([x]) => x).filter((x) => (x === f ? box.checked : s.options.extra.includes(x)));
+      void bridge.file.setOptions({ extra: next }).then(apply);
+    });
+    formats.append(el('label', { title: L(tip[0], tip[1]) }, box, ` .${f}`));
+  }
   const speed = el('select');
   for (const [v, label] of SPEED.map(([v, r]) => [v, ru ? r : SPEED_EN[v]] as [string, string])) speed.append(el('option', { value: v, textContent: label, selected: v === s.options.parallelism }));
   speed.addEventListener('change', () => void bridge.file.setOptions({ parallelism: speed.value }).then(apply));
@@ -1047,7 +1224,7 @@ function renderFile(): void {
     el('fieldset', {},
       el('legend', { textContent: L('Вывод', 'Output') }),
       el('label', {}, ts, L(' Метки времени [чч:мм:сс] в .txt', ' Timestamps [hh:mm:ss] in .txt')),
-      el('label', {}, srt, L(' Ещё и субтитры .srt', ' Also .srt subtitles')),
+      el('div', { className: 'row' }, L('Ещё сохранять рядом: ', 'Also save beside it: '), formats),
       el('label', {}, L('Скорость длинных записей ', 'Long recording speed '), speed),
     ),
   );
@@ -1083,6 +1260,11 @@ function show(name: string): void {
   if (name === 'brain') {
     renderBrain();
     void bridge.brain.state(true).then(applyBrain);
+    return;
+  }
+  if (name === 'sales') {
+    renderSales();
+    void bridge.sales.state().then((st) => applySales(st));
     return;
   }
   if (name === 'network') {
