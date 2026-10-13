@@ -1,4 +1,4 @@
-// Command-line arguments for `chawo-va transcribe | brief | translate | history …`. Pure parsing, no I/O, so it is unit-tested
+// Command-line arguments for `chawo-va transcribe | brain | brief | translate | history …`. Pure parsing, no I/O, so it is unit-tested
 // on its own. Anything not given here falls back to the app's settings.json (read-only).
 
 import type { FileParallelismKind } from '../core/fileParallel';
@@ -8,7 +8,7 @@ export const FORMATS = ['txt', 'srt', 'vtt', 'json', 'md', 'docx'] as const;
 export type OutputFormat = (typeof FORMATS)[number];
 
 export interface CliOptions {
-  command: 'transcribe' | 'brief' | 'translate' | 'history' | 'help' | 'version';
+  command: 'transcribe' | 'brain' | 'brief' | 'translate' | 'history' | 'help' | 'version';
   inputs: string[];
   /** Empty = not given (txt). */
   formats: OutputFormat[];
@@ -42,6 +42,10 @@ export interface CliOptions {
   vad: boolean | null;
   /** transcribe: --diarize / --no-diarize; null = settings FileDiarize («Разделять спикеров»). */
   diarize: boolean | null;
+  /** transcribe: --brain / --no-brain; null = settings FileUseBrain («Прогнать через мозг» → .brain.txt). */
+  brain: boolean | null;
+  /** transcribe: --brief / --no-brief; null = settings MeetingBriefEnabled («Кратко и задачи» → .brief.txt). */
+  brief: boolean | null;
 }
 
 export type ParseResult = { ok: true; options: CliOptions } | { ok: false; error: string };
@@ -87,6 +91,8 @@ function blank(command: CliOptions['command']): CliOptions {
     raw: false,
     vad: null,
     diarize: null,
+    brain: null,
+    brief: null,
   };
 }
 
@@ -96,7 +102,7 @@ export function parseArgs(argv: readonly string[]): ParseResult {
   const first = args[0];
   if (first === '--help' || first === '-h' || first === 'help') return { ok: true, options: blank('help') };
   if (first === '--version' || first === '-v' || first === 'version') return { ok: true, options: blank('version') };
-  if (first !== 'transcribe' && first !== 'brief' && first !== 'translate' && first !== 'history') return { ok: false, error: `unknown command: ${first}` };
+  if (first !== 'transcribe' && first !== 'brain' && first !== 'brief' && first !== 'translate' && first !== 'history') return { ok: false, error: `unknown command: ${first}` };
 
   const o = blank(first);
   let onlyFiles = false;
@@ -228,6 +234,16 @@ export function parseArgs(argv: readonly string[]): ParseResult {
         toggles.add(a);
         o.diarize = a === '--diarize';
         break;
+      case '--brain':
+      case '--no-brain':
+        toggles.add(a);
+        o.brain = a === '--brain';
+        break;
+      case '--brief':
+      case '--no-brief':
+        toggles.add(a);
+        o.brief = a === '--brief';
+        break;
       default:
         return { ok: false, error: `unknown option: ${a}` };
     }
@@ -236,6 +252,10 @@ export function parseArgs(argv: readonly string[]): ParseResult {
   if (toggles.has('--vad') && toggles.has('--no-vad')) return { ok: false, error: '--vad and --no-vad cannot be used together' };
   if (toggles.has('--diarize') && toggles.has('--no-diarize')) return { ok: false, error: '--diarize and --no-diarize cannot be used together' };
   if ((o.vad !== null || o.diarize !== null) && o.command !== 'transcribe') return { ok: false, error: '--vad and --diarize are for transcribe' };
+  if (toggles.has('--brain') && toggles.has('--no-brain')) return { ok: false, error: '--brain and --no-brain cannot be used together' };
+  if (toggles.has('--brief') && toggles.has('--no-brief')) return { ok: false, error: '--brief and --no-brief cannot be used together' };
+  if ((o.brain !== null || o.brief !== null) && o.command !== 'transcribe')
+    return { ok: false, error: o.command === 'brain' || o.command === 'brief' ? `--brain / --brief are switches for transcribe; \`${o.command}\` already does it` : '--brain and --brief are for transcribe' };
   if (o.command === 'history') {
     // Words after `history` are the search, like the page's search box (every word must occur).
     const speech = o.model || o.device || o.threads || o.script || o.modelDir;
@@ -247,6 +267,11 @@ export function parseArgs(argv: readonly string[]): ParseResult {
   }
   if (o.limit !== null || o.json || o.raw) return { ok: false, error: '-n, --json and --raw are for history' };
   if (o.inputs.length === 0) return { ok: false, error: 'no files given' };
+  if (o.command === 'brain') {
+    if (o.formats.length > 0) return { ok: false, error: 'brain writes .brain.txt (or --stdout); drop --format' };
+    if (o.model || o.device || o.threads || o.script || o.modelDir) return { ok: false, error: 'brain takes a transcript .txt (speech options are for transcribe)' };
+    if (o.instruction != null) return { ok: false, error: '--instruction is for brief' };
+  }
   if (o.command === 'brief') {
     if (o.formats.length > 0) return { ok: false, error: 'brief writes .brief.txt (or --stdout); drop --format' };
     if (o.model || o.device || o.threads || o.script || o.modelDir) return { ok: false, error: 'brief takes a transcript .txt (speech options are for transcribe)' };
@@ -270,6 +295,7 @@ export function helpText(t: (ru: string, en: string) => string): string {
 
 Использование:
   chawo-va transcribe <файлы или папки…> [параметры]
+  chawo-va brain <расшифровки.txt…> [параметры]
   chawo-va brief <расшифровки.txt…> [параметры]
   chawo-va translate <тексты.txt…> [--to язык] [параметры]
   chawo-va history [слова для поиска…] [-n 20|all] [--json] [--raw]
@@ -295,9 +321,22 @@ export function helpText(t: (ru: string, en: string) => string): string {
                          разделять спикеров («Спикер 1: …» в txt/srt/…); по умолчанию — из
                          настроек «Разделять спикеров». Модели спикеров (~47 МБ) скачиваются
                          в приложении; без них — расшифровка без спикеров, с пометкой
+      --brain / --no-brain
+                         ещё и «Прогнать через мозг» → .brain.txt (убрать слова-паразиты +
+                         «Кратко»); по умолчанию — из настроек
+      --brief / --no-brief
+                         ещё и «Кратко и задачи» → .brief.txt (--instruction — свой формат);
+                         по умолчанию — из настроек. Сбой Мозга — пометка, .txt всё равно пишется
       --lang ru|en       язык сообщений
   -q, --quiet            без прогресса
   -h, --help / -v, --version
+
+Параметры brain (то же, что «Прогнать через мозг» на странице):
+  -t / --no-timestamps   [чч:мм:сс] в .brain.txt (по умолчанию — как в исходном .txt)
+      --stdout           печатать в stdout вместо .brain.txt
+  -o, --out <папка>      куда писать .brain.txt
+      --lang ru|en       язык сообщений
+  -q, --quiet
 
 Параметры brief:
       --instruction «…»  своя инструкция формата (иначе — из настроек / встроенная)
@@ -326,6 +365,7 @@ export function helpText(t: (ru: string, en: string) => string): string {
 Модели не скачиваются (речь, VAD, спикеры): сначала скачайте их в приложении.
 WAV и Ogg/Opus читаются сами, остальные форматы (MP3, M4A, FLAC, …) — через ffmpeg.
 Папки — без подпапок, как в приложении.
+brain читает готовый .txt и пишет .brain.txt: абзацы без слов-паразитов и «Кратко».
 brief читает готовый .txt (рядом с записью или .brain.txt) и пишет .brief.txt через Мозг.
 translate переводит готовый .txt через Мозг (локальный по умолчанию) и пишет .translate.txt.
 
@@ -335,6 +375,7 @@ translate переводит готовый .txt через Мозг (локал
 
 Usage:
   chawo-va transcribe <files or folders…> [options]
+  chawo-va brain <transcript.txt…> [options]
   chawo-va brief <transcript.txt…> [options]
   chawo-va translate <text.txt…> [--to language] [options]
   chawo-va history [search words…] [-n 20|all] [--json] [--raw]
@@ -360,9 +401,22 @@ Options:
                          separate speakers ("Спикер 1: …" in txt/srt/…); default: the
                          "Separate speakers" setting. Speaker models (~47 MB) are downloaded
                          in the app; without them the transcript has no speakers and a note says so
+      --brain / --no-brain
+                         also «Run through the Brain» → .brain.txt (filler words removed +
+                         «Summary»); default: settings
+      --brief / --no-brief
+                         also «Brief and tasks» → .brief.txt (--instruction for your format);
+                         default: settings. A Brain failure is a note; the .txt is written anyway
       --lang ru|en       message language
   -q, --quiet            no progress
   -h, --help / -v, --version
+
+brain options (same as «Run through the Brain» on the page):
+  -t / --no-timestamps   [hh:mm:ss] in .brain.txt (default: as in the source .txt)
+      --stdout           print to stdout instead of .brain.txt
+  -o, --out <dir>        where to write .brain.txt
+      --lang ru|en       message language
+  -q, --quiet
 
 brief options:
       --instruction "…"  custom format instruction (else settings / built-in)
@@ -391,6 +445,7 @@ Anything not given falls back to the app's settings (settings.json, read-only).
 No model is downloaded (speech, VAD, speakers): download them in the app first.
 WAV and Ogg/Opus are read natively; other formats (MP3, M4A, FLAC, …) need ffmpeg.
 Folders are not searched recursively, same as in the app.
+brain reads a finished .txt and writes .brain.txt: paragraphs without filler words plus «Summary».
 brief reads a finished .txt (beside the recording or .brain.txt) and writes .brief.txt via the Brain.
 translate translates a finished .txt via the Brain (local by default) and writes .translate.txt.
 

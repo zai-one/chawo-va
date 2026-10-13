@@ -18,6 +18,7 @@ import { collectFromFolder, load16k, outputPath } from './main/file/fileTranscri
 import * as MeetingBrief from './main/brain/meetingBrief';
 import * as Translate from './main/brain/translate';
 import * as FileBrain from './main/brain/fileBrain';
+import * as LocalBrain from './main/brain/localBrain';
 import type { SettingsData } from './main/settings';
 import type { SpeechModelKind } from './core/speechModels';
 
@@ -54,6 +55,8 @@ export function readDefaults(): CliDefaults {
     historyKeep: s.HistoryKeep,
     vad: s.VadEnabled,
     diarize: s.FileDiarize,
+    brain: s.FileUseBrain,
+    brief: s.MeetingBriefEnabled,
   };
 }
 
@@ -82,6 +85,7 @@ export function realDeps(signal: AbortSignal): CliDeps {
     load16k,
     outputPath,
     briefOutputPath: (txt) => MeetingBrief.outputPath(txt),
+    brainOutputPath: (txt) => FileBrain.outputPath(txt),
     translateOutputPath: (txt) => Translate.outputPath(txt),
     isDirectory: (p) => {
       try {
@@ -101,8 +105,14 @@ export function realDeps(signal: AbortSignal): CliDeps {
       return {
         target,
         instruction: s.MeetingBriefInstruction,
+        cloud: MeetingBrief.cloudName(s),
         ask: FileBrain.createAsk(s, target === 'None' ? 'Local' : target),
       };
+    },
+    fileBrain: () => {
+      const s = readSettings();
+      const target = FileBrain.target(s);
+      return { target, cloud: FileBrain.cloudName(s), ask: FileBrain.createAsk(s, target === 'None' ? 'Local' : target) };
     },
     translateBrain: () => {
       const s = readSettings();
@@ -129,6 +139,8 @@ if (require.main === module) {
   });
   runCli(process.argv.slice(2), realDeps(ac.signal))
     .then(async (code) => {
+      // A local Brain (llama-server child) started for brain / brief / translate must not outlive the run.
+      LocalBrain.getRuntime().stop?.();
       await Log.flush();
       process.exitCode = code;
     })

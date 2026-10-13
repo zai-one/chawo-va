@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { EXIT_FAILED, EXIT_INTERRUPTED, EXIT_NO_MODEL, EXIT_OK, EXIT_USAGE, runCli, type CliDefaults, type CliDeps, type EngineConfig } from '../src/cli/run';
 import { outputPath } from '../src/main/file/fileTranscript';
 import type { TranscriptSegment } from '../src/core/transcriptFormat';
+import { applyLanguage } from '../src/core/strings';
 import { HistoryStore, type HistoryEntry, type HistoryKeep } from '../src/main/history/historyStore';
 
 interface Harness {
@@ -44,6 +45,11 @@ function harness(opts: {
   /** Saved TranslateTarget. */
   translateTo?: string;
   translateAsk?: (prompt: string, text: string) => Promise<string>;
+  briefCloud?: string | null;
+  /** FileBrain («Прогнать через мозг»); undefined target = Local. */
+  fileBrainTarget?: 'None' | 'Local' | 'Cloud';
+  fileBrainCloud?: string | null;
+  fileBrainAsk?: (prompt: string, text: string) => Promise<string>;
 } = {}): Harness {
   let lang: 'ru' | 'en' = 'en';
   const h = { out: [], err: [], files: new Map(), opened: [], disposed: 0, logs: [], ac: new AbortController() } as unknown as Harness;
@@ -57,6 +63,8 @@ function harness(opts: {
     defaults: () => ({ model: 'v3_e2e_rnnt', device: 'cpu', threads: 'auto', script: 'auto', timestamps: true, language: 'English', ...opts.defaults }),
     applyLanguage: (c) => {
       lang = c === 'Russian' ? 'ru' : 'en';
+      // Core modules (FileBrain, MeetingBrief) speak through the global strings, as in the real CLI.
+      applyLanguage(c);
     },
     t: (ru, en) => (lang === 'ru' ? ru : en),
     findModel: (_kind, override) => (override ? (override === '/good' ? override : null) : opts.model === undefined ? '/models/v3' : opts.model),
@@ -106,10 +114,16 @@ function harness(opts: {
     briefBrain: () => ({
       target: opts.briefTarget ?? 'Local',
       instruction: opts.briefInstruction ?? '',
+      cloud: opts.briefCloud ?? null,
       ask: async (prompt, text) => {
         if (opts.briefAsk) return opts.briefAsk(prompt, text);
         return 'Кратко\n- тест\n\nЗадачи\n- сделать дело\n';
       },
+    }),
+    fileBrain: () => ({
+      target: opts.fileBrainTarget ?? 'Local',
+      cloud: opts.fileBrainCloud ?? null,
+      ask: async (prompt, text) => (opts.fileBrainAsk ? opts.fileBrainAsk(prompt, text) : defaultFileBrainAsk(prompt, text)),
     }),
     log: (l) => h.logs.push(l),
     now: () => (clock += 1500),
@@ -121,6 +135,12 @@ function harness(opts: {
 }
 
 const run = (h: Harness, ...argv: string[]) => runCli(argv, h.deps);
+
+/** Fake Brain for FileBrain: the clean prompt drops «ну, », the summary prompts return one point. */
+async function defaultFileBrainAsk(prompt: string, text: string): Promise<string> {
+  if (prompt.includes('Remove only filler words')) return text.replace(/(^|\s)[Нн]у,\s*/g, '$1');
+  return '- Поздоровались';
+}
 
 describe('runCli', () => {
   it('help and version go to stdout', async () => {
@@ -330,7 +350,7 @@ describe('readDefaults (settings.json read-only)', () => {
     writeFileSync(file, body);
     const before = statSync(file).mtimeMs;
     const { readDefaults } = await import('../src/cli');
-    expect(readDefaults()).toEqual({ model: 'multilingual_large_ctc', device: 'cpu', threads: 2, script: 'english', timestamps: false, language: 'English', postScript: 'python fix.py', historyKeep: 'Week', vad: true, diarize: false });
+    expect(readDefaults()).toEqual({ model: 'multilingual_large_ctc', device: 'cpu', threads: 2, script: 'english', timestamps: false, language: 'English', postScript: 'python fix.py', historyKeep: 'Week', vad: true, diarize: false, brain: false, brief: false });
     expect(readFileSync(file, 'utf8')).toBe(body);
     expect(statSync(file).mtimeMs).toBe(before);
   });
@@ -351,6 +371,159 @@ describe('readDefaults (settings.json read-only)', () => {
     process.env.CHAWO_APPDATA = dir;
     const { readDefaults } = await import('../src/cli');
     expect(readDefaults()).toMatchObject({ model: 'v3_e2e_rnnt', device: 'gpu', threads: 'auto', timestamps: true, vad: true, diarize: false });
+  });
+});
+
+describe('runCli brain (CLI parity: «Прогнать через мозг»)', () => {
+  it('reads [hh:mm:ss] lines back, cleans paragraphs, adds «Кратко», writes .brain.txt', async () => {
+    const seen: string[] = [];
+    const h = harness({
+      fileText: { '/rec/talk.txt': '[00:00:00] Ну, привет.\n[00:01:01] Как дела?' },
+      fileBrainAsk: async (prompt, text) => {
+        seen.push(text);
+        return defaultFileBrainAsk(prompt, text);
+      },
+    });
+    expect(await run(h, 'brain', '/rec/talk.txt')).toBe(EXIT_OK);
+    expect(h.files.get('/rec/talk.brain.txt')).toBe('[00:00:00] привет. Как дела?\n\nSummary\n- Поздоровались\n');
+    expect(seen[0]).toBe('Ну, привет. Как дела?');
+    expect(h.err.join('')).toContain('Done: /rec/talk.brain.txt (brain · 1 paragraphs)');
+    expect(h.logs.at(-1)).toBe('cli brain /rec/talk.txt paragraphs=1 kept=0');
+  });
+
+  it('--no-timestamps, --stdout, Russian messages; plain .txt stays plain', async () => {
+    const h = harness({ fileText: { '/a.txt': 'Ну, привет.\nКак дела?', '/b.txt': '[00:00:05] Ну, мы договорились на пятницу.' }, defaults: { language: 'Russian' } });
+    expect(await run(h, 'brain', '/a.txt', '/b.txt', '--stdout', '--no-timestamps')).toBe(EXIT_OK);
+    const out = h.out.join('');
+    expect(out).toContain('==> /a.txt <==\nпривет. Как дела?\n\nКратко\n- Поздоровались\n');
+    expect(out).toContain('==> /b.txt <==\nмы договорились на пятницу.\n');
+    expect([...h.files.keys()]).toEqual([]);
+    expect(h.err.join('')).toContain('[2/2] Готово (мозг · абзацев 1)');
+  });
+
+  it('unfaithful answers are kept as-is; --out; a failed summary alone is a note', async () => {
+    const h = harness({
+      fileText: { '/rec/x.txt': '[00:00:00] Пятьсот рублей за штуку.' },
+      fileBrainAsk: async (prompt) => (prompt.includes('Remove only filler words') ? 'Совсем другой текст про погоду и море.' : '- Цена'),
+    });
+    expect(await run(h, 'brain', '/rec/x.txt', '-o', '/out')).toBe(EXIT_OK);
+    expect(h.files.get('/out/x.brain.txt')).toBe('[00:00:00] Пятьсот рублей за штуку.\n\nSummary\n- Цена\n');
+    expect(h.err.join('')).toContain('(brain · 1 paragraphs, kept as-is 1)');
+    const s = harness({
+      fileText: { '/rec/x.txt': '[00:00:00] Ну, пятьсот рублей за штуку.' },
+      fileBrainAsk: async (prompt, text) => {
+        if (prompt.includes('Remove only filler words')) return defaultFileBrainAsk(prompt, text);
+        throw new Error('timeout');
+      },
+    });
+    expect(await run(s, 'brain', '/rec/x.txt')).toBe(EXIT_OK);
+    expect(s.files.get('/rec/x.brain.txt')).toContain('[00:00:00] пятьсот рублей за штуку.');
+    expect(s.files.get('/rec/x.brain.txt')).toContain('- (failed: timeout)');
+    expect(s.err.join('')).toContain('(brain · 1 paragraphs · summary failed)');
+  });
+
+  it('the Brain never answers (server down) → 1, no .brain.txt', async () => {
+    const h = harness({ fileText: { '/a.txt': '[00:00:00] Ну, привет.' }, fileBrainAsk: async () => { throw new Error('no connection'); } });
+    expect(await run(h, 'brain', '/a.txt')).toBe(EXIT_FAILED);
+    expect([...h.files.keys()]).toEqual([]);
+    expect(h.err.join('')).toContain('Error: /a.txt: the Brain did not answer: no connection');
+  });
+
+  it('no Brain → 3; empty transcript → 1; cloud is announced', async () => {
+    const none = harness({ fileText: { '/a.txt': 'x' }, fileBrainTarget: 'None' });
+    expect(await run(none, 'brain', '/a.txt')).toBe(EXIT_NO_MODEL);
+    expect(none.err.join('')).toContain('the Brain is not set up');
+    const empty = harness({ fileText: { '/e.txt': '\n  \n' } });
+    expect(await run(empty, 'brain', '/e.txt')).toBe(EXIT_FAILED);
+    expect(empty.err.join('')).toContain('Error: /e.txt: the transcript is empty');
+    const cloud = harness({ fileText: { '/a.txt': 'Ну, привет.' }, fileBrainTarget: 'Cloud', fileBrainCloud: 'Xiaomi' });
+    expect(await run(cloud, 'brain', '/a.txt')).toBe(EXIT_OK);
+    expect(cloud.err.join('')).toContain('Brain: the text goes to Xiaomi');
+  });
+
+  it('Ctrl+C during the Brain → 130, nothing written', async () => {
+    const h = harness({
+      fileText: { '/a.txt': 'Ну, привет.' },
+      fileBrainAsk: async () => {
+        h.ac.abort();
+        const e = new Error('Operation canceled');
+        e.name = 'AbortError';
+        throw e;
+      },
+    });
+    expect(await run(h, 'brain', '/a.txt')).toBe(EXIT_INTERRUPTED);
+    expect([...h.files.keys()]).toEqual([]);
+  });
+});
+
+describe('runCli transcribe --brain / --brief (same as the page after the .txt)', () => {
+  it('--brain writes .brain.txt next to .txt, --brief writes .brief.txt from the recognized text', async () => {
+    const briefSeen: string[] = [];
+    const h = harness({
+      existing: ['/rec/talk.wav'],
+      briefAsk: async (_p, text) => {
+        briefSeen.push(text);
+        return 'Кратко\n- привет\n\nЗадачи\n- (нет)\n';
+      },
+    });
+    expect(await run(h, 'transcribe', '/rec/talk.wav', '--brain', '--brief', '--post-script', 'upper')).not.toBe(EXIT_USAGE);
+    expect([...h.files.keys()]).toEqual(['/rec/talk.txt', '/rec/talk.brain.txt', '/rec/talk.brief.txt']);
+    expect(h.files.get('/rec/talk.brain.txt')).toBe('[00:00:00] Привет. Как дела?\n\nSummary\n- Поздоровались\n');
+    expect(briefSeen[0]).toContain('[00:00:00] Привет.');
+    expect(h.err.join('')).toContain('brain · 1 paragraphs · .brain.txt · brief · .brief.txt');
+  });
+
+  it('settings FileUseBrain / MeetingBriefEnabled turn them on; --no-brain / --no-brief turn them off', async () => {
+    const on = harness({ existing: ['/a.wav'], defaults: { brain: true, brief: true } });
+    expect(await run(on, 'transcribe', '/a.wav')).toBe(EXIT_OK);
+    expect([...on.files.keys()]).toEqual(['/a.txt', '/a.brain.txt', '/a.brief.txt']);
+    const off = harness({ existing: ['/a.wav'], defaults: { brain: true, brief: true } });
+    expect(await run(off, 'transcribe', '/a.wav', '--no-brain', '--no-brief')).toBe(EXIT_OK);
+    expect([...off.files.keys()]).toEqual(['/a.txt']);
+  });
+
+  it('--stdout prints transcript, then Brain, then the brief; --instruction reaches the brief', async () => {
+    const prompts: string[] = [];
+    const h = harness({ existing: ['/a.wav'], briefAsk: async (p) => (prompts.push(p), 'Summary\n- hi\n\nTasks\n- none\n') });
+    expect(await run(h, 'transcribe', '/a.wav', '--stdout', '--brain', '--brief', '--instruction', 'Only tasks.')).toBe(EXIT_OK);
+    const out = h.out.join('');
+    expect(out.indexOf('Как дела?')).toBeLessThan(out.indexOf('==> Brain <=='));
+    expect(out.indexOf('==> Brain <==')).toBeLessThan(out.indexOf('==> Brief and tasks <=='));
+    expect(prompts[0]).toContain('Only tasks.');
+    expect([...h.files.keys()]).toEqual([]);
+  });
+
+  it('no Brain or a failing Brain is a note; the .txt is written and the exit code is 0', async () => {
+    const none = harness({ existing: ['/a.wav'], fileBrainTarget: 'None', briefTarget: 'None' });
+    expect(await run(none, 'transcribe', '/a.wav', '--brain', '--brief')).toBe(EXIT_OK);
+    expect([...none.files.keys()]).toEqual(['/a.txt']);
+    expect(none.err.join('')).toContain('The Brain is not set up: no .brain.txt.');
+    expect(none.err.join('')).toContain('the Brain is not set up · brief: the Brain is not set up');
+    const bad = harness({ existing: ['/a.wav'], fileBrainAsk: async () => { throw new Error('boom'); }, briefAsk: async () => { throw new Error('down'); } });
+    expect(await run(bad, 'transcribe', '/a.wav', '--brain', '--brief')).toBe(EXIT_OK);
+    expect([...bad.files.keys()]).toEqual(['/a.txt']);
+    expect(bad.err.join('')).toContain('the Brain did not answer: boom · brief: down');
+    const half = harness({ existing: ['/a.wav'], fileBrainAsk: async (p, text) => { if (p.includes('Remove only filler words')) return text; throw new Error('boom'); } });
+    expect(await run(half, 'transcribe', '/a.wav', '--brain')).toBe(EXIT_OK);
+    expect(half.files.get('/a.brain.txt')).toContain('- (failed: boom)');
+    expect(bad.logs.some((l) => l === 'cli /a.wav brief failed: down')).toBe(true);
+  });
+
+  it('cloud Brain is announced once; Ctrl+C in the Brain → 130', async () => {
+    const c = harness({ existing: ['/a.wav', '/b.wav'], fileBrainTarget: 'Cloud', fileBrainCloud: 'api.example.com' });
+    expect(await run(c, 'transcribe', '/a.wav', '/b.wav', '--brain')).toBe(EXIT_OK);
+    expect(c.err.join('').split('Brain: the text goes to api.example.com').length).toBe(2);
+    const h = harness({
+      existing: ['/a.wav'],
+      fileBrainAsk: async () => {
+        h.ac.abort();
+        const e = new Error('Operation canceled');
+        e.name = 'AbortError';
+        throw e;
+      },
+    });
+    expect(await run(h, 'transcribe', '/a.wav', '--brain')).toBe(EXIT_INTERRUPTED);
+    expect(h.disposed).toBe(1);
   });
 });
 

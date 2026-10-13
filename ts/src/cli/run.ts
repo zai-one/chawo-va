@@ -7,7 +7,7 @@ import { basename, join } from 'node:path';
 import { progressLine } from '../core/fileParallel';
 import type { FileParallelismKind } from '../core/fileParallel';
 import type { CtcScript, SpeechDeviceKind, SpeechModelKind } from '../core/speechModels';
-import { clock, toSrt, toTxt, type TranscriptSegment } from '../core/transcriptFormat';
+import { clock, fromTxt, toSrt, toTxt, type TranscriptSegment } from '../core/transcriptFormat';
 import { writeExtras } from '../main/file/transcriptExport';
 import { applyDiarization, type FileDiarizeHook } from '../main/file/fileRunner';
 import { helpText, langFromArgv, parseArgs, type CliOptions } from './args';
@@ -37,6 +37,10 @@ export interface CliDefaults {
   vad?: boolean;
   /** settings FileDiarize: «Разделять спикеров» (default false). */
   diarize?: boolean;
+  /** settings FileUseBrain: «Прогнать через мозг» after the .txt (default false). */
+  brain?: boolean;
+  /** settings MeetingBriefEnabled: «Кратко и задачи» after the .txt (default false). */
+  brief?: boolean;
 }
 
 export interface EngineConfig {
@@ -68,6 +72,8 @@ export interface BriefBrain {
   target: 'None' | 'Local' | 'Cloud';
   /** Saved MeetingBriefInstruction (may be empty → built-in default). */
   instruction: string;
+  /** Where the text goes when it leaves this PC (cloud service / host), null = stays here. */
+  cloud?: string | null;
   ask: (
     prompt: string,
     text: string,
@@ -75,6 +81,14 @@ export interface BriefBrain {
     status: (line: string) => void,
     signal: AbortSignal,
   ) => Promise<string>;
+}
+
+/** «Прогнать через мозг» (FileBrain): the same target and ask as the File page. */
+export interface FileBrainDep {
+  target: 'None' | 'Local' | 'Cloud';
+  /** Where the text goes when it leaves this PC, null = stays here. */
+  cloud?: string | null;
+  ask: BriefBrain['ask'];
 }
 
 export interface TranslateBrain {
@@ -101,6 +115,8 @@ export interface CliDeps {
   outputPath(source: string): string;
   /** .brief.txt path beside a transcript .txt. */
   briefOutputPath(transcriptTxt: string): string;
+  /** .brain.txt path beside a transcript .txt. */
+  brainOutputPath?(transcriptTxt: string): string;
   /** .translate.txt path beside a transcript .txt. */
   translateOutputPath(transcriptTxt: string): string;
   isDirectory(path: string): boolean;
@@ -113,6 +129,8 @@ export interface CliDeps {
   briefBrain(): BriefBrain;
   /** Brain for `translate` (Local / Server). Tests inject a fake ask. */
   translateBrain(): TranslateBrain;
+  /** Brain for `brain` / `transcribe --brain` (Local / Server). Tests inject a fake ask. */
+  fileBrain?(): FileBrainDep;
   /**
    * Speaker diarization, the same hook as the page (`diarizeHook`): null when the models / sherpa-onnx
    * are not there (soft: the transcript is written without speakers). Tests inject a fake diarizer.
@@ -153,6 +171,7 @@ export async function runCli(argv: readonly string[], d: CliDeps): Promise<numbe
     d.out(`chawo-va ${d.version}\n`);
     return EXIT_OK;
   }
+  if (o.command === 'brain') return brainCommand(o, d);
   if (o.command === 'brief') return brief(o, d);
   if (o.command === 'translate') return translate(o, d);
   if (o.command === 'history') return history(o, defaults, d);
@@ -164,7 +183,95 @@ function message(e: unknown): string {
 }
 
 
-/** .txt inputs for brief / translate: no folders, must exist, no duplicates. */
+const NO_BRAIN_RU = 'Ошибка: Мозг не настроен. Скачайте локальную модель на «Мозге» или укажите сервер в настройках.';
+const NO_BRAIN_EN = 'Error: the Brain is not set up. Download a local model on Brain, or configure a server in settings.';
+
+/** .brain.txt beside a transcript (FileBrain.outputPath shape) when the deps do not give one. */
+function brainPath(d: CliDeps, txt: string): string {
+  if (d.brainOutputPath) return d.brainOutputPath(txt);
+  return txt.replace(/\.[^./\\]+$/, '') + '.brain.txt';
+}
+
+/**
+ * `chawo-va brain <txt…>`: «Прогнать через мозг» for a finished transcript. The .txt is read back
+ * into pieces ([hh:mm:ss] lines keep their start), then the same FileBrain pass as the page
+ * (runWithAsk: paragraphs without filler words, unfaithful answers kept as-is, «Кратко»).
+ */
+async function brainCommand(o: CliOptions, d: CliDeps): Promise<number> {
+  const t = d.t;
+  const say = (line: string) => {
+    if (!o.quiet) d.err(line + '\n');
+  };
+  const fail = (line: string) => d.err(line + '\n');
+
+  const picked = textInputs(o, d, fail);
+  const files = picked.files;
+  let failed = picked.failed;
+  if (files.length === 0) return EXIT_FAILED;
+
+  const brain = d.fileBrain?.() ?? null;
+  if (!brain || brain.target === 'None') {
+    fail(t(NO_BRAIN_RU, NO_BRAIN_EN));
+    return EXIT_NO_MODEL;
+  }
+  if (brain.cloud) say(t(`Мозг: текст уходит в ${brain.cloud}`, `Brain: the text goes to ${brain.cloud}`));
+
+  const FileBrain = await import('../main/brain/fileBrain');
+  if (o.outDir && !o.stdout) d.mkdirp(o.outDir);
+
+  for (let i = 0; i < files.length; i++) {
+    if (d.signal.aborted) break;
+    const src = files[i]!;
+    const prefix = files.length > 1 ? `[${i + 1}/${files.length}] ` : '';
+    say(prefix + src);
+    try {
+      const parsed = fromTxt(d.readFile(src));
+      const result = noAnswer(await FileBrain.runWithAsk(brain.target, parsed.segments, o.timestamps ?? parsed.timestamps, (line) => say(prefix + line), d.signal, brain.ask), t);
+      const note = brainNote(result, t);
+      if (o.stdout) {
+        if (files.length > 1) d.out(`==> ${src} <==\n`);
+        d.out(result.text.endsWith('\n') ? result.text : result.text + '\n');
+        say(prefix + t('Готово', 'Done') + ` (${note})`);
+      } else {
+        const beside = brainPath(d, src);
+        const out = o.outDir ? join(o.outDir, basename(beside)) : beside;
+        d.writeFile(out, result.text);
+        say(prefix + t(`Готово: ${out}`, `Done: ${out}`) + ` (${note})`);
+      }
+      d.log(`cli brain ${src} paragraphs=${result.paragraphs} kept=${result.keptAsIs}${result.summaryError ? ' summary failed' : ''}`);
+    } catch (e) {
+      if (d.signal.aborted) break;
+      failed++;
+      fail(prefix + t(`Ошибка: ${src}: ${message(e)}`, `Error: ${src}: ${message(e)}`));
+      d.log(`cli brain ${src} failed: ${message(e)}`);
+    }
+  }
+
+  if (d.signal.aborted) {
+    fail(t('Прервано.', 'Interrupted.'));
+    return EXIT_INTERRUPTED;
+  }
+  return failed > 0 ? EXIT_FAILED : EXIT_OK;
+}
+
+/**
+ * Nothing came back at all (every paragraph kept as-is and «Кратко» failed — e.g. the server is
+ * down): an error instead of a .brain.txt that only repeats the transcript.
+ */
+function noAnswer<R extends { paragraphs: number; keptAsIs: number; summaryError: string | null }>(r: R, t: CliDeps['t']): R {
+  if (r.summaryError && r.keptAsIs >= r.paragraphs) throw new Error(t(`Мозг не ответил: ${r.summaryError}`, `the Brain did not answer: ${r.summaryError}`));
+  return r;
+}
+
+/** Same words as the queue row on the page. */
+function brainNote(r: { paragraphs: number; keptAsIs: number; summaryError: string | null }, t: CliDeps['t']): string {
+  const base = r.keptAsIs > 0
+    ? t(`мозг · абзацев ${r.paragraphs}, как есть ${r.keptAsIs}`, `brain · ${r.paragraphs} paragraphs, kept as-is ${r.keptAsIs}`)
+    : t(`мозг · абзацев ${r.paragraphs}`, `brain · ${r.paragraphs} paragraphs`);
+  return r.summaryError ? base + t(' · «Кратко» не получилось', ' · summary failed') : base;
+}
+
+/** .txt inputs for brain / brief / translate: no folders, must exist, no duplicates. */
 function textInputs(o: CliOptions, d: CliDeps, fail: (line: string) => void): { files: string[]; failed: number } {
   const t = d.t;
   const files: string[] = [];
@@ -434,6 +541,8 @@ async function transcribe(o: CliOptions, defaults: CliDefaults, d: CliDeps): Pro
   const script = o.noPostScript ? null : scriptCommand(o.postScript ?? defaults.postScript ?? null);
   const vad = o.vad ?? defaults.vad ?? true;
   const diarize = o.diarize ?? defaults.diarize ?? false;
+  const useBrain = o.brain ?? defaults.brain ?? false;
+  const useBrief = o.brief ?? defaults.brief ?? false;
   // Output collisions and --skip-existing are settled before any model is loaded.
   const targets = new Map<string, string>();
   const work: { src: string; txt: string; prefix: string }[] = [];
@@ -471,6 +580,17 @@ async function transcribe(o: CliOptions, defaults: CliDefaults, d: CliDeps): Pro
     );
     return EXIT_NO_MODEL;
   }
+
+  // «Прогнать через мозг» / «Кратко и задачи» after each .txt, like the page (FileUseBrain /
+  // MeetingBriefEnabled). Soft: a missing or failing Brain is a note, the transcript still counts.
+  const fileBrain = useBrain ? d.fileBrain?.() ?? null : null;
+  const briefBrain = useBrief ? d.briefBrain() : null;
+  const FileBrain = fileBrain && fileBrain.target !== 'None' ? await import('../main/brain/fileBrain') : null;
+  const MeetingBrief = briefBrain && briefBrain.target !== 'None' ? await import('../main/brain/meetingBrief') : null;
+  if (useBrain && !FileBrain) say(t('Мозг не настроен: .brain.txt не будет.', 'The Brain is not set up: no .brain.txt.'));
+  if (useBrief && !MeetingBrief) say(t('Мозг не настроен: .brief.txt не будет.', 'The Brain is not set up: no .brief.txt.'));
+  const cloud = (FileBrain ? fileBrain?.cloud : null) || (MeetingBrief ? briefBrain?.cloud : null);
+  if (cloud) say(t(`Мозг: текст уходит в ${cloud}`, `Brain: the text goes to ${cloud}`));
 
   let engine: Engine | null = null;
   try {
@@ -519,6 +639,8 @@ async function transcribe(o: CliOptions, defaults: CliDefaults, d: CliDeps): Pro
           notes.push(r.note);
         }
         let text = toTxt(segments, timestamps);
+        // «Кратко и задачи» gets the recognized text, as on the page (not the script's output).
+        const recognized = text;
         if (script) {
           const res = await (d.runScript ?? runPostScript)({ command: script, text, source: 'file', file: src, timeoutMs: FILE_TIMEOUT_MS, signal: d.signal });
           if (d.signal.aborted) break;
@@ -552,6 +674,48 @@ async function transcribe(o: CliOptions, defaults: CliDefaults, d: CliDeps): Pro
             if (res.failed.length > 0) failed++;
           }
         }
+        const status = (line: string) => say(prefix + line);
+        if (useBrain) {
+          if (!FileBrain || !fileBrain) notes.push(t('мозг не настроен', 'the Brain is not set up'));
+          else {
+            try {
+              const r = noAnswer(await FileBrain.runWithAsk(fileBrain.target, segments, timestamps, status, d.signal, fileBrain.ask), t);
+              if (o.stdout) d.out(`\n==> ${t('Мозг', 'Brain')} <==\n` + (r.text.endsWith('\n') ? r.text : r.text + '\n'));
+              else d.writeFile(brainPath(d, txt), r.text);
+              notes.push(brainNote(r, t) + (o.stdout ? '' : ' · .brain.txt'));
+              d.log(`cli ${src} brain paragraphs=${r.paragraphs} kept=${r.keptAsIs}`);
+            } catch (e) {
+              if (d.signal.aborted) break;
+              const m = message(e);
+              notes.push(m.startsWith(t('Мозг не ответил', 'the Brain did not answer')) ? m : t(`мозг: ${m}`, `brain: ${m}`));
+              d.log(`cli ${src} brain failed: ${message(e)}`);
+            }
+          }
+        }
+        if (useBrief) {
+          if (!MeetingBrief || !briefBrain) notes.push(t('краткое: мозг не настроен', 'brief: the Brain is not set up'));
+          else {
+            try {
+              const r = await MeetingBrief.runBriefAsync({
+                targetKind: briefBrain.target,
+                transcript: recognized,
+                instruction: o.instruction ?? briefBrain.instruction,
+                status,
+                signal: d.signal,
+                ask: briefBrain.ask,
+              });
+              if (o.stdout) d.out(`\n==> ${t('Кратко и задачи', 'Brief and tasks')} <==\n` + (r.text.endsWith('\n') ? r.text : r.text + '\n'));
+              else d.writeFile(d.briefOutputPath(txt), r.text);
+              notes.push(t('кратко и задачи', 'brief') + (o.stdout ? '' : ' · .brief.txt') + (r.warning ? ` (${r.warning})` : ''));
+              d.log(`cli ${src} brief ok`);
+            } catch (e) {
+              if (d.signal.aborted) break;
+              notes.push(t(`краткое: ${message(e)}`, `brief: ${message(e)}`));
+              d.log(`cli ${src} brief failed: ${message(e)}`);
+            }
+          }
+        }
+        if (d.signal.aborted) break;
         const wall = (d.now() - t0) / 1000;
         notes.push(t(`${wall.toFixed(1)} с`, `${wall.toFixed(1)} s`));
         d.log(`cli ${src} audio=${(samples.length / RATE).toFixed(0)}s wall=${wall.toFixed(1)}s`);

@@ -928,3 +928,40 @@ Re-align folder names and tooling with taptain-desktop once its layout is readab
   на странице) — кусок, где говорят двое, получает того, кто говорит дольше; remote/Client по-прежнему без
   диаризации; smoke-скрипт под xvfb не закрывает Electron сам (обработка закончилась за 127 с, процесс снят
   timeout), на результат не влияет.
+
+- 2026-10-13 tick: PR #20 (`ts/feat-cli-diarize`) слит в `ts-port` (npm ci, 789 тестов, build зелёные). Дальше
+  CLI-паритет прохода Мозга и «Кратко и задачи» для файлов, ветка `ts/feat-cli-brain`. Общее ядро:
+  `FileBrain.runWithAsk` (абзацы без слов-паразитов, «неверные» ответы остаются как есть, «Кратко») —
+  `runAsync` страницы теперь просто зовёт его; `transcriptFormat.fromTxt` читает готовый .txt обратно в куски
+  (`[чч:мм:сс]` → начало, строка без метки берёт прошлое начало, BOM/CRLF/пустые строки пропускаются,
+  «Спикер N:» остаётся в тексте). CLI: новая команда `chawo-va brain <txt…> [-t|--no-timestamps] [--stdout]
+  [-o папка]` → `.brain.txt` (метки по умолчанию — как в исходном .txt); `transcribe --brain/--no-brain`
+  (без флага — `FileUseBrain`) и `--brief/--no-brief` (без флага — `MeetingBriefEnabled`, `--instruction` —
+  свой формат), тот же порядок, что на странице: .txt → форматы → Мозг → «Кратко и задачи» (из распознанного
+  текста, не из вывода «Своего скрипта»). С `--stdout` — расшифровка, затем `==> Мозг <==` и `==> Кратко и
+  задачи <==`. Облачный Мозг объявляется одной строкой «Мозг: текст уходит в …». Мягкие сбои в transcribe:
+  Мозг не настроен / сервер не ответил — пометка в строке «Готово», .txt пишется, код 0; если не ответил вообще
+  (все абзацы как есть и «Кратко» не получилось) — .brain.txt не пишется, а `brain` даёт код 1 вместо файла,
+  повторяющего расшифровку. `brain` без Мозга — код 3. Локальный llama-server CLI теперь гасит в конце запуска
+  (и для brief/translate). Справка ru/en.
+  Тесты: cli (+11: brain — .brain.txt из `[чч:мм:сс]`, --stdout/--no-timestamps/несколько файлов/русский,
+  неверный ответ как есть, сбой только «Кратко», сервер молчит → 1, без Мозга → 3, пустой → 1, облако,
+  Ctrl+C → 130; transcribe — --brain/--brief рядом с .txt, из настроек и --no-*, --stdout порядок и
+  --instruction, мягкие сбои, облако один раз, Ctrl+C), cliArgs (+3), transcriptFormat (+3, fromTxt round-trip),
+  fileBrain (+1: runWithAsk = runAsync). Харнесс CLI-тестов теперь включает и глобальный язык строк, как
+  настоящий CLI. 807 зелёные (789 до), `tsc`/build чистые.
+  Live CLI (настоящая v3_e2e_rnnt на CPU, `--model-dir`, временный settings.json: Brain=Server на фейковом
+  OpenAI-совместимом сервере 127.0.0.1, FileUseBrain=true): ru30.wav `--brief` → «Мозг: текст уходит в
+  127.0.0.1:18777», «Мозг: абзац 1 из 1…», «пишу «Кратко»…», «Кратко и задачи…», ru30.txt + .brain.txt +
+  .brief.txt, на сервер ушли clean/summary/brief; `brain call.txt` (с «Спикер 2:») → call.brain.txt;
+  `brain … --stdout --no-timestamps --lang en` по двум файлам; `--no-brain` — только расшифровка; `--stdout
+  --brief --instruction` — три блока по порядку. Без Мозга: `brain` → exit 3, `transcribe --brain --brief` →
+  «The Brain is not set up: no .brain.txt.», .txt есть, exit 0. Сервер выключен: transcribe → «Мозг не ответил:
+  нет связи с сервером…», только .txt, exit 0; `brain` → exit 1, файла нет. sha256 settings.json не изменился,
+  процесс CLI выходит сам. GUI под xvfb (`scripts/smoke-brain-gui.cjs`, та же модель, FileUseBrain в
+  settings.json): ru30.wav → строка «00:00:30 · мозг · абзацев 1», рядом .brain.txt с «Кратко», в фейковый
+  сервер ушли clean + summary — страница после переезда на `runWithAsk` работает как раньше.
+  Gaps: живой LocalBrain/Qwen на боксе не гонял (llama-server в CLI гасится в конце — проверено только кодом);
+  `brain` по .txt с «Спикер N:» отдаёт метки Мозгу как текст (абзацы по ~900 знаков, как на странице, где
+  спикеры вообще не видны); облачный Мозг из настроек в CLI не спрашивает подтверждения (как и прежние
+  brief/translate) — только строка «текст уходит в …».

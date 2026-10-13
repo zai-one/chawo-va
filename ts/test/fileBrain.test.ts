@@ -7,6 +7,7 @@ import {
   outputPath,
   paragraphsOf,
   runAsync,
+  runWithAsk,
   splitLong,
   target,
 } from '../src/main/brain/fileBrain';
@@ -84,5 +85,18 @@ describe('FileBrain helpers', () => {
     expect(result.text).toContain('Кратко');
     expect(result.text).toContain('- point');
     expect(asks.length).toBeGreaterThan(1);
+  });
+});
+
+describe('runWithAsk (shared by the page and the CLI)', () => {
+  it('same output as runAsync with the same ask; None → error', async () => {
+    const segs = [{ start: 0, end: 3, text: 'Ну, привет всем.' }];
+    const ask = async (prompt: string, text: string) => (prompt.includes('Remove only filler words') ? text.replace('Ну, ', '') : '- Привет');
+    const ac = new AbortController();
+    const a = await runWithAsk('Local', segs, true, () => undefined, ac.signal, ask);
+    const b = await runAsync({} as never, 'Local', segs, true, () => undefined, ac.signal, ask);
+    expect(a).toEqual(b);
+    expect(a.text.startsWith('[00:00:00] привет всем.')).toBe(true);
+    await expect(runWithAsk('None', segs, true, () => undefined, ac.signal, ask)).rejects.toThrow();
   });
 });
