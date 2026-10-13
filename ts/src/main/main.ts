@@ -10,6 +10,7 @@ import { registerBrainIpc } from './brainIpc';
 import * as LocalBrain from './brain/localBrain';
 import { registerDictationIpc } from './dictationIpc';
 import { registerNetworkIpc } from './networkIpc';
+import { registerHistoryIpc } from './historyIpc';
 import { registerSalesIpc } from './salesIpc';
 import { makeHermesTranscribe } from './network/hermesTranscribe';
 import * as KeepAwake from './network/keepAwake';
@@ -120,11 +121,14 @@ if (!app.requestSingleInstanceLock()) {
     // The floating pill: created lazily on the first take with «Показывать плашку» on.
     const overlay = new OverlayWindow({ get: () => settings, save: Settings.save });
     destroyOverlay = () => overlay.destroy();
+    // «История»: finished takes (text only) in a local file, as long as the user chose to keep them.
+    const history = registerHistoryIpc(() => win, { get: () => settings });
     // «Продажи»: catalog page + the always-on-top card fed by live drafts (only in Sales mode).
     const sales = registerSalesIpc(() => win, { get: () => settings });
     destroySalesCard = () => sales.card.destroy();
     const dictation = registerDictationIpc(() => win, { get: () => settings }, {
       overlay,
+      record: (take) => history.record(take),
       keys: () => nativeHelper,
       sales: (text) => sales.session.show(text),
       // Leaving Sales mode closes the stand-in call and hides the card (App.ApplySettings).

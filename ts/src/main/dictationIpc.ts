@@ -12,7 +12,7 @@ import * as Settings from './settings';
 import type { SettingsData } from './settings';
 import { lastTakePath } from './paths';
 import { DictationController, type MicDevice } from './dictation/dictationPage';
-import { DictationSession } from './dictation/dictationSession';
+import { DictationSession, type TakeRecord } from './dictation/dictationSession';
 import type { OverlayWindow } from './overlay/overlayWindow';
 import type { GlobalKeyState } from './dictation/dictationPage';
 import type { TextInserterLike } from './native/nativeHelper';
@@ -48,7 +48,7 @@ export interface DictationIpc {
 export function registerDictationIpc(
   getWindow: () => BrowserWindow | null,
   settings: { get: () => SettingsData },
-  opts: { changed?: () => void; overlay?: OverlayWindow; sales?: (transcript: string) => void; keys?: () => GlobalKeys | null } = {},
+  opts: { changed?: () => void; overlay?: OverlayWindow; sales?: (transcript: string) => void; keys?: () => GlobalKeys | null; record?: (take: TakeRecord) => void } = {},
 ): DictationIpc {
   const send = (channel: string, payload: unknown) => {
     const w = getWindow();
@@ -95,6 +95,7 @@ export function registerDictationIpc(
     },
     micName: () => ctl.micName(),
     overlay: opts.overlay,
+    record: opts.record,
     sales: opts.sales,
     inserter: () => {
       const k = opts.keys?.() ?? null;

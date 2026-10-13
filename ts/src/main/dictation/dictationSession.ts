@@ -89,6 +89,18 @@ export interface SessionHooks {
   remote?: (s: SettingsData, samples: Float32Array, rate: number, signal: AbortSignal) => Promise<string>;
   /** App.ShowSales: the local catalog card. Called only in «Продажи» mode, with drafts and the recognized take. */
   sales?: (transcript: string) => void;
+  /** A finished take with text, for «История». Errors here never affect the take. */
+  record?: (take: TakeRecord) => void;
+}
+
+/** What «История» keeps of a take: the text before and after the Brain, no audio. */
+export interface TakeRecord {
+  raw: string;
+  final: string;
+  command: string | null;
+  brain: boolean;
+  brainFailed: boolean;
+  seconds: number;
 }
 
 export function defaultBrainUsable(s: SettingsData): boolean {
@@ -307,6 +319,9 @@ export class DictationSession {
       let text = '';
       let brainFailure: string | null = null;
       let brainCommand = false;
+      let raw = '';
+      let command: string | null = null;
+      let brainRan = false;
       if (!silent && samples.length > MIN_TAKE_SAMPLES) {
         const s = this.h.settings();
         if (s.KeepLastRecording) {
@@ -359,6 +374,7 @@ export class DictationSession {
           if (replaced !== text) Log.write(`word replace before brain: ${text.length} -> ${replaced.length} chars`);
           text = replaced;
         }
+        raw = text;
         // Brain on a selection waits for SelectionReader (Windows); a take is plain dictation here.
         const now = this.h.settings();
         if (text.length > 0 && this.brainUsable(now)) {
@@ -367,6 +383,8 @@ export class DictationSession {
             const body = cmd?.body ?? text;
             if (cmd) Log.write(`brain command, ${body.length} chars`);
             brainCommand = cmd !== null;
+            command = cmd?.command ?? null;
+            brainRan = true;
             const { answer, failure } = await this.runBrain(now, body, cmd?.command ?? null, overlay, abort.signal);
             if (this.abandon) {
               overlay?.hideNow();
@@ -397,6 +415,18 @@ export class DictationSession {
         overlay?.hideNow();
         this.lastText = text;
         result = text;
+        try {
+          this.h.record?.({
+            raw: raw || text,
+            final: text,
+            command,
+            brain: brainRan,
+            brainFailed: brainFailure !== null,
+            seconds: samples.length / SAMPLE_RATE,
+          });
+        } catch (e) {
+          Log.write(`history: ${e instanceof Error ? e.message : String(e)}`);
+        }
         const inserter = this.source === 'hotkey' ? this.h.inserter?.() ?? null : null;
         if (inserter) await this.insertInto(inserter, text, brainFailure);
         else this.copyOut(text, brainFailure);

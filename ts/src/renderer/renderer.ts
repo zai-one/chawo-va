@@ -276,11 +276,41 @@ interface NetworkApi {
   setKeepAwake(v: boolean): Promise<NetworkState>;
   onState(fn: (s: NetworkState) => void): () => void;
 }
-const bridge = (window as unknown as { chawo: { file: FileApi; speech: SpeechApi; dict: DictApi; brain: BrainApi; dictation: DictationApi; network: NetworkApi; sales: SalesApi } }).chawo;
+interface HistoryRow { id: string; when: string; seconds: string; final: string; raw: string | null; command: string | null; tag: string; failed: boolean }
+interface HistoryState {
+  ru: boolean;
+  intro: string;
+  keepLabel: string;
+  keep: string;
+  keepChoices: { value: string; label: string }[];
+  keepHint: string;
+  query: string;
+  searchPlaceholder: string;
+  rows: HistoryRow[];
+  countLine: string;
+  empty: string;
+  status: string;
+  canRerun: boolean;
+  rerunTip: string;
+  rerunningId: string | null;
+  labels: { copy: string; copyRaw: string; rerun: string; remove: string; clearAll: string; rawHeader: string };
+}
+interface HistoryApi {
+  state(): Promise<HistoryState>;
+  setQuery(q: string): Promise<HistoryState>;
+  setKeep(k: string): Promise<HistoryState>;
+  copy(id: string, which: 'final' | 'raw'): Promise<HistoryState>;
+  remove(id: string): Promise<HistoryState>;
+  clearAll(): Promise<HistoryState>;
+  rerun(id: string): Promise<HistoryState>;
+  onState(fn: (s: HistoryState) => void): () => void;
+}
+const bridge = (window as unknown as { chawo: { file: FileApi; speech: SpeechApi; dict: DictApi; brain: BrainApi; dictation: DictationApi; network: NetworkApi; sales: SalesApi; history: HistoryApi } }).chawo;
 
 const titlesEn: Record<string, string> = {
   dictation: 'Dictation',
   file: 'File transcription',
+  history: 'History',
   speech: 'Speech',
   dictionary: 'Dictionary',
   sales: 'Sales',
@@ -290,6 +320,7 @@ const titlesEn: Record<string, string> = {
 const titles: Record<string, string> = {
   dictation: 'Диктовка',
   file: 'Расшифровка файла',
+  history: 'История',
   speech: 'Распознавание',
   dictionary: 'Словарь',
   sales: 'Продажи',
@@ -305,6 +336,7 @@ let dictState: DictState | null = null;
 let brainState: BrainState | null = null;
 let dictationState: DictationState | null = null;
 let networkState: NetworkState | null = null;
+let historyState: HistoryState | null = null;
 let salesState: SalesState | null = null;
 let ru = true;
 const L = (r: string, e: string) => (ru ? r : e);
@@ -961,8 +993,81 @@ function setLanguage(r: boolean): void {
   else if (current === 'dictionary') renderDictionary();
   else if (current === 'brain') renderBrain();
   else if (current === 'network') renderNetwork();
+  else if (current === 'history') renderHistory();
   else if (current === 'sales') renderSales();
   else if (current !== 'file') show(current);
+}
+
+const applyHistory = (st: HistoryState) => {
+  historyState = st;
+  if (st.ru !== ru) {
+    setLanguage(st.ru);
+    return;
+  }
+  if (current !== 'history') return;
+  // While the search box is being typed in, only the list and the lines below it are redrawn.
+  const search = page.querySelector<HTMLInputElement>('[data-history="search"]');
+  if (search && document.activeElement === search) {
+    fillHistoryList(st);
+    return;
+  }
+  renderHistory();
+};
+
+function fillHistoryList(s: HistoryState): void {
+  const list = page.querySelector<HTMLElement>('[data-history="list"]');
+  const count = page.querySelector<HTMLElement>('[data-history="count"]');
+  const status = page.querySelector<HTMLElement>('[data-history="status"]');
+  if (count) count.textContent = s.countLine;
+  if (status) status.textContent = s.status;
+  if (!list) return;
+  list.replaceChildren();
+  if (s.rows.length === 0) {
+    list.append(el('div', { className: 'empty muted', textContent: s.empty }));
+    return;
+  }
+  for (const r of s.rows) {
+    const head = el('div', { className: 'hist-head muted' }, el('span', { textContent: `${r.when} · ${r.seconds}` }));
+    if (r.command) head.append(el('span', { className: 'hist-cmd', textContent: `«${r.command}»` }));
+    if (r.tag) head.append(el('span', { className: `hist-tag${r.failed ? ' failed' : ''}`, textContent: r.tag }));
+    const item = el('div', { className: 'hist-item' }, head, el('div', { className: 'hist-text', textContent: r.final }));
+    if (r.raw) item.append(el('div', { className: 'hist-raw muted' }, el('span', { textContent: s.labels.rawHeader + ' ' }), r.raw));
+    const acts = el('div', { className: 'row hist-acts' },
+      button(s.labels.copy, () => void bridge.history.copy(r.id, 'final').then(applyHistory)),
+    );
+    if (r.raw) acts.append(button(s.labels.copyRaw, () => void bridge.history.copy(r.id, 'raw').then(applyHistory), 'link'));
+    const again = button(s.rerunningId === r.id ? '…' : s.labels.rerun, () => void bridge.history.rerun(r.id).then(applyHistory), 'link');
+    again.disabled = !s.canRerun;
+    if (s.rerunTip) again.title = s.rerunTip;
+    acts.append(again, button(s.labels.remove, () => void bridge.history.remove(r.id).then(applyHistory), 'link'));
+    item.append(acts);
+    list.append(item);
+  }
+}
+
+function renderHistory(): void {
+  const s = historyState;
+  page.replaceChildren(el('h1', { textContent: title('history') }));
+  if (!s) return;
+  page.append(el('p', { className: 'muted', textContent: s.intro }));
+  const keep = selectOf(s.keepChoices, s.keep, (v) => void bridge.history.setKeep(v).then(applyHistory));
+  keep.setAttribute('aria-label', s.keepLabel);
+  const search = el('input', { type: 'text', value: s.query, placeholder: s.searchPlaceholder, spellcheck: false });
+  search.dataset.history = 'search';
+  search.className = 'hist-search';
+  search.addEventListener('input', () => void bridge.history.setQuery(search.value).then(applyHistory));
+  const clear = button(s.labels.clearAll, () => void bridge.history.clearAll().then(applyHistory), 'link');
+  clear.disabled = s.rows.length === 0 && !s.query;
+  page.append(el('div', { className: 'row' }, search, el('label', {}, s.keepLabel + ' ', keep), clear));
+  page.append(el('p', { className: 'muted hint', textContent: s.keepHint }));
+  const status = el('p', { className: 'status line' });
+  status.dataset.history = 'status';
+  const list = el('div', { className: 'hist' });
+  list.dataset.history = 'list';
+  const count = el('p', { className: 'muted hint' });
+  count.dataset.history = 'count';
+  page.append(status, list, count);
+  fillHistoryList(s);
 }
 
 function renderDictionary(focusId?: number): void {
@@ -1262,6 +1367,11 @@ function show(name: string): void {
     void bridge.brain.state(true).then(applyBrain);
     return;
   }
+  if (name === 'history') {
+    renderHistory();
+    void bridge.history.state().then(applyHistory);
+    return;
+  }
   if (name === 'sales') {
     renderSales();
     void bridge.sales.state().then((st) => applySales(st));
@@ -1292,6 +1402,7 @@ bridge.brain.onState(applyBrainPush);
 bridge.dictation.onState(applyDictation);
 bridge.dictation.onLevel(onLevel);
 bridge.network.onState(applyNetwork);
+bridge.history.onState(applyHistory);
 bridge.file.onToast((msg) => {
   if (fileState) apply({ ...fileState, status: msg });
 });

@@ -369,6 +369,34 @@ Re-align folder names and tooling with taptain-desktop once its layout is readab
   unit-tested with a fake spawn only (needs a Windows run). Next: the Windows native helper (hold
   key, TextInserter, SelectionReader, caret placement, job object), the «Продажи» card, then
   Updater/Autostart.
+- 2026-10-13 tick (branch `ts/feat-history`, IDEAS.md №3): «История» — the dictation history page.
+  `src/main/history/historyStore.ts`: one JSON line per finished take in
+  `%LOCALAPPDATA%\ChawoVoiceAssistant\history.jsonl` (mode 0600, text only, no audio):
+  `{id, ts, raw, final, command, brain, brainFailed, seconds}` — `raw` is the recognition after the
+  dictionary and before the Brain (with the «Чаво, …» command if said), `final` what went to the
+  clipboard. A broken/half-written line is skipped; edits rewrite through a .tmp + rename. Search:
+  every word, case-insensitive, ё = е, over final + raw + command. New setting `HistoryKeep`
+  (Off / Day / Week (default) / Month / Forever; unknown values fall back to Week), plus a hard cap
+  of 2000 entries; pruning on every add and whenever the page is drawn; switching to «Не хранить»
+  deletes the file at once and nothing is recorded after that. `historyPage.ts` (HistoryController,
+  no Electron): newest first, 200 rows drawn (search reaches all), «сегодня/вчера HH:MM» stamps,
+  tags «Мозг» / «Мозг не справился», «Копировать», «Копировать без мозга» (only when the text
+  differs), «Мозг заново» (re-parses a «Чаво, …» command from `raw`, else the usual cleanup; the
+  answer replaces `final` and goes to the clipboard; a failure or empty answer leaves the entry; one
+  run at a time; deleting the entry mid-run aborts it), «Удалить», «Очистить всё» behind a yes/no
+  box. DictationSession got a `record` hook (errors in it never touch the take; silence and
+  cancelled takes are not recorded); `historyIpc.ts` + preload + the renderer page (a typed search
+  redraws only the list, so the caret stays). Tests: historyStore (9), historyPage (14),
+  dictationBrain history cases (4). 336 green (309 on ts-port). Smoke under xvfb
+  (`scripts/smoke-history.cjs`, fake mic + a fake OpenAI-compatible Brain on 127.0.0.1): a real
+  v3_e2e_rnnt take → «сегодня 20:33 · 4,9 с | Русский язык. Русский язык — это», one line in the
+  file; «Копировать» → clipboard; search «РУССКИЙ» → «Найдено 1 из 1.» with focus kept, a missing
+  word → «Ничего не нашлось.»; «Мозг заново» → the server got the raw text, the entry shows «Мозг»,
+  the new text and «Распознано: …», clipboard updated; a second take → 2 entries; «Не хранить» →
+  «История выключена, удалено записей: 2.», file gone, and a take after that writes nothing.
+  Gaps: «Вставить снова» waits for `ts/feat-win-native` (from the Chawo window the focus is on
+  Chawo anyway, so copy is the honest action); Sales-mode takes are not recorded (Sales has its own
+  card); no audio replay (batch 2 п.10 is for files).
 - 2026-10-13 tick (branch `ts/feat-cli`, IDEAS.md №8): `chawo-va transcribe` — the file queue without
   the window. `src/cli/args.ts` parses (`-f/--format txt,srt`, `-o/--out`, `-t/--timestamps` /
   `--no-timestamps`, `--model v3|ctc`, `--device cpu|gpu`, `-j/--threads auto|1|2|4|max`,
