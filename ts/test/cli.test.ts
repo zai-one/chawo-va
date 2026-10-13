@@ -37,6 +37,10 @@ function harness(opts: {
   briefTarget?: 'None' | 'Local' | 'Cloud';
   briefInstruction?: string;
   briefAsk?: (prompt: string, text: string) => Promise<string>;
+  translateTarget?: 'None' | 'Local' | 'Cloud';
+  /** Saved TranslateTarget. */
+  translateTo?: string;
+  translateAsk?: (prompt: string, text: string) => Promise<string>;
 } = {}): Harness {
   let lang: 'ru' | 'en' = 'en';
   const h = { out: [], err: [], files: new Map(), opened: [], disposed: 0, logs: [], ac: new AbortController() } as unknown as Harness;
@@ -77,6 +81,12 @@ function harness(opts: {
     },
     outputPath,
     briefOutputPath: (txt) => (txt.endsWith('.brain.txt') ? txt.slice(0, -'.brain.txt'.length) : txt.replace(/\.txt$/i, '')) + '.brief.txt',
+    translateOutputPath: (txt) => (txt.endsWith('.brain.txt') ? txt.slice(0, -'.brain.txt'.length) : txt.replace(/\.txt$/i, '')) + '.translate.txt',
+    translateBrain: () => ({
+      target: opts.translateTarget ?? 'Local',
+      to: opts.translateTo ?? '',
+      ask: async (prompt, text) => (opts.translateAsk ? opts.translateAsk(prompt, text) : 'Hello, world.'),
+    }),
     isDirectory: (p) => Boolean(opts.dirs?.[p]),
     exists: (p) => existing.has(p) || h.files.has(p) || Boolean(opts.fileText?.[p]),
     collectFromFolder: (p) => opts.dirs?.[p] ?? [],
@@ -329,5 +339,62 @@ describe('runCli brief', () => {
   it('rejects --format on brief', async () => {
     const h = harness();
     expect(await run(h, 'brief', 'a.txt', '-f', 'srt')).toBe(EXIT_USAGE);
+  });
+});
+
+describe('runCli translate', () => {
+  it('writes .translate.txt beside the transcript; --to picks the language', async () => {
+    const seen: string[] = [];
+    const h = harness({
+      fileText: { '/rec/call.txt': 'Добрый день, коллеги.' },
+      translateAsk: async (prompt) => {
+        seen.push(prompt);
+        return 'Good afternoon, colleagues.';
+      },
+    });
+    expect(await run(h, 'translate', '/rec/call.txt', '--to', 'en')).toBe(EXIT_OK);
+    expect(h.files.get('/rec/call.translate.txt')).toBe('Good afternoon, colleagues.\n');
+    expect(seen[0]).toContain('into English');
+    expect(h.err.join('')).toContain('Done: /rec/call.translate.txt');
+  });
+
+  it('no --to → saved TranslateTarget, else auto by the text', async () => {
+    const seen: string[] = [];
+    const ask = async (prompt: string) => {
+      seen.push(prompt);
+      return 'x';
+    };
+    const saved = harness({ fileText: { '/a.txt': 'Привет' }, translateTo: 'немецкий', translateAsk: ask });
+    expect(await run(saved, 'translate', '/a.txt')).toBe(EXIT_OK);
+    expect(seen[0]).toContain('into German');
+    const auto = harness({ fileText: { '/b.txt': 'Hello there' }, translateAsk: ask });
+    expect(await run(auto, 'translate', '/b.txt')).toBe(EXIT_OK);
+    expect(seen[1]).toContain('into Russian');
+  });
+
+  it('--stdout prints and writes nothing; -o puts the file in that folder', async () => {
+    const h = harness({ fileText: { '/a.txt': 'Привет' } });
+    expect(await run(h, 'translate', '/a.txt', '--to', 'en', '--stdout')).toBe(EXIT_OK);
+    expect(h.out.join('')).toBe('Hello, world.\n');
+    expect([...h.files.keys()]).toEqual([]);
+    const h2 = harness({ fileText: { '/rec/a.brain.txt': 'Привет' } });
+    expect(await run(h2, 'translate', '/rec/a.brain.txt', '-o', '/out')).toBe(EXIT_OK);
+    expect(h2.files.has(join('/out', 'a.translate.txt'))).toBe(true);
+  });
+
+  it('no Brain → EXIT_NO_MODEL; missing file and Brain error → EXIT_FAILED', async () => {
+    const none = harness({ fileText: { '/a.txt': 'x' }, translateTarget: 'None' });
+    expect(await run(none, 'translate', '/a.txt')).toBe(EXIT_NO_MODEL);
+    expect(none.err.join('')).toMatch(/Brain is not set up|Мозг не настроен/);
+    const missing = harness();
+    expect(await run(missing, 'translate', '/nope.txt')).toBe(EXIT_FAILED);
+    const broken = harness({ fileText: { '/a.txt': 'x' }, translateAsk: async () => { throw new Error('brain down'); } });
+    expect(await run(broken, 'translate', '/a.txt')).toBe(EXIT_FAILED);
+    expect(broken.err.join('')).toContain('brain down');
+  });
+
+  it('rejects --format / speech options on translate', async () => {
+    expect(await run(harness(), 'translate', 'a.txt', '-f', 'srt')).toBe(EXIT_USAGE);
+    expect(await run(harness(), 'translate', 'a.txt', '--model', 'v3')).toBe(EXIT_USAGE);
   });
 });

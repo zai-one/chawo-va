@@ -159,12 +159,29 @@ describe('DictationSession + Brain + SimpleSyntax', () => {
   });
 
   it('a «Чаво, …» command: body goes to the server with the command; no edit-every-take needed', async () => {
+    const srv = server(() => 'Короче.');
+    const { take, statuses } = make({ fetch: srv.fetch }, (x) => { serverSettings(x); x.SimpleSyntax = true; });
+    expect(await take('привет мир. Чаво, сделай короче.')).toBe('Короче.'); // command answer: no simple syntax
+    expect(srv.calls[0].body.messages[1].content).toBe('привет мир.');
+    expect(srv.calls[0].body.messages[0].content).toMatch(/Команда пользователя к тексту: сделай короче\.$/);
+    expect(statuses).toContain('Сокращаю…');
+  });
+
+  it('«Чаво, переведи на английский»: the dedicated translation prompt, not the edit prompt (IDEAS №15)', async () => {
     const srv = server(() => 'Hello world.');
     const { take, statuses } = make({ fetch: srv.fetch }, (x) => { serverSettings(x); x.SimpleSyntax = true; });
-    expect(await take('привет мир. Чаво, переведи на английский.')).toBe('Hello world.'); // command answer: no simple syntax
+    expect(await take('привет мир. Чаво, переведи на английский.')).toBe('Hello world.');
     expect(srv.calls[0].body.messages[1].content).toBe('привет мир.');
-    expect(srv.calls[0].body.messages[0].content).toMatch(/Команда пользователя к тексту: переведи на английский\.$/);
+    expect(srv.calls[0].body.messages[0].content).toContain('Translate the whole input into English.');
+    expect(srv.calls[0].body.messages[0].content).not.toContain('Команда пользователя');
     expect(statuses).toContain('Перевожу…');
+  });
+
+  it('«Чаво, по-немецки» translates into German', async () => {
+    const srv = server(() => 'Hallo Welt.');
+    const { take } = make({ fetch: srv.fetch }, (x) => { serverSettings(x); });
+    expect(await take('привет мир. Чаво, по-немецки')).toBe('Hallo Welt.');
+    expect(srv.calls[0].body.messages[0].content).toContain('into German');
   });
 
   it('dictionary runs before the Brain sees the phrase', async () => {

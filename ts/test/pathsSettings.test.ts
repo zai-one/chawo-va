@@ -201,6 +201,16 @@ describe('log', () => {
     expect(existsSync(logPath())).toBe(true);
     expect(readFileSync(logPath(), 'utf8')).toContain('hello from test');
   });
+  it('TranslateTarget round-trip (empty = auto)', () => {
+    const s = defaults();
+    expect(s.TranslateTarget).toBe('');
+    s.TranslateTarget = 'немецкий';
+    const obj = toJsonObject(s);
+    expect(obj).toMatchObject({ TranslateTarget: 'немецкий' });
+    expect(fromJsonObject(obj).settings.TranslateTarget).toBe('немецкий');
+    expect(fromJsonObject({}).settings.TranslateTarget).toBe('');
+    expect(fromJsonObject({ TranslateTarget: 42 }).settings.TranslateTarget).toBe('');
+  });
   it('MeetingBriefEnabled / MeetingBriefInstruction round-trip', () => {
     const s = defaults();
     expect(s.MeetingBriefEnabled).toBe(false);
