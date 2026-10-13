@@ -369,3 +369,35 @@ Re-align folder names and tooling with taptain-desktop once its layout is readab
   unit-tested with a fake spawn only (needs a Windows run). Next: the Windows native helper (hold
   key, TextInserter, SelectionReader, caret placement, job object), the «Продажи» card, then
   Updater/Autostart.
+- 2026-10-13 tick (branch `ts/feat-voice-punct`, IDEAS.md №9 = approved batch 2 item 1): voice punctuation
+  and spoken numbers. `src/core/spokenText.ts` (no Electron): `applySpokenPunctuation` — one regex of
+  all commands (longest first, ё/е and case ignored, a comma allowed inside two-word commands as the
+  model writes «точка, с запятой»); kinds close (, . ; : ? ! …), open ( « , closer ) », dash « —»,
+  hyphen (glues), line (\n / \n\n); the model's own marks on both sides of the command are swallowed
+  (a closer keeps a mark after it); sentence ends and new lines capitalize the next letter, a comma
+  after a model-made sentence end lowers the model's capital (acronyms kept); «точка» stays a word
+  before «зрения/доступа/продаж…» or after an -ая/-яя adjective or «эта/наша/каждая…». Text with no
+  command comes back as the same string. `applySpokenNumbers` — tokens, a run of number words split
+  by single spaces, Russian place order (hundreds → tens/teens → units → scale, scale only after
+  digits and descending), all cardinal case forms (no «семью», it is «family»), a multi-word run may
+  end with an ordinal → `-е/-го/-й/-м/…` suffix; left alone: lone «один…», lone scale words
+  («тысячи людей»), lone ordinals («пятое октября»); digits untouched; output is plain digits (no
+  thousand separators). `applySpoken(text, {SpokenPunctuation, SpokenNumbers})` runs punctuation then
+  numbers. Settings `SpokenPunctuation`, `SpokenNumbers` (both false). Session: after the dictionary
+  rules, before the Brain/«Чаво, …» and simple syntax; log line `spoken marks/numbers: N -> M chars`
+  (counts only). Page: two checkboxes with one hint line each under the «Словарь» table
+  (`dict:setSpoken`, saved only on a real change). Files and the live draft are not touched.
+  Tests: `test/spokenText.test.ts` (51: punctuation table incl. model marks around commands, nouns
+  kept, numbers table incl. cases/ordinals/phone-like runs, switches, settings round trip + junk,
+  page switches RU/EN, three dictation takes off/on/on+simple syntax, the real model output below).
+  360 green + 1 skipped (309 on ts-port). Real run on the box: piper `ru_RU-irina-medium` speech
+  «Встреча в пять запятая в офисе точка. Бюджет двадцать пять тысяч рублей вопросительный знак. Новая
+  строка. Скидка открыть скобку до конца месяца закрыть скобку десять процентов.» (espeak-ng gives
+  GigaAM nothing) → Electron under xvfb with the fake mic (`scripts/smoke-spoken.cjs`, real v3 e2e
+  int8): switches off → «Встреча 5, в офисе. Бюджет 25 000 ₽, вопросительный знак, новая строка.
+  Скидка: открыть скобку до конца месяца закрыть скобку 10%.»; both checkboxes clicked on the page →
+  settings.json true/true → «Встреча в 5, в офисе. Бюджет 25 000 ₽?\nСкидка: (до конца месяца) 10%.».
+  Note: v3 e2e already normalizes numbers and sometimes turns a spoken «запятая/точка» into the mark
+  itself, so «Числа цифрами» matters mostly for v3_ctc/v2. Gaps: English commands («comma») are not
+  supported (the model writes English in Cyrillic anyway); no thousands separators; «два/три» alone
+  become digits when numbers are on.

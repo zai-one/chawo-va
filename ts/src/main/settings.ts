@@ -70,6 +70,10 @@ export interface SettingsData {
   BrainInstruction: string;
   SimpleSyntax: boolean;
   WordReplacementRules: string;
+  /** «запятая», «новая строка» … → marks in a dictated phrase (IDEAS №9). Off by default. */
+  SpokenPunctuation: boolean;
+  /** «двадцать пять» → «25» in a dictated phrase. Off by default. */
+  SpokenNumbers: boolean;
   CleanupEndpointUrl: string;
   /** Plain API key in memory only; never written as plaintext. */
   CleanupApiKey: string;
@@ -119,6 +123,8 @@ export function defaults(): SettingsData {
     BrainInstruction: '',
     SimpleSyntax: false,
     WordReplacementRules: '',
+    SpokenPunctuation: false,
+    SpokenNumbers: false,
     CleanupEndpointUrl: '',
     CleanupApiKey: '',
     CleanupModel: '',
@@ -346,6 +352,8 @@ export function fromJsonObject(raw: Record<string, unknown>): { settings: Settin
   d.BrainInstruction = asString(raw.BrainInstruction, d.BrainInstruction);
   d.SimpleSyntax = asBool(raw.SimpleSyntax, d.SimpleSyntax);
   d.WordReplacementRules = asString(raw.WordReplacementRules, d.WordReplacementRules);
+  d.SpokenPunctuation = asBool(raw.SpokenPunctuation, d.SpokenPunctuation);
+  d.SpokenNumbers = asBool(raw.SpokenNumbers, d.SpokenNumbers);
   d.CleanupEndpointUrl = asString(raw.CleanupEndpointUrl, d.CleanupEndpointUrl);
   d.CleanupModel = asString(raw.CleanupModel, d.CleanupModel);
   d.ProviderModels = parseStringMap(raw.ProviderModels);
@@ -421,6 +429,8 @@ export function toJsonObject(s: SettingsData): Record<string, unknown> {
     BrainInstruction: s.BrainInstruction,
     SimpleSyntax: s.SimpleSyntax,
     WordReplacementRules: s.WordReplacementRules,
+    SpokenPunctuation: s.SpokenPunctuation,
+    SpokenNumbers: s.SpokenNumbers,
     CleanupEndpointUrl: s.CleanupEndpointUrl,
     CleanupModel: s.CleanupModel,
     ProviderModels: s.ProviderModels,
