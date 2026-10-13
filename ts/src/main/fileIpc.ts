@@ -7,6 +7,7 @@ import { FileQueue, FileRunner, Ffmpeg, UrlImport, YtDlp, OPEN_FILTERS, load16k,
 import { getDiarizeRuntime } from './diarize';
 import * as FileBrain from './brain/fileBrain';
 import * as MeetingBrief from './brain/meetingBrief';
+import * as Translate from './brain/translate';
 import { BrainException } from './brain/speechCleanup';
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { toTxt } from '../core/transcriptFormat';
@@ -50,6 +51,19 @@ export interface FileStateDto {
     path: string | null;
     busy: boolean;
   };
+  /** «Перевести» block on the File page (Brain-based, local by default). */
+  translate: {
+    /** Saved TranslateTarget (code, name or free text); empty = auto. */
+    target: string;
+    /** Common languages for the picker; free text is allowed too. */
+    languages: { code: string; label: string }[];
+    where: string;
+    available: boolean;
+    /** Last translation shown in the card. */
+    text: string;
+    path: string | null;
+    busy: boolean;
+  };
   /** UI language picked in main (Auto follows the OS locale), so the page matches status lines. */
   ru: boolean;
 }
@@ -70,6 +84,10 @@ export function registerFileIpc(getWindow: () => BrowserWindow | null, settings:
   let briefAbort: AbortController | null = null;
   /** Cloud confirm for this queue run: null = not asked yet, true/false = answer. */
   let briefCloudOk: boolean | null = null;
+  let lastTranslateText = '';
+  let lastTranslatePath: string | null = null;
+  let translateBusy = false;
+  let translateAbort: AbortController | null = null;
 
   const state = (): FileStateDto => {
     const s = settings.get();
@@ -78,7 +96,7 @@ export function registerFileIpc(getWindow: () => BrowserWindow | null, settings:
     return {
       items: queue.snapshot(),
       status: ffmpegStatus || diarStatus || runner.status,
-      busy: runner.busy || ffmpegBusy || urlImport.busy || diarBusy || briefBusy,
+      busy: runner.busy || ffmpegBusy || urlImport.busy || diarBusy || briefBusy || translateBusy,
       options: { timestamps: s.FileTimestamps, srt: s.FileSrt, extra: [...s.FileExtraFormats], parallelism: s.FileParallelism, diarize: s.FileDiarize, brief: s.MeetingBriefEnabled },
       ffmpeg: { line: Ffmpeg.statusLine(), canDownload: Ffmpeg.canDownload(), installed: Ffmpeg.isInstalled() },
       url: {
@@ -106,6 +124,15 @@ export function registerFileIpc(getWindow: () => BrowserWindow | null, settings:
         text: lastBriefText,
         path: lastBriefPath,
         busy: briefBusy,
+      },
+      translate: {
+        target: s.TranslateTarget,
+        languages: Translate.commonLanguages().map((l) => ({ code: l.code, label: ruLang ? l.ru : l.name })),
+        where: Translate.target(s) === 'None' ? '' : Translate.describe(s),
+        available: Translate.target(s) !== 'None',
+        text: lastTranslateText,
+        path: lastTranslatePath,
+        busy: translateBusy,
       },
       ru: ruLang,
     };
@@ -306,6 +333,7 @@ export function registerFileIpc(getWindow: () => BrowserWindow | null, settings:
     ytdlpAbort?.abort();
     diarAbort?.abort();
     briefAbort?.abort();
+    translateAbort?.abort();
     return state();
   });
 
@@ -448,8 +476,84 @@ export function registerFileIpc(getWindow: () => BrowserWindow | null, settings:
     return state();
   });
 
+  ipcMain.handle('file:translateTarget', (_e, text: unknown) => {
+    const s = settings.get();
+    if (typeof text === 'string') {
+      s.TranslateTarget = text.trim();
+      Settings.save(s);
+    }
+    return state();
+  });
+
+  ipcMain.handle('file:runTranslate', async (_e, to: unknown, path: unknown) => {
+    if (translateBusy || briefBusy || runner.busy) return state();
+    const s = settings.get();
+    if (typeof to === 'string') {
+      s.TranslateTarget = to.trim();
+      Settings.save(s);
+    }
+    const kind = Translate.target(s);
+    if (kind === 'None') {
+      ffmpegStatus = t('Мозг не настроен — откройте «Мозг».', 'The Brain is not set up — open Brain.');
+      return state();
+    }
+    const src = typeof path === 'string' && path.length > 0 ? path : queue.lastOutput;
+    if (!src || !existsSync(src)) {
+      ffmpegStatus = t('Нет готовой расшифровки. Сначала расшифруйте файл или встречу.', 'No finished transcript. Transcribe a file or a meeting first.');
+      return state();
+    }
+    if (kind === 'Cloud') {
+      const cloud = Translate.cloudName(s);
+      if (cloud) {
+        const w = getWindow();
+        const question = t(`Текст уйдёт в ${cloud}. Перевести?`, `The text will be sent to ${cloud}. Translate?`);
+        const box = { type: 'question' as const, buttons: [t('Да', 'Yes'), t('Нет', 'No')], defaultId: 0, cancelId: 1, title: t('Перевод', 'Translation'), message: question };
+        const r = w ? await dialog.showMessageBox(w, box) : await dialog.showMessageBox(box);
+        if (r.response !== 0) {
+          ffmpegStatus = t('Перевод пропущен.', 'Translation skipped.');
+          return state();
+        }
+      }
+    }
+    translateBusy = true;
+    translateAbort = new AbortController();
+    ffmpegStatus = t('Мозг: перевожу…', 'Brain: translating…');
+    push();
+    try {
+      const result = await Translate.translateFileAsync(
+        src,
+        {
+          settings: s,
+          targetKind: kind,
+          saved: s.TranslateTarget,
+          status: (line) => {
+            ffmpegStatus = line;
+            push();
+          },
+          signal: translateAbort.signal,
+        },
+        { readFile: (p) => readFileSync(p, 'utf8'), writeFile: (p, text) => writeFileSync(p, text, 'utf8') },
+      );
+      lastTranslateText = result.text;
+      lastTranslatePath = result.path;
+      ffmpegStatus = t(`Перевод: ${result.path}`, `Translation: ${result.path}`);
+    } catch (e) {
+      if ((e as Error)?.name === 'AbortError') ffmpegStatus = t('Перевод отменён.', 'Translation cancelled.');
+      else {
+        const msg = e instanceof BrainException || e instanceof Error ? e.message : String(e);
+        ffmpegStatus = t(`Перевод не получился: ${msg}`, `Translation failed: ${msg}`);
+        Log.write(`file runTranslate: ${msg}`);
+      }
+    } finally {
+      translateBusy = false;
+      translateAbort = null;
+      push();
+    }
+    return state();
+  });
+
   return {
-    busy: () => runner.busy || urlImport.busy || diarBusy || briefBusy,
+    busy: () => runner.busy || urlImport.busy || diarBusy || briefBusy || translateBusy,
     /** A finished meeting recording: queue it and start (or join) the run. */
     enqueue: (path: string) => {
       queue.add([path], false);

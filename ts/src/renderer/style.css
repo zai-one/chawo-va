@@ -106,3 +106,5 @@ label.stack { display: flex; flex-direction: column; gap: 3px; font-size: 12px; 
 
 .meeting-brief textarea { width: 100%; min-height: 72px; resize: vertical; font: inherit; background: var(--bg); color: var(--fg); border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; }
 .meeting-brief .brief-card pre { margin: 0; font: inherit; white-space: pre-wrap; }
+.translate-box input#translate-to { min-width: 220px; background: var(--bg); color: var(--fg); border: 1px solid var(--line); border-radius: 6px; padding: 6px 10px; }
+.translate-box .translate-card pre { margin: 0; font: inherit; white-space: pre-wrap; }

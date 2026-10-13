@@ -28,6 +28,15 @@ interface FileState {
     path: string | null;
     busy: boolean;
   };
+  translate: {
+    target: string;
+    languages: { code: string; label: string }[];
+    where: string;
+    available: boolean;
+    text: string;
+    path: string | null;
+    busy: boolean;
+  };
   ru: boolean;
 }
 interface FileApi {
@@ -46,6 +55,8 @@ interface FileApi {
   downloadDiarize(): Promise<FileState>;
   setBriefInstruction(text: string): Promise<FileState>;
   runBrief(path?: string): Promise<FileState>;
+  setTranslateTarget(text: string): Promise<FileState>;
+  runTranslate(to?: string, path?: string): Promise<FileState>;
   onState(fn: (s: FileState) => void): () => void;
   onToast(fn: (s: string) => void): () => void;
 }
@@ -1465,11 +1476,14 @@ function renderSpeech(): void {
 
 /** The link field survives the page re-rendering on every queue push (text, focus, caret). */
 let urlDraft = '';
+/** «Перевести»: what the user is typing in the language field; null = show the saved value. */
+let translateDraft: string | null = null;
 
 function renderFile(): void {
   const s = fileState;
   const prev = document.activeElement as HTMLInputElement | null;
   const hadFocus = prev?.id === 'file-url';
+  const langFocus = prev?.id === 'translate-to' ? [prev.selectionStart, prev.selectionEnd] : null;
   const caret = hadFocus ? [prev!.selectionStart, prev!.selectionEnd] : null;
   page.replaceChildren(el('h1', { textContent: title('file') }));
   if (!s) return;
@@ -1569,6 +1583,42 @@ function renderFile(): void {
     briefBox.append(card);
   }
   page.append(briefBox);
+
+  // «Перевести» — offline translation of the last transcript via the same Brain (IDEAS №15).
+  const tr = s.translate ?? { target: '', languages: [], where: '', available: false, text: '', path: null, busy: false };
+  const langListId = 'translate-langs';
+  const lang = el('input', { type: 'text', id: 'translate-to', value: translateDraft ?? tr.target, spellcheck: false, autocomplete: 'off',
+    placeholder: L('авто: русский → английский, иначе → русский', 'auto: Russian → English, else → Russian') });
+  lang.setAttribute('list', langListId);
+  const langs = el('datalist', { id: langListId });
+  for (const l of tr.languages) langs.append(el('option', { value: l.label }));
+  lang.addEventListener('input', () => { translateDraft = lang.value; });
+  lang.addEventListener('change', () => void bridge.file.setTranslateTarget(lang.value).then((st) => { translateDraft = null; fileState = st; }));
+  const doTranslate = button(L('Перевести последнюю расшифровку', 'Translate the last transcript'),
+    () => void bridge.file.runTranslate(lang.value).then((st) => { translateDraft = null; apply(st); }));
+  doTranslate.disabled = s.busy || tr.busy || !tr.available || !s.lastOutput;
+  const translateBox = el('fieldset', { className: 'translate-box' },
+    el('legend', { textContent: L('Перевод', 'Translation') }),
+    el('p', { className: 'muted hint', textContent: tr.available
+      ? L(`Мозг: ${tr.where}. Пишет .translate.txt рядом с расшифровкой. В диктовке: «Чаво, переведи на …».`,
+        `Brain: ${tr.where}. Writes .translate.txt beside the transcript. In dictation: “Chawo, translate to …”.`)
+      : L('Нужен Мозг: скачайте локальную модель на «Мозге» или настройте свой сервер.', 'Needs the Brain: download a local model on Brain, or set up your own server.') }),
+    el('div', { className: 'row inline' }, el('label', { textContent: L('На язык ', 'Into ') }), lang, langs, doTranslate),
+  );
+  if (tr.text) {
+    translateBox.append(el('div', { className: 'card result translate-card' },
+      el('div', { className: 'card-head' },
+        el('strong', { textContent: L('Перевод', 'Translation') }),
+        tr.path ? button(L('Показать файл', 'Show file'), () => void bridge.file.reveal(tr.path!), 'link') : el('span'),
+      ),
+      el('pre', { className: 'last-text', textContent: tr.text }),
+    ));
+  }
+  page.append(translateBox);
+  if (langFocus) {
+    lang.focus();
+    lang.setSelectionRange(langFocus[0], langFocus[1]);
+  }
 
 
     const link = el('input', { type: 'text', id: 'file-url', value: urlDraft, spellcheck: false, autocomplete: 'off', placeholder: 'https://www.youtube.com/watch?v=…' });

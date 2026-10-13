@@ -87,6 +87,30 @@ describe('cli args', () => {
     expect(err(['brief', '--instruction'])).toContain('needs a value');
   });
 
+  it('translate command + --to; rejects speech-only flags and misplaced options', () => {
+    expect(ok(['translate', 'a.txt']).command).toBe('translate');
+    expect(ok(['translate', 'a.txt']).to).toBeNull();
+    expect(ok(['translate', 'a.txt', '--to', 'en']).to).toBe('en');
+    expect(ok(['translate', 'a.txt', '--to=немецкий']).to).toBe('немецкий');
+    expect(ok(['translate', 'a.txt', '--stdout']).stdout).toBe(true);
+    expect(err(['translate', 'a.txt', '-f', 'srt'])).toContain('translate writes');
+    expect(err(['translate', 'a.txt', '--device', 'gpu'])).toContain('transcript');
+    expect(err(['translate', 'a.txt', '--instruction', 'x'])).toContain('--instruction is for brief');
+    expect(err(['translate', 'a.txt', '--to'])).toContain('needs a value');
+    expect(err(['translate', 'a.txt', '--to', ' '])).toContain('--to is empty');
+    expect(err(['brief', 'a.txt', '--to', 'en'])).toContain('--to is for translate');
+    expect(err(['transcribe', 'a.wav', '--to', 'en'])).toContain('--to is for translate');
+  });
+
+  it('help mentions translate and --to in both languages', () => {
+    for (const lang of [(ru: string) => ru, (_: string, en: string) => en]) {
+      const h = helpText(lang);
+      expect(h).toContain('chawo-va translate');
+      expect(h).toContain('--to');
+      expect(h).toContain('.translate.txt');
+    }
+  });
+
   it('help in both languages names every option and the exit codes', () => {
     for (const lang of [(ru: string) => ru, (_: string, en: string) => en]) {
       const h = helpText(lang);

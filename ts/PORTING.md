@@ -793,3 +793,36 @@ Re-align folder names and tooling with taptain-desktop once its layout is readab
   live `runCli(['brief', meet.txt])` с фейковым ask → .brief.txt «Кратко/Задачи» с Анной и Борисом.
   Gaps: живой LocalBrain на боксе не гонял (как у fileBrain); GUI под xvfb не снимал (карточка на
   странице файла, паттерн как у «Встреча»).
+
+- 2026-10-13 tick (branch `ts/feat-translate`, IDEAS.md №15, approved batch 2 п.7): «Чаво, переведи на …» —
+  офлайн-перевод через Мозг. `src/main/brain/translateCommand.ts` (pure, без импортов Мозга, чтобы
+  brain.ts не ловил цикл): таблица языков (en/ru/de/fr/es/it/pt/zh/ja/ko/uk/be/kk/pl/tr/ar/hi, стемы RU
+  в любом падеже + английские имена; коды только после «на/to/into», чтобы «translate it» не стал
+  итальянским), `parseTranslateCommand` (глагол «переведи/перевод/translate» или голая фраза языка
+  «по-английски»/«in English»; смешанное «сделай короче по-английски» → null, остаётся общий промпт;
+  хвост «и сделай короче» → `extra`), `resolveLanguage` (код/имя/свободный текст), `defaultTarget`
+  (кириллицы ≥ латиницы → English, иначе Russian), `translatePrompt` (только перевод, имена/числа/даты/
+  таймкоды/метки спикеров как есть, spoken → убрать паразиты). `translate.ts`: `outputPath` →
+  `.translate.txt` (снимает `.brain`), `pickTarget` (явный > `TranslateTarget` > авто),
+  `runTranslateAsync` (чанки по абзацам 1200/6000 символов, инжектируемый ask = FileBrain.createAsk,
+  чистка ```/кавычек, пустой ответ/текст → BrainException), `translateFileAsync` (действие страницы).
+  brain.ts `transformAsync`: команда-перевод → `translatePrompt` для Local и Server (диктовка, выделение,
+  история), `actionLabel` → «Перевожу…» и для «по-немецки»/«translate to». Настройка `TranslateTarget`
+  (пусто = авто), отдельной галки/хоткея нет. UI: fieldset «Перевод» на «Расшифровке файла» под
+  «Кратко и задачи» — input + datalist (17 языков, свой текст), «Перевести последнюю расшифровку»,
+  карточка + «Показать файл»; облако — confirm. CLI: `chawo-va translate <txt…> [--to] [--stdout] [-o]`
+  (общий `textInputs` с brief; `--to` только для translate, `--instruction` только для brief).
+  Тесты: translate (24: команды/алиасы/коды/свободный язык/extra, resolve/default/pick, prompt,
+  outputPath, cleanAnswer, runTranslate чанки/ошибки/abort, translateFileAsync, transformAsync через
+  фейковый сервер), dictationBrain (+2, старый тест команды перевода переведён на «сделай короче»),
+  cli translate (5), cliArgs (+2), pathsSettings (+1). 734 зелёные (700 до), `tsc` чистый.
+  Smoke: `scripts/smoke-translate.cjs` — help упоминает translate/--to; `runCli(['translate', sample.txt,
+  '--to', 'en'])` с фейковым ask → sample.translate.txt; настоящий `node dist/cli.js translate … --to de`
+  с временным settings.json (Brain=Server на фейковом OpenAI-совместимом сервере 127.0.0.1) → «Мозг:
+  перевожу на немецкий…», файл с ответом, в запросе промпт «into German». GUI под xvfb
+  (`scripts/smoke-translate-gui.cjs`, настоящая v3_e2e_rnnt на CPU, ru30.wav): расшифровка → ввод
+  «немецкий» в поле (settings.json `TranslateTarget: "немецкий"`) → клик «Перевести последнюю
+  расшифровку» → confirm «Текст уйдёт в 127.0.0.1:PORT. Перевести?» → статус «Перевод: …/call.translate.txt»,
+  карточка и файл, промпт «into German»; тёмная тема. Gaps: живой LocalBrain/Qwen на боксе не гонял
+  (качество перевода реальной моделью не мерил); confirm спрашивается и для loopback-сервера с портом
+  (HostOf = Authority, как в WPF FileBrain.CloudName) — не трогал, вне задачи.

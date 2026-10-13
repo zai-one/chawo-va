@@ -11,6 +11,7 @@ import {
   tryGetCompletionsUrl,
 } from './speechCleanup';
 import { fromUrl } from './brainProviders';
+import { defaultTarget, parseTranslateCommand, translatePrompt } from './translateCommand';
 
 export type BrainSource = 'Off' | 'Local' | 'Server';
 
@@ -80,7 +81,7 @@ export function stripAddress(text: string): string {
 /** What the pill says while the model works. */
 export function actionLabel(command: string | null | undefined): string {
   const c = (command ?? '').toLowerCase();
-  if (c.includes('перевед') || c.includes('англ')) return t('Перевожу…', 'Translating…');
+  if (c.includes('перевед') || c.includes('англ') || parseTranslateCommand(c)) return t('Перевожу…', 'Translating…');
   if (c.includes('сократ') || c.includes('короче')) return t('Сокращаю…', 'Shortening…');
   if (c.includes('сглад') || c.includes('мягче') || c.includes('вежлив')) return t('Сглаживаю…', 'Smoothing…');
   if (c.includes('исправ') || c.includes('ошибк')) return t('Исправляю…', 'Fixing…');
@@ -154,7 +155,12 @@ export async function transformAsync(
 ): Promise<string> {
   let prompt: string;
   const instruction = s.BrainInstruction.trim();
-  if (s.Brain === 'Local') {
+  // «Чаво, переведи на …» / «по-английски»: a dedicated translation prompt works better than the
+  // generic edit prompt, for both the local llama and the user's server (IDEAS №15).
+  const translation = command != null ? parseTranslateCommand(command) : null;
+  if (translation) {
+    prompt = translatePrompt(translation.target ?? defaultTarget(body), { spoken: !selection, extra: translation.extra });
+  } else if (s.Brain === 'Local') {
     if (command != null) prompt = (selection ? LocalSelection : LocalCommand) + "\n\nThe user's command: " + command;
     else if (instruction.length > 0)
       prompt = 'Follow this instruction:\n' + instruction + '\nReturn only the finished text, with no quotes and no commentary.';
