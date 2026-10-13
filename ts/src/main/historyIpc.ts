@@ -2,16 +2,15 @@
 // confirm box; the renderer only asks and redraws.
 
 import { BrowserWindow, clipboard, dialog, ipcMain } from 'electron';
-import { join } from 'node:path';
 import { t } from '../core/strings';
 import * as Settings from './settings';
 import type { SettingsData } from './settings';
-import { localDataDir } from './paths';
+import { historyFilePath } from './paths';
 import { HistoryController } from './history/historyPage';
 import { HistoryStore, type HistoryKeep } from './history/historyStore';
 
 export function historyPath(): string {
-  return join(localDataDir(), 'history.jsonl');
+  return historyFilePath();
 }
 
 export function registerHistoryIpc(getWindow: () => BrowserWindow | null, settings: { get: () => SettingsData }): HistoryController {

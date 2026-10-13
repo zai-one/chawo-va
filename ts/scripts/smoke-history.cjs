@@ -114,6 +114,11 @@ app.whenReady().then(async () => {
     await nav('history');
     log('entries now:', await js(`document.querySelectorAll('.hist-item').length`));
 
+    // CHAWO_SMOKE_HISTORY_COPY=<path>: keep a copy of the file before the wipe (for `chawo-va history`).
+    if (process.env.CHAWO_SMOKE_HISTORY_COPY && existsSync(historyFile)) {
+      writeFileSync(process.env.CHAWO_SMOKE_HISTORY_COPY, readFileSync(historyFile));
+      log('history copied to', process.env.CHAWO_SMOKE_HISTORY_COPY);
+    }
     // «Не хранить»: wipes the file.
     await js(`(() => { const s = document.querySelector('main select'); s.value = 'Off'; s.dispatchEvent(new Event('change')); return true; })()`);
     await sleep(500);

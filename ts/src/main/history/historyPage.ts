@@ -62,14 +62,14 @@ export interface HistoryHooks {
 const pad = (n: number) => String(n).padStart(2, '0');
 
 /** «сегодня 14:05», «вчера 09:30», «12.10 18:02», «31.12.2025 23:59» in local time. */
-export function whenText(ts: number, now: number): string {
+export function whenText(ts: number, now: number, tr: (ru: string, en: string) => string = t): string {
   const d = new Date(ts);
   const n = new Date(now);
   const hm = `${pad(d.getHours())}:${pad(d.getMinutes())}`;
   const day = (x: Date) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
   const diffDays = Math.round((day(n) - day(d)) / 86400000);
-  if (diffDays === 0) return t(`сегодня ${hm}`, `today ${hm}`);
-  if (diffDays === 1) return t(`вчера ${hm}`, `yesterday ${hm}`);
+  if (diffDays === 0) return tr(`сегодня ${hm}`, `today ${hm}`);
+  if (diffDays === 1) return tr(`вчера ${hm}`, `yesterday ${hm}`);
   const dm = `${pad(d.getDate())}.${pad(d.getMonth() + 1)}`;
   return d.getFullYear() === n.getFullYear() ? `${dm} ${hm}` : `${dm}.${d.getFullYear()} ${hm}`;
 }

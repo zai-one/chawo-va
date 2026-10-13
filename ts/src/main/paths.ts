@@ -66,6 +66,11 @@ export function logPath(): string {
   return join(localDataDir(), 'chawo-va.log');
 }
 
+/** Dictation history (one JSON line per take); shared by the «История» page and `chawo-va history`. */
+export function historyFilePath(): string {
+  return join(localDataDir(), 'history.jsonl');
+}
+
 export function lastTakePath(): string {
   return join(localDataDir(), 'last.wav');
 }

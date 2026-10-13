@@ -1,4 +1,4 @@
-// Command-line arguments for `chawo-va transcribe …`. Pure parsing, no I/O, so it is unit-tested
+// Command-line arguments for `chawo-va transcribe | brief | translate | history …`. Pure parsing, no I/O, so it is unit-tested
 // on its own. Anything not given here falls back to the app's settings.json (read-only).
 
 import type { FileParallelismKind } from '../core/fileParallel';
@@ -8,7 +8,7 @@ export const FORMATS = ['txt', 'srt', 'vtt', 'json', 'md', 'docx'] as const;
 export type OutputFormat = (typeof FORMATS)[number];
 
 export interface CliOptions {
-  command: 'transcribe' | 'brief' | 'translate' | 'help' | 'version';
+  command: 'transcribe' | 'brief' | 'translate' | 'history' | 'help' | 'version';
   inputs: string[];
   /** Empty = not given (txt). */
   formats: OutputFormat[];
@@ -32,6 +32,12 @@ export interface CliOptions {
   postScript: string | null;
   /** transcribe: --no-post-script, skip the script even when settings have one. */
   noPostScript: boolean;
+  /** history: how many entries to print; null = default (20), Infinity = all. */
+  limit: number | null;
+  /** history: JSON Lines instead of text. */
+  json: boolean;
+  /** history: also print the text as recognized (before the Brain) when it differs. */
+  raw: boolean;
 }
 
 export type ParseResult = { ok: true; options: CliOptions } | { ok: false; error: string };
@@ -50,7 +56,7 @@ const SCRIPTS: Record<string, CtcScript> = { auto: 'auto', ru: 'russian', russia
 const LANGS: Record<string, 'Russian' | 'English'> = { ru: 'Russian', russian: 'Russian', en: 'English', english: 'English' };
 
 /** Options that take a value: --out DIR and --out=DIR both work. */
-const VALUED = new Set(['--format', '-f', '--out', '-o', '--model', '--device', '--threads', '-j', '--script', '--model-dir', '--lang', '--instruction', '--to', '--post-script']);
+const VALUED = new Set(['--format', '-f', '--out', '-o', '--model', '--device', '--threads', '-j', '--script', '--model-dir', '--lang', '--instruction', '--to', '--post-script', '--limit', '-n']);
 
 function blank(command: CliOptions['command']): CliOptions {
   return {
@@ -72,6 +78,9 @@ function blank(command: CliOptions['command']): CliOptions {
     to: null,
     postScript: null,
     noPostScript: false,
+    limit: null,
+    json: false,
+    raw: false,
   };
 }
 
@@ -81,7 +90,7 @@ export function parseArgs(argv: readonly string[]): ParseResult {
   const first = args[0];
   if (first === '--help' || first === '-h' || first === 'help') return { ok: true, options: blank('help') };
   if (first === '--version' || first === '-v' || first === 'version') return { ok: true, options: blank('version') };
-  if (first !== 'transcribe' && first !== 'brief' && first !== 'translate') return { ok: false, error: `unknown command: ${first}` };
+  if (first !== 'transcribe' && first !== 'brief' && first !== 'translate' && first !== 'history') return { ok: false, error: `unknown command: ${first}` };
 
   const o = blank(first);
   let onlyFiles = false;
@@ -186,11 +195,37 @@ export function parseArgs(argv: readonly string[]): ParseResult {
       case '--no-post-script':
         o.noPostScript = true;
         break;
+      case '--limit':
+      case '-n': {
+        if (lower === 'all' || lower === 'все' || lower === '0') {
+          o.limit = Number.POSITIVE_INFINITY;
+          break;
+        }
+        if (!/^\d{1,6}$/.test(lower)) return { ok: false, error: `bad --limit: ${v} (a number or all)` };
+        o.limit = Number(lower);
+        break;
+      }
+      case '--json':
+        o.json = true;
+        break;
+      case '--raw':
+        o.raw = true;
+        break;
       default:
         return { ok: false, error: `unknown option: ${a}` };
     }
   }
   if (o.inputs.includes('-')) return { ok: false, error: 'reading audio from stdin is not supported; pass a file path' };
+  if (o.command === 'history') {
+    // Words after `history` are the search, like the page's search box (every word must occur).
+    const speech = o.model || o.device || o.threads || o.script || o.modelDir;
+    if (o.formats.length > 0 || o.outDir || o.stdout || o.timestamps !== null || o.skipExisting || speech)
+      return { ok: false, error: 'history prints to stdout; it takes search words, -n, --json, --raw' };
+    if (o.instruction != null || o.to != null || o.postScript != null || o.noPostScript)
+      return { ok: false, error: 'history takes search words, -n, --json, --raw' };
+    return { ok: true, options: o };
+  }
+  if (o.limit !== null || o.json || o.raw) return { ok: false, error: '-n, --json and --raw are for history' };
   if (o.inputs.length === 0) return { ok: false, error: 'no files given' };
   if (o.command === 'brief') {
     if (o.formats.length > 0) return { ok: false, error: 'brief writes .brief.txt (or --stdout); drop --format' };
@@ -211,12 +246,13 @@ export function parseArgs(argv: readonly string[]): ParseResult {
 
 export function helpText(t: (ru: string, en: string) => string): string {
   return t(
-    `Chawo Voice Assistant — расшифровка файлов, «Кратко и задачи» и перевод из командной строки. Всё локально, ничего не отправляется.
+    `Chawo Voice Assistant — расшифровка файлов, «Кратко и задачи», перевод и история диктовки из командной строки. Всё локально, ничего не отправляется.
 
 Использование:
   chawo-va transcribe <файлы или папки…> [параметры]
   chawo-va brief <расшифровки.txt…> [параметры]
   chawo-va translate <тексты.txt…> [--to язык] [параметры]
+  chawo-va history [слова для поиска…] [-n 20|all] [--json] [--raw]
 
 Параметры:
   -f, --format txt,srt,vtt,json,md,docx
@@ -253,6 +289,13 @@ export function helpText(t: (ru: string, en: string) => string): string {
       --lang ru|en       язык сообщений (не язык перевода)
   -q, --quiet
 
+Параметры history (история диктовки, только чтение, новые сверху):
+      слова…             поиск: каждое слово должно встретиться (ё = е), как на странице
+  -n, --limit <N|all>    сколько записей (по умолчанию 20)
+      --json             JSON Lines: id, ts, seconds, final, raw, command, brain, brainFailed
+      --raw              ещё и текст до Мозга, если он отличается
+  -q, --quiet            без строки «Найдено …»
+
 Чего нет в параметрах, берётся из настроек приложения (settings.json, только чтение).
 Модель не скачивается: сначала скачайте её в приложении («Распознавание»).
 WAV и Ogg/Opus читаются сами, остальные форматы (MP3, M4A, FLAC, …) — через ffmpeg.
@@ -262,12 +305,13 @@ translate переводит готовый .txt через Мозг (локал
 
 Коды выхода: 0 — всё готово, 1 — часть файлов не удалась, 2 — ошибка параметров,
 3 — нет модели / Мозга, 130 — прервано (Ctrl+C).`,
-    `Chawo Voice Assistant — file transcription, «Brief and tasks» and translation from the command line. Everything is local; nothing is uploaded.
+    `Chawo Voice Assistant — file transcription, «Brief and tasks», translation and dictation history from the command line. Everything is local; nothing is uploaded.
 
 Usage:
   chawo-va transcribe <files or folders…> [options]
   chawo-va brief <transcript.txt…> [options]
   chawo-va translate <text.txt…> [--to language] [options]
+  chawo-va history [search words…] [-n 20|all] [--json] [--raw]
 
 Options:
   -f, --format txt,srt,vtt,json,md,docx
@@ -303,6 +347,13 @@ translate options:
   -o, --out <dir>        where to write .translate.txt
       --lang ru|en       message language (not the translation target)
   -q, --quiet
+
+history options (dictation history, read-only, newest first):
+      words…             search: every word must occur (ё = е), same as the page
+  -n, --limit <N|all>    how many entries (default 20)
+      --json             JSON Lines: id, ts, seconds, final, raw, command, brain, brainFailed
+      --raw              also the text before the Brain, when it differs
+  -q, --quiet            no «Found …» line
 
 Anything not given falls back to the app's settings (settings.json, read-only).
 No model is downloaded: download it in the app first (Speech page).

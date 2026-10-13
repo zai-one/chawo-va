@@ -875,3 +875,24 @@ Re-align folder names and tooling with taptain-desktop once its layout is readab
   .docx · 1.6 s)», VTT `00:00:00.000 --> 00:00:22.285`, JSON `chawo-transcript ru30.wav 30` 2 сегмента, md
   `# ru30` + `**[00:00:00]**`, docx открывается zipfile, текст в document.xml; `-f vtt,json -o o -q` → только
   они в o/; `--stdout -f vtt` → exit 2 «drop --format vtt». GUI не менялся (галки страницы уже были).
+
+- 2026-10-13 tick: PR #18 (`ts/feat-cli-formats`) слит в `ts-port` (npm ci, 764 теста, build зелёные). Дальше
+  CLI-паритет истории, ветка `ts/feat-cli-history`: `chawo-va history [слова…] [-n N|all] [--json] [--raw]
+  [-q] [--lang]`. Тот же `history.jsonl` (путь вынесен в `paths.historyFilePath()`, им пользуются и
+  `historyIpc`, и CLI), тот же поиск `matches` (каждое слово, ё = е, по final/raw/command), тот же срок
+  «Хранить» из settings.json (`HistoryKeep`, по умолчанию Неделя): старше срока не показывается, но и не
+  удаляется — CLI только читает. Новые сверху, по умолчанию 20; строка «Найдено N из M» / «Показаны
+  последние 20 из 25 (-n all — все)» / «Всего фраз: N» в stderr (`-q` убирает); «Не хранить» → «История
+  выключена…», exit 0. Заголовок записи как на странице: `whenText` (получил необязательный переводчик),
+  секунды, «Мозг» / «Мозг не справился», «команда»; `--raw` добавляет «Распознано: …», если отличается;
+  `--json` — JSON Lines (id, ts ISO, seconds, final, raw, command, brain, brainFailed). history не берёт
+  файловые/речевые параметры, а `-n/--json/--raw` — только для history (exit 2). Справка ru/en.
+  Тесты: cliArgs (+1), cli (+7: порядок и метки, поиск ё/е по raw, --raw, -n/all/-q, --json, срок «Неделя»
+  без удаления + Off, пусто/не найдено/русские сообщения), readDefaults с HistoryKeep. 772 зелёные (764 до),
+  `tsc` чистый. Live: GUI под xvfb (`scripts/smoke-history.cjs`, настоящая v3_e2e_rnnt, фейковый микрофон
+  ru30.wav, фейковый Мозг; новая переменная `CHAWO_SMOKE_HISTORY_COPY` сохраняет копию файла до «Не
+  хранить») — две фразы, поиск «РУССКИЙ» → «Найдено 1 из 1.», «Мозг заново» → «Мозг: …». Тот же файл в
+  CLI: `history` → две записи, новая сверху, у второй «Мозг»; `history РУССКИЙ один --raw` → «Found 1 of
+  2.»; `--lang ru --raw мозг` → «Мозг: Русский язык — это» + «Распознано: Русский язык — это»; `-n 1
+  --json` → одна строка JSON; `абракадабра` → «Nothing found (2 phrases in all).»; HistoryKeep Off →
+  «History is off…»; `history --stdout` и `transcribe a.wav --json` → exit 2; sha256 файла не изменился.

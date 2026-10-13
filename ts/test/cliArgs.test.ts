@@ -153,4 +153,34 @@ describe('langFromArgv', () => {
     expect(help).toContain('--post-script');
     expect(help).toContain('--no-post-script');
   });
+
+  it('history: search words, -n N|all, --json, --raw; no file/speech options; history flags elsewhere refused', () => {
+    const o = ok(['history']);
+    expect(o.command).toBe('history');
+    expect(o.inputs).toEqual([]);
+    expect(o.limit).toBeNull();
+    expect(ok(['history', 'счёт', 'Иванов']).inputs).toEqual(['счёт', 'Иванов']);
+    expect(ok(['history', '-n', '5']).limit).toBe(5);
+    expect(ok(['history', '--limit=all']).limit).toBe(Number.POSITIVE_INFINITY);
+    expect(ok(['history', '-n', '0']).limit).toBe(Number.POSITIVE_INFINITY);
+    expect(ok(['history', '--json', '--raw', '-q', '--lang', 'ru'])).toMatchObject({ json: true, raw: true, quiet: true, lang: 'Russian' });
+    expect(ok(['history', '--', '-минус']).inputs).toEqual(['-минус']);
+    expect(err(['history', '-n', 'ten'])).toContain('bad --limit');
+    expect(err(['history', '-n', '-3'])).toContain('bad --limit');
+    expect(err(['history', '--stdout'])).toContain('history prints to stdout');
+    expect(err(['history', '-o', 'x'])).toContain('history prints to stdout');
+    expect(err(['history', '-f', 'srt'])).toContain('history prints to stdout');
+    expect(err(['history', '--model', 'v3'])).toContain('history prints to stdout');
+    expect(err(['history', '--to', 'en'])).toContain('history takes');
+    expect(err(['transcribe', 'a.wav', '--json'])).toContain('are for history');
+    expect(err(['brief', 'a.txt', '-n', '3'])).toContain('are for history');
+    expect(err(['translate', 'a.txt', '--raw'])).toContain('are for history');
+    for (const lang of ['ru', 'en'] as const) {
+      const help = helpText((ru, en) => (lang === 'ru' ? ru : en));
+      expect(help).toContain('chawo-va history');
+      expect(help).toContain('--limit');
+      expect(help).toContain('--json');
+      expect(help).toContain('--raw');
+    }
+  });
 });

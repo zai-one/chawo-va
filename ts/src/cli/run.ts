@@ -10,6 +10,7 @@ import type { CtcScript, SpeechDeviceKind, SpeechModelKind } from '../core/speec
 import { clock, toSrt, toTxt, type TranscriptSegment } from '../core/transcriptFormat';
 import { writeExtras } from '../main/file/transcriptExport';
 import { helpText, langFromArgv, parseArgs, type CliOptions } from './args';
+import { HistoryStore, keepMs, type HistoryEntry, type HistoryKeep } from '../main/history/historyStore';
 import { FILE_TIMEOUT_MS, failureText, logLine, runPostScript, scriptCommand, type PostScriptResult, type PostScriptRun } from '../core/postScript';
 
 export const EXIT_OK = 0;
@@ -29,6 +30,8 @@ export interface CliDefaults {
   language: 'Auto' | 'Russian' | 'English';
   /** «Свой скрипт» from settings: PostScript when PostScriptFiles is on, else null. */
   postScript?: string | null;
+  /** «История → Хранить»; entries older than it are not shown (the app deletes them). */
+  historyKeep?: HistoryKeep;
 }
 
 export interface EngineConfig {
@@ -103,6 +106,10 @@ export interface CliDeps {
   translateBrain(): TranslateBrain;
   /** «Свой скрипт» runner; defaults to core runPostScript (tests may inject). */
   runScript?: (r: PostScriptRun) => Promise<PostScriptResult>;
+  /** history.jsonl of the app (read, never written by the CLI). */
+  historyPath?: () => string;
+  /** Wall clock for history dates (defaults to Date.now; `now` above may be a test counter). */
+  clock?: () => number;
   log(line: string): void;
   now(): number;
   signal: AbortSignal;
@@ -134,6 +141,7 @@ export async function runCli(argv: readonly string[], d: CliDeps): Promise<numbe
   }
   if (o.command === 'brief') return brief(o, d);
   if (o.command === 'translate') return translate(o, d);
+  if (o.command === 'history') return history(o, defaults, d);
   return transcribe(o, defaults, d);
 }
 
@@ -297,6 +305,87 @@ async function brief(o: CliOptions, d: CliDeps): Promise<number> {
     return EXIT_INTERRUPTED;
   }
   return failed > 0 ? EXIT_FAILED : EXIT_OK;
+}
+
+export const HISTORY_DEFAULT_LIMIT = 20;
+
+/** One entry as JSON Lines: plain fields, ts as ISO 8601. */
+export function historyJson(e: HistoryEntry): string {
+  return JSON.stringify({
+    id: e.id,
+    ts: new Date(e.ts).toISOString(),
+    seconds: e.seconds,
+    final: e.final,
+    raw: e.raw,
+    command: e.command,
+    brain: e.brain,
+    brainFailed: e.brainFailed,
+  });
+}
+
+/**
+ * `chawo-va history [words…]`: the «История» page from the command line. Same file, same search
+ * (`matches`: every word, ё = е, over final/raw/command), same «Хранить» period, newest first.
+ * Read-only: nothing is pruned or rewritten here; the app does that when the page is opened.
+ */
+async function history(o: CliOptions, defaults: CliDefaults, d: CliDeps): Promise<number> {
+  const t = d.t;
+  const say = (line: string) => {
+    if (!o.quiet) d.err(line + '\n');
+  };
+  const keep = defaults.historyKeep ?? 'Week';
+  if (keep === 'Off') {
+    say(t('История выключена («История → Хранить: Не хранить»), фраз нет.', 'History is off («History → Keep: Do not keep»); no phrases.'));
+    return EXIT_OK;
+  }
+  if (!d.historyPath) {
+    d.err(t('Ошибка: история недоступна.', 'Error: history is not available.') + '\n');
+    return EXIT_FAILED;
+  }
+  const path = d.historyPath();
+  const now = (d.clock ?? Date.now)();
+  const cutoff = now - keepMs(keep);
+  const fresh = (e: HistoryEntry) => e.ts >= cutoff;
+  const query = o.inputs.join(' ').slice(0, 200);
+  let all: HistoryEntry[];
+  let total: number;
+  try {
+    const store = new HistoryStore(path, () => now);
+    all = store.list(query).filter(fresh);
+    total = query.trim() ? store.list('').filter(fresh).length : all.length;
+  } catch (e) {
+    d.err(t(`Ошибка: не читается ${path}: ${message(e)}`, `Error: cannot read ${path}: ${message(e)}`) + '\n');
+    return EXIT_FAILED;
+  }
+  const limit = o.limit ?? HISTORY_DEFAULT_LIMIT;
+  const shown = all.slice(0, limit);
+
+  if (shown.length === 0) {
+    say(query.trim()
+      ? t(`Ничего не нашлось (всего фраз: ${total}).`, `Nothing found (${total} phrases in all).`)
+      : t('Пока пусто: продиктуйте фразу в приложении.', 'Empty so far: dictate a phrase in the app.'));
+    return EXIT_OK;
+  }
+  const { whenText } = await import('../main/history/historyPage');
+  if (o.json) {
+    for (const e of shown) d.out(historyJson(e) + '\n');
+  } else {
+    shown.forEach((e, i) => {
+      const head = [whenText(e.ts, now, t), t(`${e.seconds.toFixed(1).replace('.', ',')} с`, `${e.seconds.toFixed(1)} s`)];
+      if (e.brainFailed) head.push(t('Мозг не справился', 'Brain failed'));
+      else if (e.brain) head.push(t('Мозг', 'Brain'));
+      if (e.command) head.push(`«${e.command}»`);
+      if (i > 0) d.out('\n');
+      d.out(`— ${head.join(' · ')}\n${e.final}\n`);
+      if (o.raw && e.raw.trim() && e.raw !== e.final) d.out(t(`  Распознано: ${e.raw}\n`, `  Recognized: ${e.raw}\n`));
+    });
+  }
+  if (query.trim()) say(t(`Найдено ${all.length} из ${total}${shown.length < all.length ? `, показаны ${shown.length} (-n all — все)` : ''}.`,
+    `Found ${all.length} of ${total}${shown.length < all.length ? `, showing ${shown.length} (-n all for every one)` : ''}.`));
+  else if (shown.length < total) say(t(`Показаны последние ${shown.length} из ${total} (-n all — все).`, `Showing the last ${shown.length} of ${total} (-n all for every one).`));
+  else say(t(`Всего фраз: ${total}.`, `${total} phrases.`));
+  d.log(`cli history q=${query.trim() ? 'yes' : 'no'} shown=${shown.length} of ${total}`);
+  return EXIT_OK;
 }
 
 async function transcribe(o: CliOptions, defaults: CliDefaults, d: CliDeps): Promise<number> {
