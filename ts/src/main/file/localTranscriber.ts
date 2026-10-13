@@ -14,6 +14,24 @@ import type { FileRunnerDeps, FileTranscriber } from './fileRunner';
 
 const RATE = 16000;
 
+export type PausesFn = typeof filePauses;
+
+/**
+ * Pieces of a file for FileJob: Silero pauses when the file is longer than one chunk, VadEnabled is on
+ * and its model is on disk, else the energy split as before. Shared by the page and `chawo-va transcribe`.
+ * Never downloads the VAD model.
+ */
+export async function fileRanges(
+  s: Pick<SettingsData, 'VadEnabled'>,
+  samples: Float32Array,
+  opts: { signal?: AbortSignal; onStart?: () => void; pauses?: PausesFn } = {},
+): Promise<Array<{ from: number; to: number }>> {
+  const pauses = samples.length > (Recognizer.MaxChunkSeconds + 1) * RATE
+    ? await (opts.pauses ?? filePauses)(s, samples, RATE, { signal: opts.signal, onStart: opts.onStart })
+    : undefined;
+  return Recognizer.splitRanges(samples, RATE, pauses);
+}
+
 export function localPrepare(settings: () => SettingsData): FileRunnerDeps['prepare'] {
   return async () => {
     const s = settings();
@@ -42,11 +60,7 @@ export function localPrepare(settings: () => SettingsData): FileRunnerDeps['prep
       try {
         const plan = job.plan;
         const planShown = t(plan.summaryRu, plan.summaryEn);
-        // Silero pauses when its model is on disk (VadEnabled), else the energy split as before.
-        const pauses = samples.length > (Recognizer.MaxChunkSeconds + 1) * RATE
-          ? await filePauses(cur, samples, RATE, { signal, onStart: () => status(t('Ищу паузы в речи…', 'Finding pauses in speech…')) })
-          : undefined;
-        const ranges = Recognizer.splitRanges(samples, RATE, pauses);
+        const ranges = await fileRanges(cur, samples, { signal, onStart: () => status(t('Ищу паузы в речи…', 'Finding pauses in speech…')) });
         Log.write(
           `file parallel workers=${plan.workers} batch=${plan.batchSize} intra=${plan.intraOpThreads} gpu=${plan.useGpu} device=${job.deviceActual}/${job.provider} → ${planShown}`,
         );

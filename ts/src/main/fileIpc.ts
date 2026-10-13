@@ -4,7 +4,7 @@
 import { BrowserWindow, Notification, app, dialog, ipcMain, shell } from 'electron';
 import { dirname, join } from 'node:path';
 import { FileQueue, FileRunner, Ffmpeg, UrlImport, YtDlp, OPEN_FILTERS, load16k, localPrepare, remoteFatal, remotePrepare } from './file';
-import { getDiarizeRuntime } from './diarize';
+import { diarizeHook, getDiarizeRuntime } from './diarize';
 import * as FileBrain from './brain/fileBrain';
 import * as MeetingBrief from './brain/meetingBrief';
 import * as Translate from './brain/translate';
@@ -237,12 +237,7 @@ export function registerFileIpc(getWindow: () => BrowserWindow | null, settings:
         return { note: t(`краткое: ${msg}`, `brief: ${msg}`) };
       }
     },
-    runDiarize: async (pcm, status, signal) => {
-      const diar = getDiarizeRuntime();
-      if (!diar.ready) return null;
-      status(t('Разделяю спикеров…', 'Separating speakers…'));
-      return diar.run(pcm, signal);
-    },
+    runDiarize: diarizeHook(getDiarizeRuntime, () => t('Разделяю спикеров…', 'Separating speakers…')),
   });
   queue.onChanged(push);
 
