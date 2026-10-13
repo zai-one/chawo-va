@@ -37,4 +37,6 @@ export * as FileBrain from './fileBrain';
 export type { FileBrainTarget, FileBrainResult, AskFn } from './fileBrain';
 export * as MeetingBrief from './meetingBrief';
 export type { MeetingBriefResult, MeetingBriefRunOpts } from './meetingBrief';
-
+export * as Translate from './translate';
+export type { TranslateLang, TranslateCommand } from './translateCommand';
+export type { TranslateResult, TranslateRunOpts } from './translate';

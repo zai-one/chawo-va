@@ -21,6 +21,8 @@ const api = {
     downloadDiarize: () => ipcRenderer.invoke('file:diarizeDownload'),
     setBriefInstruction: (text: string) => ipcRenderer.invoke('file:briefInstruction', text),
     runBrief: (path?: string) => ipcRenderer.invoke('file:runBrief', path),
+    setTranslateTarget: (text: string) => ipcRenderer.invoke('file:translateTarget', text),
+    runTranslate: (to?: string, path?: string) => ipcRenderer.invoke('file:runTranslate', to, path),
     onState: (fn: (s: unknown) => void) => {
       const h = (_e: unknown, s: unknown) => fn(s);
       ipcRenderer.on('file:state', h);

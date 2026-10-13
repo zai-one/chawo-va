@@ -61,6 +61,14 @@ export interface BriefBrain {
   ) => Promise<string>;
 }
 
+export interface TranslateBrain {
+  /** 'None' | 'Local' | 'Cloud' — same as FileBrain.target. */
+  target: 'None' | 'Local' | 'Cloud';
+  /** Saved TranslateTarget (may be empty → auto by the text). */
+  to: string;
+  ask: BriefBrain['ask'];
+}
+
 export interface CliDeps {
   version: string;
   out(text: string): void;
@@ -77,6 +85,8 @@ export interface CliDeps {
   outputPath(source: string): string;
   /** .brief.txt path beside a transcript .txt. */
   briefOutputPath(transcriptTxt: string): string;
+  /** .translate.txt path beside a transcript .txt. */
+  translateOutputPath(transcriptTxt: string): string;
   isDirectory(path: string): boolean;
   exists(path: string): boolean;
   collectFromFolder(folder: string): string[];
@@ -85,6 +95,8 @@ export interface CliDeps {
   readFile(path: string): string;
   /** Brain for `brief` (Local / Server). Tests inject a fake ask. */
   briefBrain(): BriefBrain;
+  /** Brain for `translate` (Local / Server). Tests inject a fake ask. */
+  translateBrain(): TranslateBrain;
   log(line: string): void;
   now(): number;
   signal: AbortSignal;
@@ -115,6 +127,7 @@ export async function runCli(argv: readonly string[], d: CliDeps): Promise<numbe
     return EXIT_OK;
   }
   if (o.command === 'brief') return brief(o, d);
+  if (o.command === 'translate') return translate(o, d);
   return transcribe(o, defaults, d);
 }
 
@@ -123,18 +136,14 @@ function message(e: unknown): string {
 }
 
 
-async function brief(o: CliOptions, d: CliDeps): Promise<number> {
+/** .txt inputs for brief / translate: no folders, must exist, no duplicates. */
+function textInputs(o: CliOptions, d: CliDeps, fail: (line: string) => void): { files: string[]; failed: number } {
   const t = d.t;
-  const say = (line: string) => {
-    if (!o.quiet) d.err(line + '\n');
-  };
-  const fail = (line: string) => d.err(line + '\n');
-
   const files: string[] = [];
   let failed = 0;
   for (const input of o.inputs) {
     if (d.isDirectory(input)) {
-      fail(t(`Ошибка: brief ждёт файл .txt, не папку: ${input}`, `Error: brief wants a .txt file, not a folder: ${input}`));
+      fail(t(`Ошибка: ${o.command} ждёт файл .txt, не папку: ${input}`, `Error: ${o.command} wants a .txt file, not a folder: ${input}`));
       failed++;
       continue;
     }
@@ -145,6 +154,86 @@ async function brief(o: CliOptions, d: CliDeps): Promise<number> {
     }
     if (!files.includes(input)) files.push(input);
   }
+  return { files, failed };
+}
+
+async function translate(o: CliOptions, d: CliDeps): Promise<number> {
+  const t = d.t;
+  const say = (line: string) => {
+    if (!o.quiet) d.err(line + '\n');
+  };
+  const fail = (line: string) => d.err(line + '\n');
+
+  const picked = textInputs(o, d, fail);
+  const files = picked.files;
+  let failed = picked.failed;
+  if (files.length === 0) return EXIT_FAILED;
+
+  const brain = d.translateBrain();
+  if (brain.target === 'None') {
+    fail(
+      t(
+        'Ошибка: Мозг не настроен. Скачайте локальную модель на «Мозге» или укажите сервер в настройках.',
+        'Error: the Brain is not set up. Download a local model on Brain, or configure a server in settings.',
+      ),
+    );
+    return EXIT_NO_MODEL;
+  }
+
+  const Translate = await import('../main/brain/translate');
+  if (o.outDir && !o.stdout) d.mkdirp(o.outDir);
+
+  for (let i = 0; i < files.length; i++) {
+    if (d.signal.aborted) break;
+    const src = files[i]!;
+    const prefix = files.length > 1 ? `[${i + 1}/${files.length}] ` : '';
+    say(prefix + src);
+    try {
+      const text = d.readFile(src);
+      const result = await Translate.runTranslateAsync({
+        targetKind: brain.target,
+        text,
+        to: o.to,
+        saved: brain.to,
+        status: (line) => say(prefix + line),
+        signal: d.signal,
+        ask: brain.ask,
+      });
+      if (o.stdout) {
+        if (files.length > 1) d.out(`==> ${src} <==\n`);
+        d.out(result.text.endsWith('\n') ? result.text : result.text + '\n');
+      } else {
+        const beside = d.translateOutputPath(src);
+        const out = o.outDir ? join(o.outDir, basename(beside)) : beside;
+        d.writeFile(out, result.text);
+        say(prefix + t(`Готово: ${out}`, `Done: ${out}`));
+      }
+      d.log(`cli translate ${src} → ${result.target.code || result.target.name} ok`);
+    } catch (e) {
+      if (d.signal.aborted) break;
+      failed++;
+      fail(prefix + t(`Ошибка: ${src}: ${message(e)}`, `Error: ${src}: ${message(e)}`));
+      d.log(`cli translate ${src} failed: ${message(e)}`);
+    }
+  }
+
+  if (d.signal.aborted) {
+    fail(t('Прервано.', 'Interrupted.'));
+    return EXIT_INTERRUPTED;
+  }
+  return failed > 0 ? EXIT_FAILED : EXIT_OK;
+}
+
+async function brief(o: CliOptions, d: CliDeps): Promise<number> {
+  const t = d.t;
+  const say = (line: string) => {
+    if (!o.quiet) d.err(line + '\n');
+  };
+  const fail = (line: string) => d.err(line + '\n');
+
+  const picked = textInputs(o, d, fail);
+  const files = picked.files;
+  let failed = picked.failed;
   if (files.length === 0) return EXIT_FAILED;
 
   const brain = d.briefBrain();

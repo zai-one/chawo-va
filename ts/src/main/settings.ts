@@ -68,6 +68,8 @@ export interface SettingsData {
   MeetingBriefEnabled: boolean;
   /** User-editable format instruction for the brief card; empty = built-in default. */
   MeetingBriefInstruction: string;
+  /** «Перевести»: last target language (code, name or free text); empty = auto (RU→EN, else →RU). */
+  TranslateTarget: string;
   StartHintDismissed: boolean;
   MicrophoneId: string;
   BrainDevice: BrainDeviceKind;
@@ -136,6 +138,7 @@ export function defaults(): SettingsData {
     MeetingSystemAudio: true,
     MeetingBriefEnabled: false,
     MeetingBriefInstruction: '',
+    TranslateTarget: '',
     StartHintDismissed: false,
     MicrophoneId: '',
     BrainDevice: 'Cpu',
@@ -385,6 +388,7 @@ export function fromJsonObject(raw: Record<string, unknown>): { settings: Settin
   d.MeetingSystemAudio = asBool(raw.MeetingSystemAudio, d.MeetingSystemAudio);
   d.MeetingBriefEnabled = asBool(raw.MeetingBriefEnabled, d.MeetingBriefEnabled);
   d.MeetingBriefInstruction = asString(raw.MeetingBriefInstruction, d.MeetingBriefInstruction);
+  d.TranslateTarget = asString(raw.TranslateTarget, d.TranslateTarget);
   d.StartHintDismissed = asBool(raw.StartHintDismissed, d.StartHintDismissed);
   d.MicrophoneId = asString(raw.MicrophoneId, d.MicrophoneId);
   d.BrainDevice = asEnum(raw.BrainDevice, ['Cpu', 'Gpu'] as const, d.BrainDevice);
@@ -473,6 +477,7 @@ export function toJsonObject(s: SettingsData): Record<string, unknown> {
     MeetingSystemAudio: s.MeetingSystemAudio,
     MeetingBriefEnabled: s.MeetingBriefEnabled,
     MeetingBriefInstruction: s.MeetingBriefInstruction,
+    TranslateTarget: s.TranslateTarget,
     StartHintDismissed: s.StartHintDismissed,
     MicrophoneId: s.MicrophoneId,
     BrainDevice: s.BrainDevice,

@@ -15,6 +15,7 @@ import { settingsPath } from './main/paths';
 import { defaults as settingsDefaults, fromJsonObject, toCtcScript, toFileParallelism, toSpeechDeviceKind, toSpeechModelKind } from './main/settings';
 import { collectFromFolder, load16k, outputPath } from './main/file/fileTranscript';
 import * as MeetingBrief from './main/brain/meetingBrief';
+import * as Translate from './main/brain/translate';
 import * as FileBrain from './main/brain/fileBrain';
 import type { SettingsData } from './main/settings';
 import type { SpeechModelKind } from './core/speechModels';
@@ -93,6 +94,7 @@ export function realDeps(signal: AbortSignal): CliDeps {
     load16k,
     outputPath,
     briefOutputPath: (txt) => MeetingBrief.outputPath(txt),
+    translateOutputPath: (txt) => Translate.outputPath(txt),
     isDirectory: (p) => {
       try {
         return statSync(p).isDirectory();
@@ -111,6 +113,15 @@ export function realDeps(signal: AbortSignal): CliDeps {
       return {
         target,
         instruction: s.MeetingBriefInstruction,
+        ask: FileBrain.createAsk(s, target === 'None' ? 'Local' : target),
+      };
+    },
+    translateBrain: () => {
+      const s = readSettings();
+      const target = Translate.target(s);
+      return {
+        target,
+        to: s.TranslateTarget,
         ask: FileBrain.createAsk(s, target === 'None' ? 'Local' : target),
       };
     },
