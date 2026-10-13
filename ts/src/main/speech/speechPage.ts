@@ -49,6 +49,24 @@ export interface SpeechDownloadDto {
   failed: boolean;
 }
 
+/** «Обрезать тишину (VAD)»: one checkbox and, when the 2 MB Silero file is missing, one button. */
+export interface SpeechVadDto {
+  enabled: boolean;
+  onDisk: boolean;
+  downloading: boolean;
+  /** Show «Скачать Silero VAD (2 МБ)». */
+  canDownload: boolean;
+  note: string;
+}
+
+/** The part of VadRuntime the page needs. */
+export interface VadModelLike {
+  readonly onDisk: boolean;
+  readonly isDownloading: boolean;
+  readonly error: string;
+  download(): Promise<string>;
+}
+
 export interface SpeechStateDto {
   ru: boolean;
   client: boolean;
@@ -62,6 +80,8 @@ export interface SpeechStateDto {
   threadsHint: string;
   status: string;
   download: SpeechDownloadDto | null;
+  /** Null when the app runs without a VAD runtime (tests of other parts). */
+  vad: SpeechVadDto | null;
 }
 
 export interface SpeechHooks {
@@ -82,6 +102,8 @@ export interface SpeechHooks {
   targets?: (kind: SpeechModelKind) => string[];
   platform?: NodeJS.Platform;
   cores?: number;
+  /** Silero VAD model (getVadRuntime() in the app). */
+  vad?: VadModelLike;
 }
 
 export function modelLabel(kind: SpeechModelKind): string {
@@ -154,7 +176,7 @@ const isAbort = (e: unknown) =>
 export class SpeechController {
   private abort: AbortController | null = null;
   private dl: SpeechDownloadDto | null = null;
-  private readonly h: Required<Omit<SpeechHooks, 'changed' | 'push' | 'busy' | 'session'>> & SpeechHooks;
+  private readonly h: Required<Omit<SpeechHooks, 'changed' | 'push' | 'busy' | 'session' | 'vad'>> & SpeechHooks;
 
   constructor(hooks: SpeechHooks) {
     this.h = {
@@ -212,7 +234,55 @@ export class SpeechController {
         `Shown only for the processor. All cores means ${cores}. File transcription uses Speed for long recordings on the File transcription page.`),
       status: this.statusText(s, models.find((m) => m.selected) ?? null),
       download: this.dl,
+      vad: this.vadState(s),
     };
+  }
+
+  private vadState(s: SettingsData): SpeechVadDto | null {
+    const v = this.h.vad;
+    if (!v) return null;
+    const onDisk = v.onDisk;
+    const downloading = v.isDownloading;
+    let note: string;
+    if (!s.VadEnabled) {
+      note = t('Выключено: фраза распознаётся целиком, длинные файлы режутся по громкости.',
+        'Off: the whole take is recognized, long files are cut by loudness.');
+    } else if (onDisk) {
+      note = t('Silero VAD на диске: тишина до и после фразы отрезается, длинные файлы режутся по паузам в речи. Всё локально.',
+        'Silero VAD is on disk: silence before and after a take is cut, long files are split at pauses in speech. All local.');
+    } else if (downloading) {
+      note = t('Скачиваю Silero VAD (2 МБ)…', 'Downloading Silero VAD (2 MB)…');
+    } else if (v.error) {
+      note = t(`Silero VAD не скачался: ${v.error}. Пока всё работает как раньше, по громкости.`,
+        `Silero VAD did not download: ${v.error}. Until then everything works as before, by loudness.`);
+    } else {
+      note = t('Нужна модель Silero VAD, 2 МБ. Без неё запись и файлы обрабатываются как раньше, по громкости.',
+        'Needs the Silero VAD model, 2 MB. Without it takes and files are handled as before, by loudness.');
+    }
+    return { enabled: s.VadEnabled, onDisk, downloading, canDownload: s.VadEnabled && !onDisk && !downloading, note };
+  }
+
+  setVad(on: boolean): void {
+    const s = this.h.settings();
+    if (s.VadEnabled === on) return;
+    s.VadEnabled = on;
+    this.h.save(s);
+    this.update();
+  }
+
+  /** Fetches the 2 MB Silero file (user pressed the button). Errors end up in the note. */
+  async downloadVad(): Promise<void> {
+    const v = this.h.vad;
+    if (!v || v.onDisk || v.isDownloading) return;
+    const run = v.download();
+    this.update();
+    try {
+      await run;
+    } catch {
+      /* the note shows v.error */
+    } finally {
+      this.update();
+    }
   }
 
   private statusText(s: SettingsData, row: SpeechModelRow | null): string {
@@ -289,6 +359,8 @@ export class SpeechController {
       this.dl = null;
       Log.write(`speech model downloaded: ${kind}`);
       this.h.changed?.();
+      // The user asked for a model download: the 2 MB Silero VAD comes along when VAD is on.
+      if (this.h.settings().VadEnabled && this.h.vad && !this.h.vad.onDisk) void this.downloadVad();
     } catch (e) {
       if (abort.signal.aborted || isAbort(e)) {
         this.dl = null;

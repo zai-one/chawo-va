@@ -159,3 +159,77 @@ describe('SpeechController', () => {
     expect(h.onDisk.has('v3_e2e_rnnt')).toBe(false);
   });
 });
+
+describe('speech page: «Обрезать тишину (VAD)»', () => {
+  function fakeVad(opts: { fail?: string } = {}) {
+    const v = {
+      onDisk: false,
+      isDownloading: false,
+      error: '',
+      downloads: 0,
+      download: async () => {
+        v.downloads++;
+        v.isDownloading = true;
+        await Promise.resolve();
+        v.isDownloading = false;
+        if (opts.fail) {
+          v.error = opts.fail;
+          throw new Error(opts.fail);
+        }
+        v.onDisk = true;
+        return '/m/silero_vad.onnx';
+      },
+    };
+    return v;
+  }
+
+  it('no VAD runtime → no section', () => {
+    expect(make().ctl.state().vad).toBeNull();
+  });
+
+  it('on by default; missing model offers the 2 MB download; on disk says so', async () => {
+    const vad = fakeVad();
+    const h = make({ vad });
+    expect(h.ctl.state().vad).toMatchObject({ enabled: true, onDisk: false, canDownload: true });
+    expect(h.ctl.state().vad!.note).toContain('2 МБ');
+    await h.ctl.downloadVad();
+    expect(vad.downloads).toBe(1);
+    expect(h.ctl.state().vad).toMatchObject({ onDisk: true, canDownload: false });
+    expect(h.ctl.state().vad!.note).toMatch(/^Silero VAD на диске/);
+    await h.ctl.downloadVad();
+    expect(vad.downloads).toBe(1);
+  });
+
+  it('the checkbox saves VadEnabled; off hides the download', () => {
+    const h = make({ vad: fakeVad() });
+    h.ctl.setVad(false);
+    expect(h.s.VadEnabled).toBe(false);
+    expect(h.saves()).toBe(1);
+    expect(h.ctl.state().vad).toMatchObject({ enabled: false, canDownload: false });
+    expect(h.ctl.state().vad!.note).toMatch(/^Выключено/);
+    h.ctl.setVad(false);
+    expect(h.saves()).toBe(1);
+  });
+
+  it('a failed VAD download is shown, nothing breaks', async () => {
+    const h = make({ vad: fakeVad({ fail: 'HTTP 404' }) });
+    await h.ctl.downloadVad();
+    expect(h.ctl.state().vad!.note).toContain('HTTP 404');
+    expect(h.ctl.state().vad!.canDownload).toBe(true);
+  });
+
+  it('a speech-model download the user asked for brings the VAD model along (only when VAD is on)', async () => {
+    const vad = fakeVad();
+    const h = make({ vad, download: async () => void h.onDisk.add('v3_e2e_rnnt') });
+    await h.ctl.download('v3_e2e_rnnt');
+    await new Promise((r) => setTimeout(r, 0));
+    expect(vad.downloads).toBe(1);
+
+    const off = fakeVad();
+    const o = make({ vad: off, download: async () => void o.onDisk.add('v3_e2e_rnnt') });
+    o.s.VadEnabled = false;
+    await o.ctl.download('v3_e2e_rnnt');
+    await new Promise((r) => setTimeout(r, 0));
+    expect(off.downloads).toBe(0);
+  });
+});

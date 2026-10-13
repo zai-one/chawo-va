@@ -406,6 +406,153 @@ describe('DictationSession', () => {
   });
 });
 
+describe('DictationSession + VAD', () => {
+  it('VadEnabled: the trimmed take goes to the recognizer; KeepLastRecording still gets the full take', async () => {
+    const trims: number[] = [];
+    const { sess, recs, copied, wavs } = make({
+      trim: async (_s, x) => {
+        trims.push(x.length);
+        return x.slice(4000, 12000);
+      },
+    }, (x) => { x.KeepLastRecording = true; });
+    sess.startTake();
+    feed(sess, speech(1));
+    expect(await sess.stopTake()).toBe('привет мир');
+    expect(trims).toEqual([16000]);
+    expect(wavs).toEqual([16000]);
+    expect(recs[0].calls[0].samples.length).toBe(8000);
+    expect(copied).toEqual(['привет мир']);
+  });
+
+  it('VadEnabled off: no trim, the whole take is recognized', async () => {
+    let trims = 0;
+    const { sess, recs } = make({ trim: async (_s, x) => { trims++; return x.slice(0, 10); } }, (x) => { x.VadEnabled = false; });
+    sess.startTake();
+    feed(sess, speech(1));
+    await sess.stopTake();
+    expect(trims).toBe(0);
+    expect(recs[0].calls[0].samples.length).toBe(16000);
+  });
+
+  it('silence and short takes are judged before the trim (trim not called)', async () => {
+    let trims = 0;
+    const { sess, recs } = make({ trim: async (_s, x) => { trims++; return x; } });
+    sess.startTake();
+    feed(sess, new Float32Array(16000));
+    expect(await sess.stopTake()).toBeNull();
+    expect(sess.view().status).toMatch(/^Тишина на входе/);
+    sess.startTake();
+    feed(sess, speech(0.2));
+    expect(await sess.stopTake()).toBeNull();
+    expect(sess.view().status).toMatch(/^Слишком коротко/);
+    expect(trims).toBe(0);
+    expect(recs.flatMap((r) => r.calls)).toHaveLength(0);
+  });
+
+  it('the Client role posts the trimmed take', async () => {
+    const posted: number[] = [];
+    const { sess } = make({
+      trim: async (_s, x) => x.slice(0, 6000),
+      remote: async (_s, x) => { posted.push(x.length); return 'с хоста'; },
+    }, (x) => { x.NetworkRole = 'Client'; x.RemoteHost = '192.168.1.5'; });
+    expect(sess.startTake().ok).toBe(true);
+    feed(sess, speech(1));
+    expect(await sess.stopTake()).toBe('с хоста');
+    expect(posted).toEqual([6000]);
+  });
+
+  it('cancel during the trim drops the take', async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((r) => { release = r; });
+    const { sess, recs, copied } = make({ trim: async (_s, x) => { await gate; return x; } });
+    sess.startTake();
+    feed(sess, speech(1));
+    const p = sess.stopTake();
+    await new Promise((r) => setTimeout(r, 0));
+    sess.cancelTake();
+    release();
+    expect(await p).toBeNull();
+    expect(recs.flatMap((r) => r.calls)).toHaveLength(0);
+    expect(copied).toEqual([]);
+  });
+
+  it('VadAutoStopMs: silence after speech stops the take by itself and the text is copied', async () => {
+    const { sess, copied } = make({ trim: async (_s, x) => x }, (x) => { x.VadAutoStopMs = 600; });
+    sess.startTake();
+    const x = new Float32Array(3 * SAMPLE_RATE);
+    for (let i = 0.3 * SAMPLE_RATE; i < 1.2 * SAMPLE_RATE; i++) x[i] = 0.3 * Math.sin(i * 0.2);
+    feed(sess, x);
+    for (let i = 0; i < 20 && copied.length === 0; i++) await new Promise((r) => setTimeout(r, 0));
+    expect(sess.phase).not.toBe('Listening');
+    expect(copied).toEqual(['привет мир']);
+  });
+
+  it('VadAutoStopMs 0 (default): a long silence never stops a take', () => {
+    const { s, sess } = make();
+    expect(s.VadAutoStopMs).toBe(0);
+    sess.startTake();
+    feed(sess, speech(1));
+    feed(sess, new Float32Array(5 * SAMPLE_RATE));
+    expect(sess.phase).toBe('Listening');
+    sess.cancelTake();
+  });
+});
+
+describe('DictationSession in «Продажи» mode', () => {
+  it('drafts run with the pill off and go to the sales card; the recognized take too (before the dictionary)', async () => {
+    const sales: string[] = [];
+    const partials: string[] = [];
+    const overlay = {
+      showListening() {}, showRecognizing() {}, showStatus() {}, showHint() {}, showCaption() {}, hideNow() {},
+      showPartial(text: string) { partials.push(text); },
+    };
+    const { sess } = make({ partialMs: 0, overlay, sales: (t) => void sales.push(t) }, (x) => {
+      x.Mode = 'Sales'; x.ShowOverlay = false; x.WordReplacementRules = 'мир=Мир!';
+    });
+    sess.startTake();
+    await sess.ensureLoaded();
+    feed(sess, speech(1));
+    await sess.partialTick();
+    expect(sales).toEqual(['привет мир']);
+    expect(partials).toEqual([]); // pill is off
+    expect(await sess.stopTake()).toBe('привет Мир!');
+    expect(sales).toEqual(['привет мир', 'привет мир']);
+  });
+
+  it('Dictation mode: no drafts without the pill and nothing goes to the card', async () => {
+    const sales: string[] = [];
+    const { sess, recs } = make({ partialMs: 0, sales: (t) => void sales.push(t) }, (x) => { x.ShowOverlay = false; });
+    sess.startTake();
+    await sess.ensureLoaded();
+    feed(sess, speech(1));
+    await sess.partialTick();
+    expect(recs[0].calls).toHaveLength(0);
+    await sess.stopTake();
+    expect(sales).toEqual([]);
+  });
+
+  it('a throwing card does not break the take', async () => {
+    const { sess, copied } = make({ partialMs: 0, sales: () => { throw new Error('boom'); } }, (x) => { x.Mode = 'Sales'; });
+    sess.startTake();
+    feed(sess, speech(1));
+    expect(await sess.stopTake()).toBe('привет мир');
+    expect(copied).toEqual(['привет мир']);
+  });
+
+  it('client role in Sales mode: host drafts and the host take reach the card', async () => {
+    const sales: string[] = [];
+    let n = 0;
+    const { sess } = make({ remote: async () => `TP-${++n}`, partialMs: 0, sales: (t) => void sales.push(t) }, (x) => {
+      x.NetworkRole = 'Client'; x.RemoteHost = 'host.lan'; x.Mode = 'Sales'; x.ShowOverlay = false;
+    });
+    sess.startTake();
+    feed(sess, speech(1));
+    await sess.partialTick();
+    await sess.stopTake();
+    expect(sales).toEqual(['TP-1', 'TP-2']);
+  });
+});
+
 describe('DictationSession: global hold key takes go into the focused app', () => {
   class FakeInserter {
     calls: { text: string; mode: string; keep: boolean; restore: boolean }[] = [];

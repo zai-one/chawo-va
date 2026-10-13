@@ -35,7 +35,20 @@ export interface DictionaryStateDto {
   hintKind: SuggestHintKind;
   rows: DictRow[];
   suggestions: DictSuggestionRow[];
+  spoken: SpokenStateDto;
 }
+
+/** Voice punctuation and numbers: two switches under the table, nothing else to set. */
+export interface SpokenStateDto {
+  punctuation: boolean;
+  numbers: boolean;
+  punctuationLabel: string;
+  punctuationHint: string;
+  numbersLabel: string;
+  numbersHint: string;
+}
+
+export type SpokenKind = 'punctuation' | 'numbers';
 
 export interface DictionaryHooks {
   settings: () => SettingsData;
@@ -117,7 +130,36 @@ export class DictionaryController {
       hintKind: this.hint,
       rows: this.rows.map((r) => ({ ...r })),
       suggestions: this.suggestions.map((r) => ({ ...r })),
+      spoken: this.spokenState(),
     };
+  }
+
+  private spokenState(): SpokenStateDto {
+    const s = this.h.settings();
+    return {
+      punctuation: s.SpokenPunctuation === true,
+      numbers: s.SpokenNumbers === true,
+      punctuationLabel: t('Знаки препинания голосом', 'Punctuation by voice'),
+      punctuationHint: t('«запятая», «точка», «вопросительный знак», «двоеточие», «тире», «открыть/закрыть скобку», «открыть/закрыть кавычки», «новая строка», «новый абзац». «Точка зрения» и «торговая точка» остаются словами.',
+        'Say «запятая», «точка», «вопросительный знак», «двоеточие», «тире», «открыть/закрыть скобку», «открыть/закрыть кавычки», «новая строка», «новый абзац». «Точка зрения» stays a word.'),
+      numbersLabel: t('Числа цифрами', 'Numbers as digits'),
+      numbersHint: t('«двадцать пять» → 25, «две тысячи двадцать шестого» → 2026-го. Одиночное «один» и «тысячи» без числа остаются словами. Модель v3 с пунктуацией обычно пишет цифры сама.',
+        '«двадцать пять» → 25, «две тысячи двадцать шестого» → 2026-го. A lone «один» and «тысячи» without a number stay words. The v3 model with punctuation usually writes digits itself.'),
+    };
+  }
+
+  /** Turns voice punctuation or numbers on or off. Saved at once; the next take uses it. */
+  setSpoken(kind: SpokenKind, on: boolean): DictionaryStateDto {
+    if ((kind === 'punctuation' || kind === 'numbers') && typeof on === 'boolean') {
+      const s = this.h.settings();
+      const key = kind === 'punctuation' ? 'SpokenPunctuation' : 'SpokenNumbers';
+      if (s[key] !== on) {
+        s[key] = on;
+        this.h.save(s);
+        this.h.changed?.();
+      }
+    }
+    return this.state();
   }
 
   private hintText(): string {

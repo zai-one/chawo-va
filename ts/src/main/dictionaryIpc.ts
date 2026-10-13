@@ -23,5 +23,7 @@ export function registerDictionaryIpc(
   ipcMain.handle('dict:remove', (_e, id: unknown) => ctl.removeRow(num(id)));
   ipcMain.handle('dict:suggest', () => ctl.suggest());
   ipcMain.handle('dict:addSuggestion', (_e, heard: unknown, written: unknown) => ctl.addSuggestion(str(heard), str(written)));
+  ipcMain.handle('dict:setSpoken', (_e, kind: unknown, on: unknown) =>
+    ctl.setSpoken(kind === 'numbers' ? 'numbers' : kind === 'punctuation' ? 'punctuation' : ('' as never), on === true));
   return ctl;
 }
