@@ -102,6 +102,19 @@ const api = {
       return () => ipcRenderer.removeListener('brain:state', h);
     },
   },
+  network: {
+    state: () => ipcRenderer.invoke('network:state'),
+    setRole: (v: string) => ipcRenderer.invoke('network:role', v),
+    setRemote: (host: string, port: string) => ipcRenderer.invoke('network:remote', host, port),
+    checkHost: () => ipcRenderer.invoke('network:check'),
+    toggleLan: () => ipcRenderer.invoke('network:lan'),
+    setKeepAwake: (v: boolean) => ipcRenderer.invoke('network:keepAwake', v),
+    onState: (fn: (s: unknown) => void) => {
+      const h = (_e: unknown, s: unknown) => fn(s);
+      ipcRenderer.on('network:state', h);
+      return () => ipcRenderer.removeListener('network:state', h);
+    },
+  },
 };
 
 contextBridge.exposeInMainWorld('chawo', api);

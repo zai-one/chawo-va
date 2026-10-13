@@ -9,6 +9,9 @@ import { registerDictionaryIpc } from './dictionaryIpc';
 import { registerBrainIpc } from './brainIpc';
 import * as LocalBrain from './brain/localBrain';
 import { registerDictationIpc } from './dictationIpc';
+import { registerNetworkIpc } from './networkIpc';
+import { makeHermesTranscribe } from './network/hermesTranscribe';
+import * as KeepAwake from './network/keepAwake';
 import { OverlayWindow } from './overlay/overlayWindow';
 import { chromiumDecode, disposeChromiumDecoder } from './chromiumDecoder';
 import { setPlatformDecoder } from './file';
@@ -23,6 +26,7 @@ let tray: Tray | null = null;
 let settings: Settings.SettingsData = Settings.defaults();
 let releaseDictation: (() => Promise<void>) | null = null;
 let destroyOverlay: (() => void) | null = null;
+let disposeNetwork: (() => Promise<void>) | null = null;
 
 function iconPath(set: 'app' | 'tray-dark' | 'tray-light', size: number): string {
   return join(__dirname, '..', 'assets', 'iconset', set, `icon_${size}.png`);
@@ -111,8 +115,20 @@ if (!app.requestSingleInstanceLock()) {
     destroyOverlay = () => overlay.destroy();
     const dictation = registerDictationIpc(() => win, { get: () => settings }, { overlay });
     releaseDictation = () => dictation.session.release();
+    // Hermes (local HTTP transcription host) reuses the dictation recognizer; opens it from disk if
+    // needed, never downloads. Listens only while this PC is the host.
+    const hermesTranscribe = makeHermesTranscribe({
+      current: () => dictation.session.current(),
+      load: () => dictation.session.ensureLoaded(),
+      modelName: () => settings.SpeechModel,
+    });
+    const network = registerNetworkIpc(() => win, { get: () => settings }, {
+      transcribe: hermesTranscribe,
+      changed: () => dictation.session.speechChanged(),
+    });
+    disposeNetwork = () => network.dispose();
     registerSpeechIpc(() => win, { get: () => settings }, {
-      busy: () => files.busy() || dictation.session.isBusy,
+      busy: () => files.busy() || dictation.session.isBusy || hermesTranscribe.inFlight() > 0,
       changed: () => dictation.session.speechChanged(),
       session: () => dictation.session.sessionLine(),
       beforeDelete: () => dictation.session.release(),
@@ -121,6 +137,7 @@ if (!app.requestSingleInstanceLock()) {
     registerBrainIpc(() => win, { get: () => settings });
     win = createWindow();
     tray = createTray();
+    void network.start();
   });
   app.on('window-all-closed', () => {
     /* stay in tray */
@@ -128,6 +145,8 @@ if (!app.requestSingleInstanceLock()) {
   app.on('before-quit', () => {
     quitting = true;
     LocalBrain.stop();
+    void disposeNetwork?.();
+    KeepAwake.allowSleep();
     disposeChromiumDecoder();
     void releaseDictation?.();
     destroyOverlay?.();

@@ -32,18 +32,23 @@ Re-align folder names and tooling with taptain-desktop once its layout is readab
 | App/Recorder.cs | src/core/takeBuffer.ts (accumulator, adaptive VU meter, 5-min cap, take checks) + src/renderer/mic-processor.js (AudioWorklet, 16 kHz mono, 40 ms chunks) | ✅ ported + tests; waveIn/WASAPI replaced by getUserMedia |
 | App/KeyboardHook.cs | native helper (see «Hold-to-talk hotkey» below); in-window hold button meanwhile | ⏳ designed, not built |
 | App/TextInserter.cs, SelectionReader.cs, Native.cs | native helper + clipboard | ⏳ (takes are copied to the clipboard and shown on the page for now) |
-| App/HermesServer.cs, HermesFirewall.cs, RemoteSpeech.cs | src/main/network/ | ⏳ |
+| App/HermesServer.cs | src/main/network/hermesServer.ts (Node `http`, no framework) | ✅ ported + tests (health, raw/multipart POST, 400/403/404/503, Content-Length rules, ephemeral port) |
+| App.HermesTranscribe | src/main/network/hermesTranscribe.ts (reuses DictationSession's recognizer, opens it from disk if needed, piece by piece, «model unloaded» on swap) | ✅ ported + tests |
+| App/HermesFirewall.cs | src/main/network/hermesFirewall.ts | ✅ Windows: same netsh script + one elevated powershell (exit code decides), WF.msc console; elsewhere a no-op (the page says the OS firewall is the user's call) + tests |
+| App/RemoteSpeech.cs (RemoteHostException, TryEndpoint, Transcribe, TranscribeBytes, Check) | src/main/network/remoteSpeech.ts (injectable fetch) | ✅ ported + tests (fake fetch and against a real HermesServer) |
 | App/SalesRag.cs | src/main/sales/salesRag.ts | 🟡 SuggestDictionary + helpers ported + tests; FindSnippet waits for the sales card |
 | App/Sales*.cs (catalog, card, rest) | src/main/sales/ | ⏳ |
-| App/Updater.cs, Autostart.cs, KeepAwake.cs | src/main/system/ | ⏳ |
-| SettingsWindow, SalesCardWindow, Download/Update windows, BrainServerPanel | src/renderer/ pages | 🟡 «Диктовка», «Расшифровка файла», «Распознавание», «Словарь» and «Мозг» pages work (DownloadWindow folded into the page as a progress card); «Продажи» and «Сеть» are placeholders |
+| App/KeepAwake.cs | src/main/network/keepAwake.ts (Electron `powerSaveBlocker` 'prevent-app-suspension'; no-op outside Electron) | ✅ ported + tests |
+| App/Updater.cs, Autostart.cs | src/main/system/ | ⏳ |
+| SettingsWindow, SalesCardWindow, Download/Update windows, BrainServerPanel | src/renderer/ pages | 🟡 «Диктовка», «Расшифровка файла», «Распознавание», «Словарь», «Мозг» and «Сеть» pages work (DownloadWindow folded into the page as a progress card); «Продажи» is a placeholder |
+| SettingsWindow network page (Role_Changed, Remote_LostFocus, CheckHost_Click, Lan_Click), App.StartHermes / RestartHermes / ApplyKeepAwake / HermesStatusText / LanUrls / ToggleLanAsync | src/main/network/networkPage.ts (NetworkController), src/main/networkIpc.ts, preload `network:`, renderer `renderNetwork` | ✅ ported + tests |
 | App/OverlayWindow.xaml(.cs) | src/main/overlay/overlayModel.ts (state, Tail, hint/caption timers, placement), overlayWindow.ts (frameless transparent always-on-top, never focused, drag → OverlayX/Y), overlayPreload.ts, src/renderer/overlay.html/.css/.ts (13 bars, ripple, live line) | ✅ listening / recognizing / status / hint / live draft + tests; caret placement (Win32) and Unpin button ⏳ |
 | SettingsWindow speech page, App.SpeechStatusText / DownloadSpeechAsync / DeleteSpeechModelAsync | src/main/speech/speechPage.ts (SpeechController), src/main/speechIpc.ts | ✅ ported + tests (live session line comes from DictationSession; GPU warmup ⏳) |
 | SettingsWindow dictionary page (FillDictionaryRows / PersistDictionary / SuggestDictionary_Click / AddSuggestion_Click) | src/main/dictionary/dictionaryPage.ts (DictionaryController), src/main/dictionaryIpc.ts | ✅ ported + tests |
 | SettingsWindow dictation page (Localize dictation block, FillStartCard, Mode/Hotkey/Insert/Overlay/Mic handlers, SetPhase), App.SetPhase | src/main/dictation/dictationPage.ts (DictationController), src/main/dictationIpc.ts | ✅ ported + tests (language box, copy-to-clipboard options, autostart, updates, unpin not on this page yet) |
-| App.HandlePressAsync / HandleReleaseAsync / RunBrainAsync / RequestStop / StartPartials / PartialTickAsync / ReloadSpeechAsync / SpeechStatusText (local path) | src/main/dictation/dictationSession.ts (DictationSession) | ✅ local take → dictionary → Brain (every take / «Чаво, …») → simple syntax → clipboard, live drafts on the pill, cancel aborts the Brain + tests; Brain on a selection, ConfirmBrainMemory, sales card, remote host ⏳ |
+| App.HandlePressAsync / HandleReleaseAsync / RunBrainAsync / RequestStop / StartPartials / PartialTickAsync / ReloadSpeechAsync / SpeechStatusText | src/main/dictation/dictationSession.ts (DictationSession) | ✅ local or Client (RemoteSpeech) take → dictionary → Brain (every take / «Чаво, …») → simple syntax → clipboard, live drafts on the pill (remote too), cancel aborts the Brain / the host request + tests; Brain on a selection, ConfirmBrainMemory, sales card ⏳ |
 | SettingsWindow brain page (Localize brain part / UpdateBrainTexts / FillBrainModelRows), BrainServerPanel, App.SelectBrainAsync | src/main/brain/brainPage.ts (BrainController), src/main/brainIpc.ts | ✅ ported + tests; «Скачать» / «Скачать движок» on the rows + in-page «Скачиваю Мозг» card (progress, cancel, retry) ✅ |
-| App.RunFileQueueAsync / RunQueue / RunOneFile / TranscribeLocal | src/main/file/fileRunner.ts, localTranscriber.ts, src/main/fileIpc.ts | ✅ local path + Brain hook (cloud and local FileBrain) |
+| App.RunFileQueueAsync / RunQueue / RunOneFile / TranscribeLocal / TranscribeRemote | src/main/file/fileRunner.ts, localTranscriber.ts, remoteTranscriber.ts, src/main/fileIpc.ts | ✅ local and Client paths + Brain hook (cloud and local FileBrain); a host error ends the run like WPF |
 | App/Strings.cs | src/core/strings.ts (ru/en `t()`) | ✅ ported |
 
 ## Notes
@@ -309,3 +314,58 @@ Re-align folder names and tooling with taptain-desktop once its layout is readab
   ran paragraphs + «Кратко» through the same server. No multi-GB model was downloaded.
   Next: the Windows native helper (hold key, TextInserter, SelectionReader → Brain on a selection,
   caret placement, job object for llama-server), then remote host / Hermes, then the «Продажи» card.
+
+- 2026-10-13 tick 14: Hermes host + RemoteSpeech client + the «Сеть» page; the Client role works for
+  dictation takes and file transcription. `src/main/network/hermesServer.ts` ports HermesServer on
+  Node's `http` module: 127.0.0.1 or 0.0.0.0, a non-loopback peer without LAN → 403
+  `localhost_only`, GET `/v1/health`|`/health` (transcribe(empty) → model_loaded/model/device/
+  provider + port/listen), POST `/v1/transcribe`|`/transcribe` with a raw body or the first
+  multipart part (same FirstFilePart rules), empty → 400 `empty_body`, no model → 503, decode
+  error → 400 `bad_audio`, any throw → 400 `bad_request`; POST needs Content-Length (chunked → 400),
+  over MaxBytes → 400; no request timeout (two-hour files), keep-alive on, Connection: close.
+  `hermesTranscribe.ts` = App.HermesTranscribe: reuses `DictationSession.current()` (new accessor:
+  the open recognizer for the current settings), opens it from disk through `ensureLoaded` when it
+  is not open (health waits up to 3 s for that; never downloads), decode16k → pieceRanges →
+  transcribePiece one at a time (dictation can run between pieces), swapped/closed session mid-
+  request → «model unloaded» (503). `remoteSpeech.ts` ports RemoteSpeech + RemoteHostException with
+  the same Russian/English texts: TryEndpoint (bare host, IPv6 in brackets, full http URL; https
+  refused; a full URL without a port means 80 like .NET `Uri.Port` — kept as in WPF), Transcribe
+  (resample to 16 kHz, WAV, 90 s), TranscribeBytes (as-is, no timeout, MaxBytes cap), Check (GET
+  /v1/health, 5 s, Russian-only lines like WPF), caller abort → AbortError, everything else a short
+  «Хост не отвечает…»; redirects not followed; fetch injectable. `hermesFirewall.ts`: the WPF netsh
+  script + one elevated powershell on Windows; on Linux/macOS nothing is run (binding 0.0.0.0 needs no
+  admin) and the page says the OS firewall is the user's call. `keepAwake.ts`: powerSaveBlocker.
+  `networkPage.ts` (NetworkController) + `networkIpc.ts` + preload `network:` + renderer
+  `renderNetwork`: role (Host/Client, WPF labels), host panel (WPF HostNote, «Приём звука от других
+  компьютеров», HermesStatusText with LanUrls, LAN toggle with the WPF yes/no text — a Linux/macOS
+  variant without the Windows-firewall sentence — Windows firewall rule → console + warning on
+  failure, RestartHermes with the 127.0.0.1 fallback that clears HermesOnLan), keep-awake checkbox
+  (WPF has no switch and clears the flag on load; here it is for this run only — settings.json still
+  stores false), client panel (address, port with the 17831 fallback, saved on blur/Enter,
+  «Проверить хост» → «Проверяю хост…» → the Check line). Unlike WPF, Hermes runs only while this PC
+  is the host (WPF also listens as a client, with no model to serve). Main: Hermes starts after the
+  window when Host; role switch → session.speechChanged (drops the local recognizer on Client);
+  quit disposes Hermes and releases keep-awake; the speech page counts a Hermes request as busy.
+  Client dictation: press checks only TryEndpoint (no model needed; WPF hint on a bad address),
+  release posts the normalized take via RemoteSpeech.transcribe (AbortController per take, Stop
+  aborts it), RemoteHostException → the page status/pill hint with the WPF text, live drafts post to
+  the host too (aborted on release, errors only logged, like PartialTickAsync); the hold hint says
+  the take goes to the host; «Распознавание» status shows «Клиент. Звук уходит на http://…». Client
+  files: `remoteTranscriber.ts` = TranscribeRemote (whole file as one WAV, or one WAV per pause-split
+  piece when timestamps/.srt are on, offsets kept), `remotePrepare` checks only the address,
+  FileRunner got `fatal` (a host error fails the current file, ends the run with that line, the rest
+  stays queued) and `prefetch` (off on Client like WPF). Tests: hermesServer (11), remoteSpeech (13,
+  incl. against a real HermesServer), hermesTranscribe (6), networkPage + firewall + keepAwake (16),
+  fileRemote (5), dictationSession client cases (5 replacing 1), speechPage client status.
+  309 tests green (254 before). Smoke on the box under xvfb
+  (`scripts/smoke-network.cjs`): Hermes on 127.0.0.1:17831 answered health (v3_e2e_rnnt on cpu) and
+  transcribed a 30 s Russian WAV in 1.4 s; LAN toggle → health via 172.30.0.2:17831 with listen
+  0.0.0.0, back to 127.0.0.1; a second Hermes on 17832 with its own Recognizer as the «other PC»;
+  the app as Client: «Проверить хост» → «Хост отвечает, модель загружена.», a queued 30 s file →
+  `[00:00:00] Русский язык. …` .txt beside it, a fake-mic hold take → «Русский язык. Русский язык —
+  это один из восточно-славянский» on the page and clipboard, host stopped → «The host did not
+  answer…» on the next take; own Hermes down while Client, up again after Host.
+  Gaps: Sales partials without the pill (with the sales card); GPU warmup; Windows firewall path is
+  unit-tested with a fake spawn only (needs a Windows run). Next: the Windows native helper (hold
+  key, TextInserter, SelectionReader, caret placement, job object), the «Продажи» card, then
+  Updater/Autostart.

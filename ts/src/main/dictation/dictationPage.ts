@@ -216,8 +216,11 @@ export class DictationController {
           ? t('Распознаю…', 'Recognizing…')
           : t('Удерживайте, чтобы говорить', 'Hold to talk'),
       holdEnabled: !recognizing,
-      holdHint: t('Зажмите кнопку мышью, пальцем или пробелом. Отпустите — фраза распознается на этом компьютере.',
-        'Hold the button with the mouse, a finger or Space. Release and the phrase is recognized on this computer.'),
+      holdHint: client
+        ? t('Зажмите кнопку мышью, пальцем или пробелом. Отпустите — запись уйдёт на хост из раздела «Сеть», текст вернётся сюда.',
+          'Hold the button with the mouse, a finger or Space. Release and the take goes to the host set under Network; the text comes back here.')
+        : t('Зажмите кнопку мышью, пальцем или пробелом. Отпустите — фраза распознается на этом компьютере.',
+          'Hold the button with the mouse, a finger or Space. Release and the phrase is recognized on this computer.'),
       status,
       noModel,
       lastText: take.lastText,

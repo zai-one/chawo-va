@@ -1,4 +1,4 @@
-// Sidebar navigation plus the «Диктовка», «Расшифровка файла», «Распознавание», «Словарь» and «Мозг» pages. Other pages get
+// Sidebar navigation plus the «Диктовка», «Расшифровка файла», «Распознавание», «Словарь», «Мозг» and «Сеть» pages. Other pages get
 // real content as the WPF SettingsWindow is ported. Plain DOM, no framework; paths are set via textContent only.
 // «Диктовка» also owns the microphone: getUserMedia → AudioWorklet (mic-processor.js, 16 kHz mono) → main.
 
@@ -189,7 +189,47 @@ interface DictationApi {
   onState(fn: (s: DictationState) => void): () => void;
   onLevel(fn: (v: number) => void): () => void;
 }
-const bridge = (window as unknown as { chawo: { file: FileApi; speech: SpeechApi; dict: DictApi; brain: BrainApi; dictation: DictationApi } }).chawo;
+interface NetworkState {
+  ru: boolean;
+  heading: string;
+  intro: string;
+  roleLabel: string;
+  role: 'Host' | 'Client';
+  roleChoices: { value: string; label: string }[];
+  client: boolean;
+  host: {
+    note: string;
+    heading: string;
+    status: string;
+    lanOn: boolean;
+    lanButton: string;
+    lanBusy: boolean;
+    firewallNote: string;
+    keepAwake: boolean;
+    keepAwakeLabel: string;
+    keepAwakeHint: string;
+  };
+  remote: {
+    note: string;
+    hostLabel: string;
+    portLabel: string;
+    host: string;
+    port: number;
+    checkLabel: string;
+    checking: boolean;
+    checkStatus: string;
+  };
+}
+interface NetworkApi {
+  state(): Promise<NetworkState>;
+  setRole(v: string): Promise<NetworkState>;
+  setRemote(host: string, port: string): Promise<NetworkState>;
+  checkHost(): Promise<NetworkState>;
+  toggleLan(): Promise<NetworkState>;
+  setKeepAwake(v: boolean): Promise<NetworkState>;
+  onState(fn: (s: NetworkState) => void): () => void;
+}
+const bridge = (window as unknown as { chawo: { file: FileApi; speech: SpeechApi; dict: DictApi; brain: BrainApi; dictation: DictationApi; network: NetworkApi } }).chawo;
 
 const titlesEn: Record<string, string> = {
   dictation: 'Dictation',
@@ -217,6 +257,7 @@ let speechState: SpeechState | null = null;
 let dictState: DictState | null = null;
 let brainState: BrainState | null = null;
 let dictationState: DictationState | null = null;
+let networkState: NetworkState | null = null;
 let ru = true;
 const L = (r: string, e: string) => (ru ? r : e);
 
@@ -304,6 +345,93 @@ function selectOf(choices: { value: string; label: string }[], value: string, on
   for (const c of choices) sel.append(el('option', { value: c.value, textContent: c.label, selected: c.value === value }));
   sel.addEventListener('change', () => onChange(sel.value));
   return sel;
+}
+
+const applyNetwork = (st: NetworkState) => {
+  const prev = networkState;
+  networkState = st;
+  if (st.ru !== ru) {
+    setLanguage(st.ru);
+    return;
+  }
+  if (current !== 'network') return;
+  // A push while the host address is being typed: refresh the status lines only.
+  const active = document.activeElement as HTMLElement | null;
+  if (prev && prev.role === st.role && active && page.contains(active) && active.tagName === 'INPUT') {
+    const set = (key: string, text: string) => {
+      const n = page.querySelector<HTMLElement>(`[data-net="${key}"]`);
+      if (n) n.textContent = text;
+    };
+    set('hermes-status', st.host.status);
+    set('check-status', st.remote.checkStatus);
+    const check = page.querySelector<HTMLButtonElement>('[data-net="check"]');
+    if (check) check.disabled = st.remote.checking;
+    return;
+  }
+  renderNetwork();
+};
+
+function renderNetwork(): void {
+  const s = networkState;
+  page.replaceChildren(el('h1', { textContent: title('network') }));
+  if (!s) return;
+  page.append(el('p', { className: 'muted', textContent: s.intro }));
+  page.append(el('label', { className: 'block', textContent: s.roleLabel }));
+  const role = selectOf(s.roleChoices, s.role, (v) => void bridge.network.setRole(v).then(applyNetwork));
+  role.className = 'wide';
+  page.append(role);
+
+  if (!s.client) {
+    const h = s.host;
+    const box = el('fieldset', {}, el('legend', { textContent: h.heading }));
+    box.append(el('p', { textContent: h.note }));
+    const status = el('p', { className: 'muted line', textContent: h.status });
+    status.dataset.net = 'hermes-status';
+    box.append(status);
+    const lan = button(h.lanButton, () => {
+      lan.disabled = true;
+      void bridge.network.toggleLan().then(applyNetwork);
+    });
+    lan.disabled = h.lanBusy;
+    box.append(el('div', { className: 'row' }, lan));
+    if (h.firewallNote) box.append(el('p', { className: 'muted hint', textContent: h.firewallNote }));
+    const awake = el('input', { type: 'checkbox', checked: h.keepAwake });
+    awake.addEventListener('change', () => void bridge.network.setKeepAwake(awake.checked).then(applyNetwork));
+    box.append(el('label', { className: 'check' }, awake, ' ' + h.keepAwakeLabel));
+    box.append(el('p', { className: 'muted hint indent', textContent: h.keepAwakeHint }));
+    page.append(box);
+    return;
+  }
+
+  const r = s.remote;
+  page.append(el('p', { textContent: r.note }));
+  const host = el('input', { type: 'text', value: r.host, spellcheck: false, autocomplete: 'off', placeholder: '192.168.1.20' });
+  const port = el('input', { type: 'text', value: String(r.port), spellcheck: false, autocomplete: 'off', inputMode: 'numeric' });
+  port.style.width = '120px';
+  const commit = () => bridge.network.setRemote(host.value, port.value);
+  // Saved when the field loses focus (WPF LostFocus); Enter does the same.
+  for (const input of [host, port]) {
+    input.addEventListener('change', () => void commit().then(applyNetwork));
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') input.blur();
+    });
+  }
+  page.append(el('div', { className: 'form' },
+    el('span', { textContent: r.hostLabel }), host,
+    el('span', { textContent: r.portLabel }), el('div', { className: 'inline' }, port),
+  ));
+  const check = button(r.checkLabel, () => {
+    check.disabled = true;
+    void commit().then(() => bridge.network.checkHost()).then(applyNetwork);
+  });
+  check.dataset.net = 'check';
+  check.disabled = r.checking;
+  const checkRow = el('div', { className: 'row' }, check);
+  checkRow.style.marginTop = '12px';
+  page.append(checkRow);
+  const status = el('p', { className: 'muted line', textContent: r.checkStatus });
+  status.dataset.net = 'check-status';
+  page.append(status);
 }
 
 function renderBrain(): void {
@@ -745,6 +873,7 @@ function setLanguage(r: boolean): void {
   else if (current === 'dictation') renderDictation();
   else if (current === 'dictionary') renderDictionary();
   else if (current === 'brain') renderBrain();
+  else if (current === 'network') renderNetwork();
   else if (current !== 'file') show(current);
 }
 
@@ -956,6 +1085,11 @@ function show(name: string): void {
     void bridge.brain.state(true).then(applyBrain);
     return;
   }
+  if (name === 'network') {
+    renderNetwork();
+    void bridge.network.state().then(applyNetwork);
+    return;
+  }
   page.replaceChildren(
     el('h1', { textContent: title(name) }),
     el('p', { className: 'muted', textContent: L('TypeScript-версия в разработке. Этот раздел пока работает в WPF-приложении.', 'The TypeScript version is in progress. This section still lives in the WPF app.') }),
@@ -975,6 +1109,7 @@ bridge.speech.onState(applySpeech);
 bridge.brain.onState(applyBrainPush);
 bridge.dictation.onState(applyDictation);
 bridge.dictation.onLevel(onLevel);
+bridge.network.onState(applyNetwork);
 bridge.file.onToast((msg) => {
   if (fileState) apply({ ...fileState, status: msg });
 });

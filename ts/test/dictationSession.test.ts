@@ -190,11 +190,93 @@ describe('DictationSession', () => {
     expect(opened).toHaveLength(0);
   });
 
-  it('client role does not record (remote host is not ported yet)', () => {
-    const { sess } = make({}, (x) => { x.NetworkRole = 'Client'; });
+  it('client role without a host address does not record and says where to set it', () => {
+    const { sess, opened } = make({}, (x) => { x.NetworkRole = 'Client'; });
     expect(sess.phase).toBe('Idle');
     expect(sess.startTake().ok).toBe(false);
-    expect(sess.view().status).toMatch(/^Этот ПК — клиент/);
+    expect(sess.view().status).toBe('Укажите адрес хоста в разделе «Сеть». Модель здесь не скачивается.');
+    expect(opened).toHaveLength(0);
+  });
+
+  it('client role: the take goes to the host, no local model is opened or needed', async () => {
+    const posts: { host: string; samples: number; rate: number; signal: AbortSignal }[] = [];
+    const { sess, opened, copied, setOnDisk } = make({
+      remote: async (s, samples, rate, signal) => {
+        posts.push({ host: s.RemoteHost, samples: samples.length, rate, signal });
+        return 'с хоста';
+      },
+      partialMs: 0,
+    }, (x) => { x.NetworkRole = 'Client'; x.RemoteHost = '192.168.1.20'; x.WordReplacementRules = 'хоста=Хоста'; });
+    setOnDisk(false);
+    expect(sess.phase).toBe('Idle');
+    expect(sess.startTake().ok).toBe(true);
+    feed(sess, speech(1));
+    expect(await sess.stopTake()).toBe('с Хоста');
+    expect(copied).toEqual(['с Хоста']);
+    expect(posts).toHaveLength(1);
+    expect(posts[0]).toMatchObject({ host: '192.168.1.20', samples: 16000, rate: 16000 });
+    expect(posts[0].signal.aborted).toBe(false);
+    expect(opened).toHaveLength(0);
+    expect(await sess.ensureLoaded()).toBeNull();
+    expect(sess.current()).toBeNull();
+  });
+
+  it('client role: a host error is the page status (WPF RemoteHostException text), nothing copied', async () => {
+    const { RemoteHostException } = await import('../src/main/network/remoteSpeech');
+    const { sess, copied } = make({
+      remote: async () => {
+        throw new RemoteHostException('Хост на связи, но модель там не загружена. Здесь ничего не скачиваю.', 'The host answered, but its model is not loaded.');
+      },
+      partialMs: 0,
+    }, (x) => { x.NetworkRole = 'Client'; x.RemoteHost = 'host.lan'; });
+    sess.startTake();
+    feed(sess, speech(1));
+    expect(await sess.stopTake()).toBeNull();
+    expect(copied).toEqual([]);
+    expect(sess.view().status).toBe('Хост на связи, но модель там не загружена. Здесь ничего не скачиваю.');
+    expect(sess.phase).toBe('Idle');
+  });
+
+  it('client role: Stop while the host works aborts the request and drops the take', async () => {
+    let seen: AbortSignal | null = null;
+    const { sess, copied } = make({
+      remote: (_s, _x, _r, signal) => new Promise<string>((_resolve, reject) => {
+        seen = signal;
+        signal.addEventListener('abort', () => {
+          const e = new Error('Operation canceled');
+          e.name = 'AbortError';
+          reject(e);
+        });
+      }),
+      partialMs: 0,
+    }, (x) => { x.NetworkRole = 'Client'; x.RemoteHost = 'host.lan'; });
+    sess.startTake();
+    feed(sess, speech(1));
+    const p = sess.stopTake();
+    await new Promise((r) => setTimeout(r, 5));
+    expect(sess.phase).toBe('Recognizing');
+    sess.cancelTake();
+    expect(await p).toBeNull();
+    expect(seen!.aborted).toBe(true);
+    expect(copied).toEqual([]);
+    expect(sess.view().status).toBe('');
+  });
+
+  it('client role: live drafts are posted to the host too and shown on the pill', async () => {
+    const partials: string[] = [];
+    const overlay = {
+      showListening() {}, showRecognizing() {}, showStatus() {}, showHint() {}, showCaption() {}, hideNow() {},
+      showPartial(text: string) { partials.push(text); },
+    };
+    let n = 0;
+    const { sess } = make({ remote: async () => `черновик ${++n}`, partialMs: 0, overlay }, (x) => {
+      x.NetworkRole = 'Client'; x.RemoteHost = 'host.lan'; x.ShowOverlay = true;
+    });
+    sess.startTake();
+    feed(sess, speech(1));
+    await sess.partialTick();
+    expect(partials).toEqual(['черновик 1']);
+    expect(await sess.stopTake()).toBe('черновик 2');
   });
 
   it('a second press while listening or recognizing is ignored', async () => {

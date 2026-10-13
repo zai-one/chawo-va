@@ -8,6 +8,7 @@ import { cpus } from 'node:os';
 import type { SpeechModelKind } from '../../core/speechModels';
 import { isRussian, t } from '../../core/strings';
 import * as Log from '../log';
+import { tryEndpoint } from '../network/remoteSpeech';
 import {
   ModelDownloadException,
   deletableTargets,
@@ -216,8 +217,10 @@ export class SpeechController {
 
   private statusText(s: SettingsData, row: SpeechModelRow | null): string {
     if (s.NetworkRole === 'Client') {
-      return t('Клиент. Местная речевая модель не запускается и не скачивается.',
-        'Client. The local speech model is not started and is not downloaded.');
+      const ep = tryEndpoint(s);
+      if (!ep.ok) return t(ep.russian, ep.english);
+      return t(`Клиент. Звук уходит на ${ep.url}. Местная речевая модель не запускается и не скачивается.`,
+        `Client. Audio goes to ${ep.url}. The local speech model is not started and is not downloaded.`);
     }
     if (!row?.path) {
       return t('Эта модель на диске не найдена. Нажмите «Скачать» в её строке, сама она не скачивается. Ищу в папках программы (и в папке прежней версии) и рядом с программой.',

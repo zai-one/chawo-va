@@ -52,6 +52,13 @@ export interface FileRunnerDeps {
   now?: () => number;
   /** When useBrain is true, call this after writing the raw .txt. */
   runBrain?: FileBrainHook;
+  /**
+   * Errors that end the whole run (a dead remote host): returns the status line, else null. The file
+   * is marked failed, the rest stays queued.
+   */
+  fatal?: (e: unknown) => string | null;
+  /** Decode the next file while this one runs (WPF skips it in the Client role). Default true. */
+  prefetch?: () => boolean;
 }
 
 export const NOTIFY_AFTER_MS = 60_000;
@@ -113,7 +120,11 @@ export class FileRunner {
       }
       await this.loop(prep.transcriber, opts, brainNote, ctrl.signal);
     } catch (e) {
-      if (isAbort(e, ctrl.signal)) {
+      const fatal = this.d.fatal?.(e) ?? null;
+      if (fatal !== null && !ctrl.signal.aborted) {
+        Log.write(`file run ended: ${message(e)}`);
+        this.say(fatal);
+      } else if (isAbort(e, ctrl.signal)) {
         q.markRunningStopped(t('остановлено', 'stopped'));
         this.say(t('Остановлено. Уже записанные .txt остаются, остальное ждёт в очереди.', 'Stopped. Finished .txt files stay; the rest waits in the queue.'));
       } else {
@@ -150,7 +161,7 @@ export class FileRunner {
           else ahead.samples.catch(() => undefined); // prefetched file was removed: drop quietly
           ahead = null;
         }
-        const peek = q.peekNext();
+        const peek = this.d.prefetch?.() === false ? null : q.peekNext();
         if (peek) {
           const p = this.d.load16k(peek.path, signal);
           p.catch(() => undefined); // surfaced when its turn comes
@@ -163,6 +174,11 @@ export class FileRunner {
         q.finish(item.id, 'Done', note, lastOk);
       } catch (e) {
         if (isAbort(e, signal)) throw e;
+        const fatal = this.d.fatal?.(e) ?? null;
+        if (fatal !== null) {
+          q.finish(item.id, 'Failed', fatal);
+          throw e;
+        }
         fail++;
         Log.write(`file skip ${item.path}: ${message(e)}`);
         q.finish(item.id, 'Failed', message(e));

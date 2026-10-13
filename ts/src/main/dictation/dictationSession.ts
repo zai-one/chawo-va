@@ -1,8 +1,9 @@
 // One dictation take on the main side: start → 16 kHz chunks from the renderer → stop → local
 // recognition → dictionary → Brain (every take or a «Чаво, …» command) → simple syntax → final text.
 // Port of App.HandlePressAsync / HandleReleaseAsync / RunBrainAsync / RequestStop / PartialTickAsync /
-// ReloadSpeechAsync / SpeechStatusText minus the parts that are not ported yet (remote host, Brain on
-// a selection, memory check before a cold local Brain, sales card, inserting into other apps).
+// ReloadSpeechAsync / SpeechStatusText minus the parts that are not ported yet (Brain on a selection,
+// memory check before a cold local Brain, sales card, inserting into other apps). In the Client role
+// the take (and the live drafts) go to the host through RemoteSpeech instead of a local recognizer.
 // No Electron imports: the clipboard, the WAV writer, the pill and the Brain come in as hooks, and
 // tests pass a fake recognizer and a fake OpenAI-compatible fetch. The recognizer is opened on demand
 // (page shown or first take) and kept until the speech settings change. Nothing is downloaded from here.
@@ -24,6 +25,8 @@ import { applyRules } from '../../core/wordReplace';
 import { parseCommand, serverConfigured, transformAsync } from '../brain/brain';
 import * as LocalBrain from '../brain/localBrain';
 import { BrainException, type FetchLike } from '../brain/speechCleanup';
+import * as RemoteSpeech from '../network/remoteSpeech';
+import { RemoteHostException } from '../network/remoteSpeech';
 import * as Log from '../log';
 import type { OverlaySink } from '../overlay/overlayModel';
 import { findComplete } from '../models';
@@ -43,6 +46,11 @@ export interface RecognizerLike {
   deviceActual: string;
   deviceNote: string | null;
   intraOpThreads: number;
+  /** ORT provider, for the Hermes health answer. */
+  provider?: string;
+  /** Pause split and one piece at a time (Hermes); the real Recognizer has both. */
+  pieceRanges?(samples16k: Float32Array): Array<{ from: number; to: number }>;
+  transcribePiece?(samples16k: Float32Array): Promise<string>;
   transcribeCancelable(samples: Float32Array, rate: number, stillWanted: (() => boolean) | null): Promise<string>;
   cancelOwned(): void;
   dispose(): Promise<void>;
@@ -70,6 +78,8 @@ export interface SessionHooks {
   fetch?: FetchLike;
   /** Live-draft pass interval while listening (WPF 1000 ms); 0 turns drafts off. */
   partialMs?: number;
+  /** Client role: RemoteSpeech.transcribe (tests pass a fake host). Throws RemoteHostException. */
+  remote?: (s: SettingsData, samples: Float32Array, rate: number, signal: AbortSignal) => Promise<string>;
 }
 
 export function defaultBrainUsable(s: SettingsData): boolean {
@@ -109,14 +119,17 @@ export class DictationSession {
   private partialEpoch = 0;
   private partialBusy = false;
   private partialTask: Promise<void> | null = null;
+  private partialAbort: AbortController | null = null;
   private readonly brainUsable: (s: SettingsData) => boolean;
   private readonly transform: NonNullable<SessionHooks['transform']>;
+  private readonly remote: NonNullable<SessionHooks['remote']>;
 
   constructor(hooks: SessionHooks) {
     this.h = { find: findComplete, open: openRecognizer, platform: process.platform, ...hooks };
     this.brainUsable = hooks.brainUsable ?? defaultBrainUsable;
     this.transform = hooks.transform
       ?? ((s, body, command, status, signal) => transformAsync(s, body, command, status, signal, false, hooks.fetch ?? globalThis.fetch));
+    this.remote = hooks.remote ?? ((s, samples, rate, signal) => RemoteSpeech.transcribe(s, samples, rate, signal));
     this.buf.onTakeTooLong = () => {
       Log.write('take too long, stopping');
       void this.stopTake().then(() => {
@@ -175,18 +188,22 @@ export class DictationSession {
   startTake(): StartResult {
     if (this.isBusy) return { ok: false };
     if (this.client) {
-      this.hint(t('Этот ПК — клиент. Отправка звука на хост в эту версию ещё не перенесена: диктуйте в WPF-приложении или переключите его на хост.',
-        'This PC is a client. Sending audio to the host is not ported to this version yet: dictate in the WPF app or switch it to host.'));
-      this.push();
-      return { ok: false };
+      // No local model here: only the host address has to make sense.
+      const ep = RemoteSpeech.tryEndpoint(this.h.settings());
+      if (!ep.ok) {
+        this.hint(t(ep.russian, ep.english));
+        this.push();
+        return { ok: false };
+      }
+    } else {
+      const kind = toSpeechModelKind(this.h.settings().SpeechModel);
+      if (this.h.find(kind) === null) {
+        this.hint(flatText(noModelText()));
+        this.push();
+        return { ok: false };
+      }
+      void this.ensureLoaded();
     }
-    const kind = toSpeechModelKind(this.h.settings().SpeechModel);
-    if (this.h.find(kind) === null) {
-      this.hint(flatText(noModelText()));
-      this.push();
-      return { ok: false };
-    }
-    void this.ensureLoaded();
     this.abandon = false;
     this.status = '';
     this.buf.start();
@@ -217,6 +234,7 @@ export class DictationSession {
     this.partialEpoch++;
     this.stopPartials();
     this.rec?.cancelOwned();
+    this.partialAbort?.abort();
     this.takeAbort?.abort();
     if (this.buf.isRecording) {
       this.buf.clear();
@@ -233,8 +251,11 @@ export class DictationSession {
     this.busy = true;
     this.partialEpoch++;
     this.stopPartials();
-    // A draft pass still running would hold the recognizer: stop it, the final pass matters.
-    if (this.partialBusy) this.rec?.cancelOwned();
+    // A draft pass still running would hold the recognizer (or the host): stop it, the final pass matters.
+    if (this.partialBusy) {
+      this.partialAbort?.abort();
+      this.rec?.cancelOwned();
+    }
     const partialTask = this.partialTask;
     const abort = new AbortController();
     this.takeAbort = abort;
@@ -267,19 +288,36 @@ export class DictationSession {
           }
         }
         normalizeQuietTake(samples, peak);
-        const rec = await this.ensureLoaded();
-        if (this.abandon) {
-          overlay?.hideNow();
-          return null;
+        if (s.NetworkRole === 'Client') {
+          try {
+            text = await this.remote(s, samples, SAMPLE_RATE, abort.signal);
+          } catch (e) {
+            if (this.abandon || abort.signal.aborted) {
+              overlay?.hideNow();
+              Log.write('recognize cancelled');
+              return null;
+            }
+            if (!(e instanceof RemoteHostException)) throw e;
+            overlay?.hideNow();
+            Log.write('remote host: ' + e.english);
+            this.hint(t(e.russian, e.english));
+            return null;
+          }
+        } else {
+          const rec = await this.ensureLoaded();
+          if (this.abandon) {
+            overlay?.hideNow();
+            return null;
+          }
+          if (!rec) {
+            overlay?.hideNow();
+            this.status = this.loadError
+              ? t(`Модель не загрузилась: ${this.loadError}`, `The model did not load: ${this.loadError}`)
+              : flatText(noModelText());
+            return null;
+          }
+          text = await rec.transcribeCancelable(samples, SAMPLE_RATE, () => !this.abandon);
         }
-        if (!rec) {
-          overlay?.hideNow();
-          this.status = this.loadError
-            ? t(`Модель не загрузилась: ${this.loadError}`, `The model did not load: ${this.loadError}`)
-            : flatText(noModelText());
-          return null;
-        }
-        text = await rec.transcribeCancelable(samples, SAMPLE_RATE, () => !this.abandon);
         if (this.abandon) {
           overlay?.hideNow();
           Log.write('recognize cancelled');
@@ -429,11 +467,15 @@ export class DictationSession {
   async partialTick(): Promise<void> {
     if (!this.buf.isRecording) return;
     if (!this.h.settings().ShowOverlay) return; // Sales (needs drafts without the pill) is not ported
+    const settings = this.h.settings();
+    const remote = settings.NetworkRole === 'Client';
     const rec = this.rec;
-    if (!rec || this.partialBusy) return;
+    if ((!remote && !rec) || this.partialBusy) return;
     this.partialBusy = true;
     const epoch = this.partialEpoch;
     const wanted = () => epoch === this.partialEpoch && !this.abandon;
+    const remoteAbort = remote ? new AbortController() : null;
+    if (remoteAbort) this.partialAbort = remoteAbort;
     const run = (async (): Promise<string> => {
       const samples = this.buf.snapshot();
       if (samples.length < (SAMPLE_RATE * 6) / 10) return '';
@@ -443,7 +485,8 @@ export class DictationSession {
       if (peak < SILENCE_FLOOR) return '';
       normalizeQuietTake(samples, peak);
       if (!wanted()) return '';
-      return rec.transcribeCancelable(samples, SAMPLE_RATE, wanted);
+      if (remoteAbort) return this.remote(settings, samples, SAMPLE_RATE, remoteAbort.signal);
+      return rec!.transcribeCancelable(samples, SAMPLE_RATE, wanted);
     })();
     const task = run.then(() => undefined, () => undefined);
     this.partialTask = task;
@@ -452,15 +495,25 @@ export class DictationSession {
       if (wanted() && this.buf.isRecording && text.length > 0) this.overlay?.showPartial(text);
       if (text.length > 0) Log.write(`partial ${text.length} chars`);
     } catch (e) {
-      if (!isAbort(e)) Log.write(`partial: ${e instanceof Error ? `${e.name}: ${e.message}` : String(e)}`);
+      if (e instanceof RemoteHostException) Log.write(`partial remote: ${e.english}`);
+      else if (!isAbort(e)) Log.write(`partial: ${e instanceof Error ? `${e.name}: ${e.message}` : String(e)}`);
     } finally {
       if (this.partialTask === task) this.partialTask = null;
+      if (remoteAbort && this.partialAbort === remoteAbort) this.partialAbort = null;
       this.partialBusy = false;
     }
   }
 
   private key(s: SettingsData, dir: string): string {
     return [dir, s.SpeechModel, s.SpeechDevice, s.CpuThreads, s.CtcScript].join('|');
+  }
+
+  /** The open recognizer for the current settings (Hermes reuses it), or null. Opens nothing. */
+  current(): RecognizerLike | null {
+    const s = this.h.settings();
+    if (s.NetworkRole === 'Client' || !this.rec) return null;
+    const dir = this.h.find(toSpeechModelKind(s.SpeechModel));
+    return dir && this.recKey === this.key(s, dir) ? this.rec : null;
   }
 
   /** Opens the recognizer for the current settings, or reuses the open one. Null when there is no model. */

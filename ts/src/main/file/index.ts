@@ -4,3 +4,4 @@ export * as Ffmpeg from './ffmpegTool';
 export { listZip, readEntry, extractEntry } from './zip';
 export * from './fileRunner';
 export * from './localTranscriber';
+export * from './remoteTranscriber';

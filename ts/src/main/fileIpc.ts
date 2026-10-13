@@ -3,7 +3,7 @@
 
 import { BrowserWindow, Notification, dialog, ipcMain, shell } from 'electron';
 import { dirname } from 'node:path';
-import { FileQueue, FileRunner, Ffmpeg, OPEN_FILTERS, load16k, localPrepare } from './file';
+import { FileQueue, FileRunner, Ffmpeg, OPEN_FILTERS, load16k, localPrepare, remoteFatal, remotePrepare } from './file';
 import * as FileBrain from './brain/fileBrain';
 import { BrainException } from './brain/speechCleanup';
 import * as Settings from './settings';
@@ -58,10 +58,16 @@ export function registerFileIpc(getWindow: () => BrowserWindow | null, settings:
     }, 50);
   };
 
+  const local = localPrepare(settings.get);
+  const remote = remotePrepare(settings.get);
+  const client = () => settings.get().NetworkRole === 'Client';
   const runner: FileRunner = new FileRunner({
     queue,
     load16k,
-    prepare: localPrepare(settings.get),
+    // Client role: the decoded audio goes to the host (App.TranscribeRemote); never a local model.
+    prepare: () => (client() ? remote() : local()),
+    fatal: remoteFatal,
+    prefetch: () => !client(),
     options: () => {
       const s = settings.get();
       return { timestamps: s.FileTimestamps, srt: s.FileSrt, useBrain: s.FileUseBrain };

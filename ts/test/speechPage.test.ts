@@ -137,6 +137,9 @@ describe('SpeechController', () => {
     await h.ctl.download('v3_e2e_rnnt');
     expect(h.ctl.state().download?.failed).toBe(true);
     expect(h.ctl.state().intro).toContain('клиент');
+    expect(h.ctl.state().status).toBe('Укажите адрес хоста в разделе «Сеть». Модель здесь не скачивается.');
+    h.s.RemoteHost = '192.168.1.20';
+    expect(h.ctl.state().status).toBe('Клиент. Звук уходит на http://192.168.1.20:17831/v1/transcribe. Местная речевая модель не запускается и не скачивается.');
     h.s.NetworkRole = 'Host';
     h.onDisk.add('v3_e2e_rnnt');
     await h.ctl.download('v3_e2e_rnnt');
