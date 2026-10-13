@@ -12,3 +12,4 @@ export * from './ctcVocab';
 export * from './recognizer';
 export * from './fileJob';
 export * from './oggOpus';
+export * from './strings';

@@ -26,7 +26,7 @@ Re-align folder names and tooling with taptain-desktop once its layout is readab
 | App/DataMigration.cs | src/main/dataMigration.ts | ✅ ported + tests |
 | App/SpeechModelStore.cs | src/main/models/speechModelStore.ts | ✅ ported + tests |
 | App/ModelDownloader.cs | src/main/models/modelDownloader.ts, tarGz.ts | ✅ ported + tests (no network) |
-| App/FileTranscript.cs, FileQueue.cs, FfmpegTool.cs | src/main/file/ | ⏳ |
+| App/FileTranscript.cs, FileQueue.cs, FfmpegTool.cs | src/main/file/ (+ zip.ts) | ✅ ported + tests (system ffmpeg mp3 decode) |
 | App/Brain*.cs, LocalBrain.cs, FileBrain.cs, SpeechCleanup.cs | src/main/brain/ | ⏳ |
 | App/Recorder.cs | renderer getUserMedia → AudioWorklet → main | ⏳ |
 | App/KeyboardHook.cs, TextInserter.cs, SelectionReader.cs, Native.cs | native helper / globalShortcut + clipboard | ⏳ needs design (hold-to-talk hotkey) |
@@ -34,7 +34,7 @@ Re-align folder names and tooling with taptain-desktop once its layout is readab
 | App/Sales*.cs | src/main/sales/ | ⏳ |
 | App/Updater.cs, Autostart.cs, KeepAwake.cs | src/main/system/ | ⏳ |
 | SettingsWindow, OverlayWindow, SalesCardWindow, Download/Update windows, BrainServerPanel | src/renderer/ pages | ⏳ (shell with 4 sections exists) |
-| App/Strings.cs | src/core/strings.ts (ru/en) | ⏳ |
+| App/Strings.cs | src/core/strings.ts (ru/en `t()`) | ✅ ported |
 
 ## Notes
 
@@ -47,6 +47,11 @@ Re-align folder names and tooling with taptain-desktop once its layout is readab
   `electron.safeStorage` when available; otherwise protected fields are omitted (never plaintext).
   Tests inject a reversible protect hook. Paths honor `CHAWO_APPDATA` / `CHAWO_LOCALAPPDATA` /
   `CHAWO_MODEL_DIR` (and legacy `PISAR_*`).
+
+- No Media Foundation outside WPF. `fileTranscript.load16k` decodes WAV/Ogg-Opus natively, then an
+  injectable `PlatformDecoder` (planned: hidden sandboxed renderer with `decodeAudioData`, which
+  covers MP3/AAC/M4A/Opus-WebM/FLAC in Chromium), then ffmpeg. ffmpeg decodes straight to s16le on
+  stdout (no temp WAV). The pinned BtbN zip download is offered only on Windows; Linux uses PATH.
 
 ## Log
 
@@ -74,3 +79,13 @@ Re-align folder names and tooling with taptain-desktop once its layout is readab
   Minimal BrainProviders.FromUrl for legacy key layout. 57 tests green. Next: FileTranscript /
   FileQueue / FfmpegTool, then wire download + file transcription into the main/renderer shell.
 
+
+- 2026-10-13 tick 4: file transcription backend. `strings.ts` (ru/en `t()`, Auto follows locale).
+  `fileTranscript.ts` (extensions, Electron dialog filters, .txt beside source, folder collect,
+  size cap, native → platform hook → ffmpeg decode chain, downmix helper). `fileQueue.ts` (ids
+  instead of object refs, change listeners, dedup pending, replace finished, take/peek/finish/
+  stop; path compare case-insensitive except on Linux). `ffmpegTool.ts` (find in tools dir / PATH,
+  status line, Windows-only pinned download with ±2% size gate via fetchFile, dependency-free
+  `zip.ts` extractor, `-version` smoke, stdout PCM decode with 3 h cap). 69 tests green.
+  Next: file runner (queue → FileJob → transcript format → .txt, decode-ahead), Chromium platform
+  decoder, and IPC + renderer for the «Расшифровка файла» page.
