@@ -4,6 +4,8 @@
 import { BrowserWindow, Notification, dialog, ipcMain, shell } from 'electron';
 import { dirname } from 'node:path';
 import { FileQueue, FileRunner, Ffmpeg, OPEN_FILTERS, load16k, localPrepare } from './file';
+import * as FileBrain from './brain/fileBrain';
+import { BrainException } from './brain/speechCleanup';
 import * as Settings from './settings';
 import type { SettingsData, SettingsFileParallelism } from './settings';
 import { isRussian, t } from '../core/strings';
@@ -72,6 +74,28 @@ export function registerFileIpc(getWindow: () => BrowserWindow | null, settings:
       const n = new Notification({ title, body, silent: false });
       if (last) n.on('click', () => shell.showItemInFolder(last));
       n.show();
+    },
+    runBrain: async (segments, opts, status, signal) => {
+      const s = settings.get();
+      const kind = FileBrain.target(s);
+      if (kind === 'None') {
+        return { note: t('мозг не настроен', 'the Brain is not set up') };
+      }
+      if (kind === 'Local') {
+        // Process start deferred this tick; surface a clear reason instead of hanging.
+        return { note: t('локальный мозг ещё не запускается в этой сборке', 'local Brain not started in this build') };
+      }
+      try {
+        const result = await FileBrain.runAsync(s, kind, segments, opts.timestamps, status, signal);
+        const note =
+          result.keptAsIs > 0
+            ? t(`мозг · абзацев ${result.paragraphs}, как есть ${result.keptAsIs}`, `brain · ${result.paragraphs} paragraphs, kept as-is ${result.keptAsIs}`)
+            : t(`мозг · абзацев ${result.paragraphs}`, `brain · ${result.paragraphs} paragraphs`);
+        return { note, text: result.text };
+      } catch (e) {
+        const msg = e instanceof BrainException || e instanceof Error ? e.message : String(e);
+        return { note: msg };
+      }
     },
   });
   queue.onChanged(push);

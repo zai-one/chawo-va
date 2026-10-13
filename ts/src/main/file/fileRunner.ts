@@ -11,12 +11,13 @@ import { clock, toSrt, toTxt, type TranscriptSegment } from '../../core/transcri
 import { t } from '../../core/strings';
 import { FileQueue, type FileQueueItem } from './fileQueue';
 import { MAX_BYTES, outputPath } from './fileTranscript';
+import { outputPath as brainOutputPath } from '../brain/fileBrain';
 import * as Log from '../log';
 
 export interface FileRunOptions {
   timestamps: boolean;
   srt: boolean;
-  /** Brain post-edit is not ported yet; when asked for, the row says so and the raw .txt is written. */
+  /** When true, try Brain post-edit after the raw .txt (via runBrain when provided). */
   useBrain: boolean;
 }
 
@@ -28,6 +29,17 @@ export type FileTranscriber = (
   signal: AbortSignal,
 ) => Promise<TranscriptSegment[]>;
 
+/**
+ * Optional Brain post-edit after the raw .txt is written.
+ * Return `text` to have the runner write name.brain.txt; `note` goes on the queue row.
+ */
+export type FileBrainHook = (
+  segments: TranscriptSegment[],
+  opts: FileRunOptions & { rawTxtPath: string },
+  status: (line: string) => void,
+  signal: AbortSignal,
+) => Promise<{ note: string; text?: string }>;
+
 export interface FileRunnerDeps {
   queue: FileQueue;
   load16k: (path: string, signal?: AbortSignal) => Promise<Float32Array>;
@@ -38,6 +50,8 @@ export interface FileRunnerDeps {
   /** Long run finished: tray notification. lastOutput is the .txt to reveal on click. */
   notifyDone?: (title: string, body: string, ok: boolean, lastOutput: string | null) => void;
   now?: () => number;
+  /** When useBrain is true, call this after writing the raw .txt. */
+  runBrain?: FileBrainHook;
 }
 
 export const NOTIFY_AFTER_MS = 60_000;
@@ -89,7 +103,9 @@ export class FileRunner {
     try {
       const opts = this.d.options();
       let brainNote = '';
-      if (opts.useBrain) brainNote = t('мозг пока не перенесён', 'Brain not ported yet');
+      if (opts.useBrain && !this.d.runBrain) {
+        brainNote = t('мозг не настроен', 'the Brain is not set up');
+      }
       const prep = await this.d.prepare();
       if (!prep.ok) {
         this.say(prep.message);
@@ -202,6 +218,22 @@ export class FileRunner {
       writeFileSync(out.replace(/\.txt$/i, '.srt'), toSrt(segments), 'utf8');
       notes.push('.srt');
     }
+
+    if (opts.useBrain && this.d.runBrain) {
+      try {
+        const brain = await this.d.runBrain(segments, { ...opts, rawTxtPath: out }, (line) => this.say(prefix + line), signal);
+        if (brain.text != null && brain.text.length > 0) {
+          writeFileSync(brainOutputPath(out), brain.text, 'utf8');
+        }
+        if (brain.note) notes.push(brain.note);
+      } catch (e) {
+        if (isAbort(e, signal)) throw e;
+        const msg = message(e);
+        Log.write(`file brain ${item.path}: ${msg}`);
+        notes.push(msg);
+      }
+    }
+
     this.say(prefix + t(`Готово: ${out}`, `Done: ${out}`));
     return notes.join(' · ');
   }

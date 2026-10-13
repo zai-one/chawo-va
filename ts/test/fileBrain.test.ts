@@ -1,0 +1,88 @@
+import { describe, expect, it } from 'vitest';
+import {
+  bullets,
+  describe as describeTarget,
+  group,
+  isFaithful,
+  outputPath,
+  paragraphsOf,
+  runAsync,
+  splitLong,
+  target,
+} from '../src/main/brain/fileBrain';
+import type { SettingsData } from '../src/main/settings';
+import { defaults } from '../src/main/settings';
+
+function settings(over: Partial<SettingsData> = {}): SettingsData {
+  return { ...defaults(), ...over };
+}
+
+describe('FileBrain helpers', () => {
+  it('OutputPath / Target / Describe', () => {
+    expect(outputPath('/tmp/a.txt')).toBe('/tmp/a.brain.txt');
+    expect(target(settings({ Brain: 'Off' }))).toBe('None');
+    expect(
+      target(
+        settings({
+          Brain: 'Server',
+          CleanupEndpointUrl: 'https://api.deepseek.com/v1',
+          CleanupModel: 'deepseek-chat',
+          CleanupApiKey: 'k',
+        }),
+      ),
+    ).toBe('Cloud');
+    const cloud = settings({
+      Brain: 'Server',
+      CleanupEndpointUrl: 'https://api.deepseek.com/v1',
+      CleanupModel: 'm',
+      CleanupApiKey: 'k',
+    });
+    expect(describeTarget(cloud)).toMatch(/DeepSeek/);
+  });
+
+  it('Paragraphs / SplitLong / Bullets / IsFaithful / Group', () => {
+    const segs = [
+      { start: 0, end: 1, text: 'Hello world.' },
+      { start: 1, end: 2, text: 'Second piece.' },
+    ];
+    const paras = paragraphsOf(segs);
+    expect(paras.length).toBeGreaterThanOrEqual(1);
+    expect(paras[0]!.start).toBe(0);
+
+    expect(splitLong('abc', 10)).toEqual(['abc']);
+    const long = Array.from({ length: 20 }, (_, i) => `word${i}`).join(' ');
+    expect(splitLong(long, 40).every((p) => p.length <= 40)).toBe(true);
+
+    expect(bullets('Кратко:\n- one\n* two\n3) three\n')).toBe('- one\n- two\n- three');
+    expect(isFaithful('almost same length text here!!', 'almost same length text here!!')).toBe(true);
+    expect(isFaithful('x', 'a'.repeat(100))).toBe(false);
+    expect(isFaithful("I'm sorry I cannot help", 'normal dictation')).toBe(false);
+
+    expect(group(['aa', 'bb', 'cccc'], 5)).toEqual(['aa', 'bb', 'cccc']);
+  });
+
+  it('RunAsync cleans paragraphs with an injected ask', async () => {
+    const segs = [
+      { start: 0, end: 1, text: 'Эээ ну вот это тест номер один для абзаца.' },
+      { start: 1, end: 2, text: 'Второй абзац тоже достаточно длинный текст.' },
+    ];
+    const asks: string[] = [];
+    const result = await runAsync(
+      settings({ Brain: 'Server', CleanupEndpointUrl: 'https://api.deepseek.com/v1', CleanupModel: 'm', CleanupApiKey: 'k' }),
+      'Cloud',
+      segs,
+      true,
+      () => undefined,
+      new AbortController().signal,
+      async (prompt, text) => {
+        asks.push(prompt.slice(0, 20));
+        if (prompt.includes('key points') || prompt.includes('Merge')) return '- point one\n- point two';
+        return text.replace(/Эээ |ну |вот /gi, '');
+      },
+    );
+    expect(result.paragraphs).toBeGreaterThanOrEqual(1);
+    expect(result.text).toContain('Кратко');
+    expect(result.text).toContain('- point');
+    expect(asks.length).toBeGreaterThan(1);
+  });
+});

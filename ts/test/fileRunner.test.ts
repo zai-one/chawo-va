@@ -99,7 +99,7 @@ describe('FileRunner', () => {
     expect(s.queue.snapshot()[0].state).toBe('Queued');
   });
 
-  it('notifies after a long run and notes the unported Brain', async () => {
+  it('notifies after a long run and notes when Brain is not set up', async () => {
     let clock = 0;
     const notes: string[] = [];
     const s = setup({
@@ -109,9 +109,24 @@ describe('FileRunner', () => {
     });
     s.queue.add([audio('long.wav')], false);
     await s.runner.run();
-    expect(s.queue.snapshot()[0].note).toMatch(/мозг пока не перенесён|Brain not ported yet/);
+    expect(s.queue.snapshot()[0].note).toMatch(/мозг не настроен|Brain is not set up/);
     expect(readFileSync(join(dir, 'long.txt'), 'utf8')).toBe('first long.wav\nsecond');
     expect(notes).toHaveLength(1);
     expect(notes[0]).toContain('long.txt');
+  });
+
+  it('useBrain with injected runBrain writes .brain.txt', async () => {
+    const s = setup({
+      options: () => ({ timestamps: false, srt: false, useBrain: true }),
+      runBrain: async (segments) => ({
+        note: 'мозг ок',
+        text: segments.map((x) => x.text).join('\n') + '\n\nКратко\n- x\n',
+      }),
+    });
+    s.queue.add([audio('brainy.wav')], false);
+    await s.runner.run();
+    expect(existsSync(join(dir, 'brainy.brain.txt'))).toBe(true);
+    expect(readFileSync(join(dir, 'brainy.brain.txt'), 'utf8')).toContain('Кратко');
+    expect(s.queue.snapshot()[0].note).toMatch(/мозг ок/);
   });
 });

@@ -27,7 +27,7 @@ Re-align folder names and tooling with taptain-desktop once its layout is readab
 | App/SpeechModelStore.cs | src/main/models/speechModelStore.ts | ✅ ported + tests |
 | App/ModelDownloader.cs | src/main/models/modelDownloader.ts, tarGz.ts | ✅ ported + tests (no network); real v3 download verified on the box |
 | App/FileTranscript.cs, FileQueue.cs, FfmpegTool.cs | src/main/file/ (+ zip.ts) | ✅ ported + tests (system ffmpeg mp3 decode) |
-| App/Brain*.cs, LocalBrain.cs, FileBrain.cs, SpeechCleanup.cs | src/main/brain/ | ⏳ |
+| App/BrainProviders.cs, SpeechCleanup.cs, Brain.cs, FileBrain.cs, LocalBrain.cs | src/main/brain/ | ✅ providers/cleanup/Brain/FileBrain + tests; LocalBrain helpers ✅, process/download 🟡 |
 | App/Recorder.cs | renderer getUserMedia → AudioWorklet → main | ⏳ |
 | App/KeyboardHook.cs, TextInserter.cs, SelectionReader.cs, Native.cs | native helper / globalShortcut + clipboard | ⏳ needs design (hold-to-talk hotkey) |
 | App/HermesServer.cs, HermesFirewall.cs, RemoteSpeech.cs | src/main/network/ | ⏳ |
@@ -37,7 +37,7 @@ Re-align folder names and tooling with taptain-desktop once its layout is readab
 | SettingsWindow, OverlayWindow, SalesCardWindow, Download/Update windows, BrainServerPanel | src/renderer/ pages | 🟡 «Расшифровка файла», «Распознавание» and «Словарь» pages work (DownloadWindow folded into the page as a progress card); sidebar has all 7 WPF sections, the rest are placeholders |
 | SettingsWindow speech page, App.SpeechStatusText / DownloadSpeechAsync / DeleteSpeechModelAsync | src/main/speech/speechPage.ts (SpeechController), src/main/speechIpc.ts | ✅ ported + tests (GPU warmup and live session line wait for dictation) |
 | SettingsWindow dictionary page (FillDictionaryRows / PersistDictionary / SuggestDictionary_Click / AddSuggestion_Click) | src/main/dictionary/dictionaryPage.ts (DictionaryController), src/main/dictionaryIpc.ts | ✅ ported + tests |
-| App.RunFileQueueAsync / RunQueue / RunOneFile / TranscribeLocal | src/main/file/fileRunner.ts, localTranscriber.ts, src/main/fileIpc.ts | ✅ local path ported (remote host + Brain pending) |
+| App.RunFileQueueAsync / RunQueue / RunOneFile / TranscribeLocal | src/main/file/fileRunner.ts, localTranscriber.ts, src/main/fileIpc.ts | ✅ local path + Brain hook (cloud FileBrain; local process 🟡) |
 | App/Strings.cs | src/core/strings.ts (ru/en `t()`) | ✅ ported |
 
 ## Notes
@@ -153,3 +153,13 @@ Re-align folder names and tooling with taptain-desktop once its layout is readab
   so «Наш бренд таптайн Taptain» suggests «наш → Taptain»; worth tightening in both apps later.
   102 tests green (83 before). Next: microphone capture (getUserMedia → AudioWorklet → main) and
   the hold-to-talk hotkey design, or the Brain modules.
+
+- 2026-10-13 tick 9: Brain stack under `src/main/brain/`. Full BrainProviders (FromKey/FromUrl/
+  ChatModels/PickDefault), SpeechCleanup (CleanAsync with injectable fetch, reasoning_effort
+  drop-on-reject, Xiaomi thinking disabled, AnswerAfterThink, DescribeFailure, Probe/GetModels),
+  Brain (ParseCommand/StripAddress with Unicode word edges, TransformAsync, refusal/length
+  guards), FileBrain (paragraphs/summary/faithfulness, injectable ask), LocalBrain helpers
+  (GGUF paths, IsReady, HF URL parse, injectable LocalBrainRuntime — process start/download
+  deferred). Compatibility re-export from `brainProviders.ts`. fileRunner writes `.brain.txt`
+  via optional `runBrain`; fileIpc wires cloud FileBrain.RunAsync. 128 tests green (102 before).
+  Next: mic capture / hold-to-talk design, or Brain page UI, or LocalBrain process start.
