@@ -52,6 +52,15 @@ const api = {
     suggest: () => ipcRenderer.invoke('dict:suggest'),
     addSuggestion: (heard: string, written: string) => ipcRenderer.invoke('dict:addSuggestion', heard, written),
   },
+  sales: {
+    state: () => ipcRenderer.invoke('sales:state'),
+    setRow: (id: number, code: string, name: string, line: string, similar: string) => ipcRenderer.invoke('sales:setRow', id, code, name, line, similar),
+    add: () => ipcRenderer.invoke('sales:add'),
+    remove: (id: number) => ipcRenderer.invoke('sales:remove', id),
+    pickFolder: () => ipcRenderer.invoke('sales:pickFolder'),
+    clearFolder: () => ipcRenderer.invoke('sales:clearFolder'),
+    showCall: (extension: string, number: string, manager: string) => ipcRenderer.invoke('sales:showCall', extension, number, manager),
+  },
   dictation: {
     state: () => ipcRenderer.invoke('dictation:state'),
     setMode: (v: string) => ipcRenderer.invoke('dictation:mode', v),
@@ -76,6 +85,12 @@ const api = {
       const h = (_e: unknown, v: number) => fn(v);
       ipcRenderer.on('dictation:level', h);
       return () => ipcRenderer.removeListener('dictation:level', h);
+    },
+    /** Global hold key (Windows helper): open the mic, stop and recognize, or drop the capture. */
+    onHot: (fn: (ev: unknown) => void) => {
+      const h = (_e: unknown, ev: unknown) => fn(ev);
+      ipcRenderer.on('dictation:hot', h);
+      return () => ipcRenderer.removeListener('dictation:hot', h);
     },
   },
   brain: {
@@ -102,6 +117,20 @@ const api = {
       const h = (_e: unknown, s: unknown) => fn(s);
       ipcRenderer.on('brain:state', h);
       return () => ipcRenderer.removeListener('brain:state', h);
+    },
+  },
+  history: {
+    state: () => ipcRenderer.invoke('history:state'),
+    setQuery: (q: string) => ipcRenderer.invoke('history:query', q),
+    setKeep: (k: string) => ipcRenderer.invoke('history:keep', k),
+    copy: (id: string, which: 'final' | 'raw') => ipcRenderer.invoke('history:copy', id, which),
+    remove: (id: string) => ipcRenderer.invoke('history:remove', id),
+    clearAll: () => ipcRenderer.invoke('history:clear'),
+    rerun: (id: string) => ipcRenderer.invoke('history:rerun', id),
+    onState: (fn: (s: unknown) => void) => {
+      const h = (_e: unknown, s: unknown) => fn(s);
+      ipcRenderer.on('history:state', h);
+      return () => ipcRenderer.removeListener('history:state', h);
     },
   },
   network: {

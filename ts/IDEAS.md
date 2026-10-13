@@ -36,6 +36,7 @@ GPL-проекты — только как источник идей, код н�
 - Тесты: фикстуры (тишина, речь+тишина, шум) → ожидаемые сегменты ±50 мс; регрессия `fileParallel.test.ts`: склейка текста без потерь слов на границах.
 
 ### 3. ⭐ DO NEXT — История диктовок с поиском и повтором (M)
+- ✅ Сделано 2026-10-13 (ветка `ts/feat-history`): раздел «История» — текст до и после мозга, поиск (регистр и ё/е не важны), «Копировать», «Копировать без мозга», «Мозг заново», «Удалить», «Очистить всё». JSONL в %LOCALAPPDATA%, звук не хранится, срок хранения одной настройкой (Не хранить / Сутки / Неделю (по умолчанию) / Месяц / Пока не удалю сам), не больше 2000 записей. «Вставить снова» — после слияния `ts/feat-win-native` (из окна Chawo фокус всё равно у Chawo, поэтому пока — копирование).
 - Источник: [Whispering/epicenter](https://github.com/EpicenterHQ/epicenter), [OpenWhispr](https://github.com/OpenWhispr/openwhispr) (notes), [Buzz](https://github.com/chidiwilliams/buzz).
 - Зачем: восстановить текст, если вставка не удалась; сравнить сырой текст и результат Brain.
 - Реализация: `src/main/history/` — JSONL или SQLite (better-sqlite3 + FTS5) в userData: `{ts, raw, final, brainCommand, app, durationMs, audioPath?}`. Хранение аудио — выкл. по умолчанию, ретенция (N дней/записей). Страница «История» в renderer: поиск, копировать, «вставить снова», «прогнать Brain заново», удалить/очистить всё.
@@ -54,6 +55,7 @@ GPL-проекты — только как источник идей, код н�
 - Тесты: unit сборки промпта с selection; e2e-ручной в Notepad/Word.
 
 ### 6. ⭐ DO NEXT — Экспорт VTT/JSON/DOCX/MD + редактор транскрипта (S→M)
+- ✅ Экспорт сделан 2026-10-13 (ветка `ts/feat-export-formats`): .vtt/.json/.md/.docx рядом с .txt, одна строка галок «Ещё сохранять рядом». Редактор транскрипта — отдельной задачей (batch 2, п.10).
 - Источник: [vibe](https://github.com/thewh1teagle/vibe), [Buzz](https://github.com/chidiwilliams/buzz).
 - Зачем: сейчас txt/srt/timestamps; VTT нужен для веба, JSON — для интеграций, DOCX — для офисных пользователей.
 - Реализация: расширить `src/core/transcriptFormat.ts` форматтерами `toVtt`, `toJson` (сегменты+слова), `toMarkdown`; DOCX через `docx` npm (лениво). Выбор форматов — тот же селектор, что сейчас для txt/srt.
@@ -66,6 +68,7 @@ GPL-проекты — только как источник идей, код н�
 - Тесты: unit расчёта уровня/троттлинга; `overlayModel.test.ts` — состояние уровня.
 
 ### 8. ⭐ DO NEXT — CLI для файловой транскрипции (S)
+- ✅ Сделано 2026-10-13 (ветка `ts/feat-cli`): `chawo-va transcribe <файлы|папки> -f txt,srt -o dir -t -j N --stdout --skip-existing`, настройки приложения только читаются, коды выхода 0/1/2/3/130. Форматы .vtt/.json/.md/.docx добавятся в CLI после слияния `ts/feat-export-formats`.
 - Источник: [vibe](https://github.com/thewh1teagle/vibe) (`--help`), [Buzz](https://github.com/chidiwilliams/buzz), [voxtype](https://github.com/peteonrails/voxtype).
 - Зачем: пакетная обработка, скрипты, CI-проверка качества распознавания.
 - Реализация: `src/cli.ts` поверх `core/fileJob.ts` + `fileParallel.ts` (ядро уже без Electron): `chawo-va transcribe <files…> --format srt,txt --out dir --threads N`. Декодирование: ffmpeg при наличии, иначе ограничиться wav/ogg (встроенный декодер завязан на Chromium). `bin` в package.json.
@@ -117,3 +120,4 @@ GPL-проекты — только как источник идей, код н�
 8. Пользовательский скрипт пост-обработки (см. №16).
 9. Локальное необязательное слово-активатор «Чаво» (по умолчанию выключено).
 10. Редактор транскрипта: клик по фразе — воспроизведение аудио с этого места.
+
