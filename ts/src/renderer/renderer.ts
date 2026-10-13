@@ -155,6 +155,9 @@ interface DictationState {
   showOverlay: boolean;
   overlayLabel: string;
   overlayTip: string;
+  soundCues: boolean;
+  soundCuesLabel: string;
+  soundCuesTip: string;
   micId: string;
   micChoices: { value: string; label: string }[];
   micHint: string;
@@ -178,6 +181,7 @@ interface DictationApi {
   setHotkey(vk: number): Promise<DictationState>;
   setInsertMode(v: string): Promise<DictationState>;
   setOverlay(v: boolean): Promise<DictationState>;
+  setSoundCues(v: boolean): Promise<DictationState>;
   setMic(id: string): Promise<DictationState>;
   setDevices(list: { id: string; label: string }[], defaultName: string): Promise<DictationState>;
   dismissStartCard(): Promise<DictationState>;
@@ -188,7 +192,9 @@ interface DictationApi {
   micFailed(name: string, message: string): Promise<DictationState>;
   onState(fn: (s: DictationState) => void): () => void;
   onLevel(fn: (v: number) => void): () => void;
+  onCue(fn: (cue: { kind: string; tones: CueToneSpec[] }) => void): () => void;
 }
+interface CueToneSpec { freq: number; at: number; ms: number; gain: number }
 interface NetworkState {
   ru: boolean;
   heading: string;
@@ -813,6 +819,13 @@ function renderDictation(): void {
   ovLabel.title = s.overlayTip;
   page.append(ovLabel);
 
+  const cue = el('input', { type: 'checkbox', checked: s.soundCues });
+  cue.dataset.d = 'cues';
+  cue.addEventListener('change', () => void bridge.dictation.setSoundCues(cue.checked).then(applyDictation));
+  const cueLabel = el('label', { className: 'check' }, cue, ' ', s.soundCuesLabel);
+  cueLabel.title = s.soundCuesTip;
+  page.append(cueLabel);
+
   updateDictationLive();
 }
 
@@ -848,6 +861,41 @@ function drawMeter(): void {
   if (!bars) return;
   const kids = bars.children;
   for (let i = 0; i < kids.length; i++) (kids[i] as HTMLElement).style.height = `${Math.round(8 + 92 * meter[i])}%`;
+}
+
+// Sound cues: tones come from main (core/cues.ts); synthesised here, so no audio files and no network.
+let cueCtx: AudioContext | null = null;
+let cuesPlayed = 0;
+function playCue(cue: { kind: string; tones: CueToneSpec[] }): void {
+  if (!cue || !Array.isArray(cue.tones)) return;
+  try {
+    cueCtx ??= new AudioContext();
+    if (cueCtx.state === 'suspended') void cueCtx.resume();
+    const t0 = cueCtx.currentTime + 0.01;
+    for (const tone of cue.tones.slice(0, 8)) {
+      const freq = Math.min(4000, Math.max(80, Number(tone.freq) || 0));
+      const at = Math.min(1000, Math.max(0, Number(tone.at) || 0)) / 1000;
+      const len = Math.min(500, Math.max(10, Number(tone.ms) || 0)) / 1000;
+      const peak = Math.min(0.1, Math.max(0, Number(tone.gain) || 0));
+      const osc = cueCtx.createOscillator();
+      const gain = cueCtx.createGain();
+      osc.type = 'sine';
+      osc.frequency.value = freq;
+      // 8 ms fade in and out: no clicks.
+      const fade = Math.min(0.008, len / 3);
+      gain.gain.setValueAtTime(0, t0 + at);
+      gain.gain.linearRampToValueAtTime(peak, t0 + at + fade);
+      gain.gain.setValueAtTime(peak, t0 + at + len - fade);
+      gain.gain.linearRampToValueAtTime(0, t0 + at + len);
+      osc.connect(gain).connect(cueCtx.destination);
+      osc.start(t0 + at);
+      osc.stop(t0 + at + len + 0.02);
+    }
+    cuesPlayed++;
+    document.documentElement.dataset.cues = `${cuesPlayed}:${cue.kind}:${cueCtx.state}`;
+  } catch {
+    /* no audio output: the cue is a nicety, the take goes on */
+  }
 }
 
 function onLevel(v: number): void {
@@ -1109,6 +1157,7 @@ bridge.speech.onState(applySpeech);
 bridge.brain.onState(applyBrainPush);
 bridge.dictation.onState(applyDictation);
 bridge.dictation.onLevel(onLevel);
+bridge.dictation.onCue(playCue);
 bridge.network.onState(applyNetwork);
 bridge.file.onToast((msg) => {
   if (fileState) apply({ ...fileState, status: msg });
