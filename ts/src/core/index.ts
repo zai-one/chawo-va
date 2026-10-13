@@ -8,3 +8,7 @@ export * from './modelConfig';
 export * from './features';
 export * from './audio';
 export * from './fileParallel';
+export * from './ctcVocab';
+export * from './recognizer';
+export * from './fileJob';
+export * from './oggOpus';

@@ -19,9 +19,9 @@ Re-align folder names and tooling with taptain-desktop once its layout is readab
 | Core/Features.cs | src/core/features.ts | ✅ ported; matches independent numpy rfft log-mel within 2e-3 |
 | Core/AudioUtils.cs | src/core/audio.ts | ✅ ported + tests |
 | Core/FileParallel.cs | src/core/fileParallel.ts | ✅ ported + tests |
-| Core/Recognizer.cs | src/core/recognizer.ts (onnxruntime-node) | ⏳ next |
-| Core/FileJob.cs | src/core/fileJob.ts (worker_threads) | ⏳ |
-| Core/OggOpus.cs | src/core/oggOpus.ts | ⏳ |
+| Core/Recognizer.cs | src/core/recognizer.ts (onnxruntime-node) | ✅ ported + unit tests (no real weights) |
+| Core/FileJob.cs | src/core/fileJob.ts (Promise pool of Recognizers) | ✅ ported + mocked Open/Run tests |
+| Core/OggOpus.cs | src/core/oggOpus.ts (opus-decoder) | ✅ demux + decode; demux tests |
 | App/SpeechModelStore.cs, ModelDownloader.cs | src/main/models/ | ⏳ |
 | App/Settings.cs, DataMigration.cs | src/main/settings.ts (reads WPF settings for migration) | ⏳ |
 | App/FileTranscript.cs, FileQueue.cs, FfmpegTool.cs | src/main/file/ | ⏳ |
@@ -49,3 +49,13 @@ Re-align folder names and tooling with taptain-desktop once its layout is readab
   log-mel features, WAV/resample/pause split, file parallel plan). 23 tests green. Electron shell:
   dark-only window, tray with Открыть/Выход, single instance, sidebar with the 4 WPF sections.
   Next: Recognizer on onnxruntime-node (CTC + RNN-T decode), then FileJob with worker_threads.
+
+- 2026-10-13 tick 2: Recognizer on onnxruntime-node (CTC + RNN-T decode, batch paths, cancel
+  flags). GPU prefers CUDA on Linux / DirectML (dml) on Windows, falls back to CPU with
+  deviceNote. RunOptions.terminate is WASM-only in the JS binding, so CancelRun/CancelOwned are
+  best-effort kill flags. FileJob mirrors Open/Run/Cancel/Dispose with a Promise pool of separate
+  Recognizer instances (not worker_threads). OggOpus demux matches C#; DecodeTo16kMono uses
+  opus-decoder at 16 kHz mono with OpusHead preskip scaled 48k→16k. Added onnxruntime-node and
+  opus-decoder. Unit tests for CtcVocab, modelExists, SplitRanges, Ogg demux, FileJob plan wiring.
+  Next: SpeechModelStore / ModelDownloader, settings migration, file transcription UI wiring.
+
