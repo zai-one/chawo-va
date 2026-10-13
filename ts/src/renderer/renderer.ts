@@ -3,11 +3,17 @@
 // «Диктовка» also owns the microphone: getUserMedia → AudioWorklet (mic-processor.js, 16 kHz mono) → main.
 
 interface FileItem { id: number; path: string; state: 'Queued' | 'Running' | 'Done' | 'Failed' | 'Stopped'; note: string; outputPath?: string }
+const EXTRA_FORMATS: readonly [string, [string, string]][] = [
+  ['vtt', ['Субтитры WebVTT для сайтов и плееров', 'WebVTT subtitles for web players']],
+  ['json', ['Фразы со временем для скриптов', 'Timed phrases for scripts']],
+  ['md', ['Markdown для заметок', 'Markdown for notes']],
+  ['docx', ['Документ Word', 'Word document']],
+];
 interface FileState {
   items: FileItem[];
   status: string;
   busy: boolean;
-  options: { timestamps: boolean; srt: boolean; parallelism: string };
+  options: { timestamps: boolean; srt: boolean; extra: string[]; parallelism: string };
   ffmpeg: { line: string; canDownload: boolean; installed: boolean };
   lastOutput: string | null;
   ru: boolean;
@@ -1197,8 +1203,19 @@ function renderFile(): void {
 
   const ts = el('input', { type: 'checkbox', checked: s.options.timestamps });
   ts.addEventListener('change', () => void bridge.file.setOptions({ timestamps: ts.checked }).then(apply));
+  // One row for every extra file; .srt keeps its own WPF setting, the others share FileExtraFormats.
+  const formats = el('span', { className: 'formats' });
   const srt = el('input', { type: 'checkbox', checked: s.options.srt });
   srt.addEventListener('change', () => void bridge.file.setOptions({ srt: srt.checked }).then(apply));
+  formats.append(el('label', { title: L('Субтитры SubRip', 'SubRip subtitles') }, srt, ' .srt'));
+  for (const [f, tip] of EXTRA_FORMATS) {
+    const box = el('input', { type: 'checkbox', checked: s.options.extra.includes(f) });
+    box.addEventListener('change', () => {
+      const next = EXTRA_FORMATS.map(([x]) => x).filter((x) => (x === f ? box.checked : s.options.extra.includes(x)));
+      void bridge.file.setOptions({ extra: next }).then(apply);
+    });
+    formats.append(el('label', { title: L(tip[0], tip[1]) }, box, ` .${f}`));
+  }
   const speed = el('select');
   for (const [v, label] of SPEED.map(([v, r]) => [v, ru ? r : SPEED_EN[v]] as [string, string])) speed.append(el('option', { value: v, textContent: label, selected: v === s.options.parallelism }));
   speed.addEventListener('change', () => void bridge.file.setOptions({ parallelism: speed.value }).then(apply));
@@ -1207,7 +1224,7 @@ function renderFile(): void {
     el('fieldset', {},
       el('legend', { textContent: L('Вывод', 'Output') }),
       el('label', {}, ts, L(' Метки времени [чч:мм:сс] в .txt', ' Timestamps [hh:mm:ss] in .txt')),
-      el('label', {}, srt, L(' Ещё и субтитры .srt', ' Also .srt subtitles')),
+      el('div', { className: 'row' }, L('Ещё сохранять рядом: ', 'Also save beside it: '), formats),
       el('label', {}, L('Скорость длинных записей ', 'Long recording speed '), speed),
     ),
   );

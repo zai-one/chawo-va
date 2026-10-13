@@ -50,6 +50,8 @@ export interface SettingsData {
   FileParallelism: SettingsFileParallelism;
   FileTimestamps: boolean;
   FileSrt: boolean;
+  /** Extra outputs beside the .txt besides .srt (TS port only; WPF ignores the key). */
+  FileExtraFormats: FileExtraFormat[];
   FileUseBrain: boolean;
   StartHintDismissed: boolean;
   MicrophoneId: string;
@@ -99,6 +101,7 @@ export function defaults(): SettingsData {
     FileParallelism: 'Auto',
     FileTimestamps: true,
     FileSrt: false,
+    FileExtraFormats: [],
     FileUseBrain: false,
     StartHintDismissed: false,
     MicrophoneId: '',
@@ -256,6 +259,15 @@ export function unprotect(stored: string | null | undefined): string {
   return '';
 }
 
+export type FileExtraFormat = 'vtt' | 'json' | 'md' | 'docx';
+export const FILE_EXTRA_FORMATS: readonly FileExtraFormat[] = ['vtt', 'json', 'md', 'docx'];
+
+/** Known names only, each once, in the fixed order (so the file stays stable). */
+export function asExtraFormats(v: unknown): FileExtraFormat[] {
+  if (!Array.isArray(v)) return [];
+  return FILE_EXTRA_FORMATS.filter((f) => v.includes(f));
+}
+
 function asString(v: unknown, fallback: string): string {
   return typeof v === 'string' ? v : fallback;
 }
@@ -326,6 +338,7 @@ export function fromJsonObject(raw: Record<string, unknown>): { settings: Settin
   );
   d.FileTimestamps = asBool(raw.FileTimestamps, d.FileTimestamps);
   d.FileSrt = asBool(raw.FileSrt, d.FileSrt);
+  d.FileExtraFormats = asExtraFormats(raw.FileExtraFormats);
   d.FileUseBrain = asBool(raw.FileUseBrain, d.FileUseBrain);
   d.StartHintDismissed = asBool(raw.StartHintDismissed, d.StartHintDismissed);
   d.MicrophoneId = asString(raw.MicrophoneId, d.MicrophoneId);
@@ -401,6 +414,7 @@ export function toJsonObject(s: SettingsData): Record<string, unknown> {
     FileParallelism: s.FileParallelism,
     FileTimestamps: s.FileTimestamps,
     FileSrt: s.FileSrt,
+    FileExtraFormats: [...s.FileExtraFormats],
     FileUseBrain: s.FileUseBrain,
     StartHintDismissed: s.StartHintDismissed,
     MicrophoneId: s.MicrophoneId,

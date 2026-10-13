@@ -369,6 +369,25 @@ Re-align folder names and tooling with taptain-desktop once its layout is readab
   unit-tested with a fake spawn only (needs a Windows run). Next: the Windows native helper (hold
   key, TextInserter, SelectionReader, caret placement, job object), the «Продажи» card, then
   Updater/Autostart.
+- 2026-10-13 tick (branch `ts/feat-export-formats`, IDEAS.md №6, export part): extra transcript
+  files beside name.txt. `core/transcriptFormat.ts` gained `toVtt` (WEBVTT header, numbered cues,
+  `HH:MM:SS.mmm`, & < > escaped, 0.5 s minimum like .srt), `toJson` (`chawo-transcript` v1: source,
+  duration, joined text, segments with ms-rounded times — the shape a server backend would store),
+  `toMarkdown` (file name as heading, a paragraph per piece, `**[hh:mm:ss]**` when timestamps are on,
+  Markdown specials and leading list/heading markers escaped) and `needsTimings`. `core/
+  transcriptDocx.ts` builds a minimal WordprocessingML package (title, a paragraph per piece, grey
+  time mark, XML-invalid characters dropped) with no dependency; `main/file/transcriptExport.ts` zips
+  it with the existing `buildZip` (deflate) and writes the chosen formats (one failing format is noted
+  on the row, the others still land). Setting `FileExtraFormats` (vtt/json/md/docx, default none,
+  unknown names dropped; .srt keeps its WPF `FileSrt`); the page shows one row «Ещё сохранять рядом:
+  .srt .vtt .json .md .docx» replacing the old .srt box (no duplicate setting). Client role: a timed
+  format (.vtt/.json, or .md/.docx with timestamps) posts piece by piece like .srt. Tests:
+  transcriptExport (14) + a remote case; 323 green (309 on ts-port). Real run
+  (`scripts/smoke-export.cjs`, xvfb, real v3_e2e_rnnt on CPU, `ru30.wav`): the four boxes clicked →
+  settings.json `FileExtraFormats: ["vtt","json","md","docx"]`, the queue row «00:00:30 · .srt · .vtt
+  · .json · .md · .docx» in 6.4 s, all six files beside the WAV; ffprobe reads the .vtt as webvtt and
+  ffmpeg converts it to .srt, LibreOffice opens the .docx and its text matches the .txt. Gaps: the
+  transcript editor (click a phrase to play) is batch 2 item 10; Brain output stays .brain.txt only.
 - 2026-10-13 tick (branch `ts/feat-sales`): «Продажи». `salesCatalog.ts` = SalesCatalog (exact code as
   its own word, longest wins → similar code → nearest name by shared letters ≥ 0.6; HasToken,
   NameIsClose, WithRag). Deviation: WPF scored the nearest name on unfolded letters, so a capitalised
