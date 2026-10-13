@@ -3,11 +3,17 @@
 // «Диктовка» also owns the microphone: getUserMedia → AudioWorklet (mic-processor.js, 16 kHz mono) → main.
 
 interface FileItem { id: number; path: string; state: 'Queued' | 'Running' | 'Done' | 'Failed' | 'Stopped'; note: string; outputPath?: string }
+const EXTRA_FORMATS: readonly [string, [string, string]][] = [
+  ['vtt', ['Субтитры WebVTT для сайтов и плееров', 'WebVTT subtitles for web players']],
+  ['json', ['Фразы со временем для скриптов', 'Timed phrases for scripts']],
+  ['md', ['Markdown для заметок', 'Markdown for notes']],
+  ['docx', ['Документ Word', 'Word document']],
+];
 interface FileState {
   items: FileItem[];
   status: string;
   busy: boolean;
-  options: { timestamps: boolean; srt: boolean; parallelism: string };
+  options: { timestamps: boolean; srt: boolean; extra: string[]; parallelism: string };
   ffmpeg: { line: string; canDownload: boolean; installed: boolean };
   lastOutput: string | null;
   ru: boolean;
@@ -40,6 +46,7 @@ interface SpeechState {
   threadsHint: string;
   status: string;
   download: { kind: string; percent: number | null; text: string; running: boolean; failed: boolean } | null;
+  vad: { enabled: boolean; onDisk: boolean; downloading: boolean; canDownload: boolean; note: string } | null;
 }
 interface SpeechApi {
   state(): Promise<SpeechState>;
@@ -50,6 +57,8 @@ interface SpeechApi {
   cancel(): Promise<SpeechState>;
   dismiss(): Promise<SpeechState>;
   remove(kind: string): Promise<SpeechState>;
+  setVad(on: boolean): Promise<SpeechState>;
+  downloadVad(): Promise<SpeechState>;
   onState(fn: (s: SpeechState) => void): () => void;
 }
 interface DictRow { id: number; from: string; to: string }
@@ -75,6 +84,44 @@ interface DictApi {
   remove(id: number): Promise<DictState>;
   suggest(): Promise<DictState>;
   addSuggestion(heard: string, written: string): Promise<DictState>;
+}
+interface SalesRowDto { id: number; Code: string; Name: string; Line: string; SimilarCode: string }
+interface SalesState {
+  ru: boolean;
+  intro: string;
+  callHeading: string;
+  callIntro: string;
+  extensionHeader: string;
+  numberHeader: string;
+  managerHeader: string;
+  showCallLabel: string;
+  call: { extension: string; number: string; manager: string; status: string };
+  codeHeader: string;
+  nameHeader: string;
+  lineHeader: string;
+  similarHeader: string;
+  addLabel: string;
+  deleteLabel: string;
+  rows: SalesRowDto[];
+  ragHeading: string;
+  ragIntro: string;
+  ragFolder: string;
+  ragFolderText: string;
+  pickLabel: string;
+  clearLabel: string;
+  canClear: boolean;
+  ragStatus: string;
+  modeNote: string;
+  salesMode: boolean;
+}
+interface SalesApi {
+  state(): Promise<SalesState>;
+  setRow(id: number, code: string, name: string, line: string, similar: string): Promise<SalesState>;
+  add(): Promise<{ id: number; state: SalesState }>;
+  remove(id: number): Promise<SalesState>;
+  pickFolder(): Promise<SalesState>;
+  clearFolder(): Promise<SalesState>;
+  showCall(extension: string, number: string, manager: string): Promise<SalesState>;
 }
 interface BrainRow { kind: string | null; label: string; selected: boolean; onDisk: boolean; path: string | null; canDownload: boolean; downloadLabel: string }
 interface BrainDownload { kind: string; title: string; intro: string; percent: number | null; text: string; running: boolean; failed: boolean }
@@ -193,7 +240,10 @@ interface DictationApi {
   onState(fn: (s: DictationState) => void): () => void;
   onLevel(fn: (v: number) => void): () => void;
   onCue(fn: (cue: { kind: string; tones: CueToneSpec[] }) => void): () => void;
+  onHot(fn: (ev: HotEvent) => void): () => void;
 }
+/** The global hold key: the main side already started the take; this side only runs the mic. */
+type HotEvent = { kind: 'start'; micId: string } | { kind: 'stop' } | { kind: 'end' };
 interface CueToneSpec { freq: number; at: number; ms: number; gain: number }
 interface NetworkState {
   ru: boolean;
@@ -235,11 +285,41 @@ interface NetworkApi {
   setKeepAwake(v: boolean): Promise<NetworkState>;
   onState(fn: (s: NetworkState) => void): () => void;
 }
-const bridge = (window as unknown as { chawo: { file: FileApi; speech: SpeechApi; dict: DictApi; brain: BrainApi; dictation: DictationApi; network: NetworkApi } }).chawo;
+interface HistoryRow { id: string; when: string; seconds: string; final: string; raw: string | null; command: string | null; tag: string; failed: boolean }
+interface HistoryState {
+  ru: boolean;
+  intro: string;
+  keepLabel: string;
+  keep: string;
+  keepChoices: { value: string; label: string }[];
+  keepHint: string;
+  query: string;
+  searchPlaceholder: string;
+  rows: HistoryRow[];
+  countLine: string;
+  empty: string;
+  status: string;
+  canRerun: boolean;
+  rerunTip: string;
+  rerunningId: string | null;
+  labels: { copy: string; copyRaw: string; rerun: string; remove: string; clearAll: string; rawHeader: string };
+}
+interface HistoryApi {
+  state(): Promise<HistoryState>;
+  setQuery(q: string): Promise<HistoryState>;
+  setKeep(k: string): Promise<HistoryState>;
+  copy(id: string, which: 'final' | 'raw'): Promise<HistoryState>;
+  remove(id: string): Promise<HistoryState>;
+  clearAll(): Promise<HistoryState>;
+  rerun(id: string): Promise<HistoryState>;
+  onState(fn: (s: HistoryState) => void): () => void;
+}
+const bridge = (window as unknown as { chawo: { file: FileApi; speech: SpeechApi; dict: DictApi; brain: BrainApi; dictation: DictationApi; network: NetworkApi; sales: SalesApi; history: HistoryApi } }).chawo;
 
 const titlesEn: Record<string, string> = {
   dictation: 'Dictation',
   file: 'File transcription',
+  history: 'History',
   speech: 'Speech',
   dictionary: 'Dictionary',
   sales: 'Sales',
@@ -249,6 +329,7 @@ const titlesEn: Record<string, string> = {
 const titles: Record<string, string> = {
   dictation: 'Диктовка',
   file: 'Расшифровка файла',
+  history: 'История',
   speech: 'Распознавание',
   dictionary: 'Словарь',
   sales: 'Продажи',
@@ -264,6 +345,8 @@ let dictState: DictState | null = null;
 let brainState: BrainState | null = null;
 let dictationState: DictationState | null = null;
 let networkState: NetworkState | null = null;
+let historyState: HistoryState | null = null;
+let salesState: SalesState | null = null;
 let ru = true;
 const L = (r: string, e: string) => (ru ? r : e);
 
@@ -706,6 +789,44 @@ async function holdUp(): Promise<void> {
   void refreshMicDevices();
 }
 
+// ── the global hold key (Windows helper) ──
+// The key is seen by the main process; the take is already started there. The mic lives here, so the
+// main side asks us to open it, to stop it (then recognize), or to drop it (Escape). Window focus does
+// not matter: the window may be hidden in the tray.
+let hotJob: Promise<MicCapture | null> | null = null;
+
+async function hotOpen(micId: string): Promise<MicCapture | null> {
+  const cap = new MicCapture();
+  try {
+    await cap.start(micId, (c) => bridge.dictation.appendPcm(c));
+  } catch (e) {
+    await cap.stop().catch(() => undefined);
+    const err = e as DOMException;
+    applyDictation(await bridge.dictation.micFailed(err?.name ?? 'Error', err?.message ?? String(e)));
+    return null;
+  }
+  activeCapture = cap;
+  return cap;
+}
+
+async function hotClose(recognize: boolean): Promise<void> {
+  const job = hotJob;
+  hotJob = null;
+  const cap = job ? await job : null;
+  if (cap && activeCapture === cap) {
+    activeCapture = null;
+    await cap.stop();
+  } else if (cap) await cap.stop().catch(() => undefined);
+  if (recognize && cap) applyDictation(await bridge.dictation.stopTake());
+}
+
+bridge.dictation.onHot((ev) => {
+  if (ev.kind === 'start') {
+    if (hotJob) return;
+    hotJob = hotOpen(ev.micId);
+  } else void hotClose(ev.kind === 'stop');
+});
+
 function cancelTake(): void {
   holdPressed = false;
   void bridge.dictation.cancelTake().then(applyDictation);
@@ -806,7 +927,8 @@ function renderDictation(): void {
       (v) => void bridge.dictation.setHotkey(Number(v)).then(applyDictation)));
   form.append(el('span', { textContent: L('Как вставлять текст', 'How to insert text') }),
     selectOf(s.insertChoices, s.insertMode, (v) => void bridge.dictation.setInsertMode(v).then(applyDictation)));
-  page.append(form, el('p', { className: 'muted hint', textContent: s.keyNote }));
+  page.append(form);
+  if (s.keyNote) page.append(el('p', { className: 'muted hint', textContent: s.keyNote }));
 
   page.append(el('label', { className: 'block', textContent: L('Микрофон', 'Microphone') }));
   const mic = selectOf(s.micChoices, s.micId, (v) => void bridge.dictation.setMic(v).then(applyDictation));
@@ -922,7 +1044,81 @@ function setLanguage(r: boolean): void {
   else if (current === 'dictionary') renderDictionary();
   else if (current === 'brain') renderBrain();
   else if (current === 'network') renderNetwork();
+  else if (current === 'history') renderHistory();
+  else if (current === 'sales') renderSales();
   else if (current !== 'file') show(current);
+}
+
+const applyHistory = (st: HistoryState) => {
+  historyState = st;
+  if (st.ru !== ru) {
+    setLanguage(st.ru);
+    return;
+  }
+  if (current !== 'history') return;
+  // While the search box is being typed in, only the list and the lines below it are redrawn.
+  const search = page.querySelector<HTMLInputElement>('[data-history="search"]');
+  if (search && document.activeElement === search) {
+    fillHistoryList(st);
+    return;
+  }
+  renderHistory();
+};
+
+function fillHistoryList(s: HistoryState): void {
+  const list = page.querySelector<HTMLElement>('[data-history="list"]');
+  const count = page.querySelector<HTMLElement>('[data-history="count"]');
+  const status = page.querySelector<HTMLElement>('[data-history="status"]');
+  if (count) count.textContent = s.countLine;
+  if (status) status.textContent = s.status;
+  if (!list) return;
+  list.replaceChildren();
+  if (s.rows.length === 0) {
+    list.append(el('div', { className: 'empty muted', textContent: s.empty }));
+    return;
+  }
+  for (const r of s.rows) {
+    const head = el('div', { className: 'hist-head muted' }, el('span', { textContent: `${r.when} · ${r.seconds}` }));
+    if (r.command) head.append(el('span', { className: 'hist-cmd', textContent: `«${r.command}»` }));
+    if (r.tag) head.append(el('span', { className: `hist-tag${r.failed ? ' failed' : ''}`, textContent: r.tag }));
+    const item = el('div', { className: 'hist-item' }, head, el('div', { className: 'hist-text', textContent: r.final }));
+    if (r.raw) item.append(el('div', { className: 'hist-raw muted' }, el('span', { textContent: s.labels.rawHeader + ' ' }), r.raw));
+    const acts = el('div', { className: 'row hist-acts' },
+      button(s.labels.copy, () => void bridge.history.copy(r.id, 'final').then(applyHistory)),
+    );
+    if (r.raw) acts.append(button(s.labels.copyRaw, () => void bridge.history.copy(r.id, 'raw').then(applyHistory), 'link'));
+    const again = button(s.rerunningId === r.id ? '…' : s.labels.rerun, () => void bridge.history.rerun(r.id).then(applyHistory), 'link');
+    again.disabled = !s.canRerun;
+    if (s.rerunTip) again.title = s.rerunTip;
+    acts.append(again, button(s.labels.remove, () => void bridge.history.remove(r.id).then(applyHistory), 'link'));
+    item.append(acts);
+    list.append(item);
+  }
+}
+
+function renderHistory(): void {
+  const s = historyState;
+  page.replaceChildren(el('h1', { textContent: title('history') }));
+  if (!s) return;
+  page.append(el('p', { className: 'muted', textContent: s.intro }));
+  const keep = selectOf(s.keepChoices, s.keep, (v) => void bridge.history.setKeep(v).then(applyHistory));
+  keep.setAttribute('aria-label', s.keepLabel);
+  const search = el('input', { type: 'text', value: s.query, placeholder: s.searchPlaceholder, spellcheck: false });
+  search.dataset.history = 'search';
+  search.className = 'hist-search';
+  search.addEventListener('input', () => void bridge.history.setQuery(search.value).then(applyHistory));
+  const clear = button(s.labels.clearAll, () => void bridge.history.clearAll().then(applyHistory), 'link');
+  clear.disabled = s.rows.length === 0 && !s.query;
+  page.append(el('div', { className: 'row' }, search, el('label', {}, s.keepLabel + ' ', keep), clear));
+  page.append(el('p', { className: 'muted hint', textContent: s.keepHint }));
+  const status = el('p', { className: 'status line' });
+  status.dataset.history = 'status';
+  const list = el('div', { className: 'hist' });
+  list.dataset.history = 'list';
+  const count = el('p', { className: 'muted hint' });
+  count.dataset.history = 'count';
+  page.append(status, list, count);
+  fillHistoryList(s);
 }
 
 function renderDictionary(focusId?: number): void {
@@ -972,6 +1168,84 @@ function renderDictionary(focusId?: number): void {
     }
     page.append(list);
   }
+  if (focusEl) focusEl.focus();
+}
+
+const applySales = (st: SalesState, focusId?: number) => {
+  salesState = st;
+  if (st.ru !== ru) setLanguage(st.ru);
+  else if (current === 'sales') renderSales(focusId);
+};
+
+function renderSales(focusId?: number): void {
+  const s = salesState;
+  page.replaceChildren(el('h1', { textContent: title('sales') }));
+  if (!s) return;
+  page.append(el('p', { className: 'muted', textContent: s.intro }));
+  page.append(el('p', { className: s.salesMode ? 'hint' : 'hint warn', textContent: s.modeNote }));
+
+  // Catalog: code, name, short line, similar code; saved on every edit, the page is not redrawn.
+  const table = el('div', { className: 'dict sales' },
+    el('div', { className: 'dict-row head muted' },
+      el('span', { textContent: s.codeHeader }),
+      el('span', { textContent: s.nameHeader }),
+      el('span', { textContent: s.lineHeader }),
+      el('span', { textContent: s.similarHeader }),
+      el('span'),
+    ),
+  );
+  let focusEl: HTMLInputElement | null = null;
+  for (const r of s.rows) {
+    const box = (value: string, label: string) => {
+      const i = el('input', { type: 'text', value, spellcheck: false });
+      i.setAttribute('aria-label', label);
+      return i;
+    };
+    const code = box(r.Code, s.codeHeader);
+    const name = box(r.Name, s.nameHeader);
+    const line = box(r.Line, s.lineHeader);
+    const similar = box(r.SimilarCode, s.similarHeader);
+    const send = () => void bridge.sales.setRow(r.id, code.value, name.value, line.value, similar.value).then((st) => { salesState = st; });
+    for (const i of [code, name, line, similar]) i.addEventListener('input', send);
+    const del = button(s.deleteLabel, () => void bridge.sales.remove(r.id).then((st) => applySales(st)));
+    table.append(el('div', { className: 'dict-row' }, code, name, line, similar, del));
+    if (r.id === focusId) focusEl = code;
+  }
+  page.append(table);
+  page.append(el('div', { className: 'row' },
+    button(s.addLabel, () => void bridge.sales.add().then((res) => applySales(res.state, res.id))),
+  ));
+
+  // Materials folder (local RAG).
+  const rag = el('fieldset', {}, el('legend', { textContent: s.ragHeading }), el('p', { className: 'muted hint', textContent: s.ragIntro }));
+  const folder = el('input', { type: 'text', value: s.ragFolderText, readOnly: true, spellcheck: false });
+  folder.setAttribute('aria-label', s.ragHeading);
+  const clear = button(s.clearLabel, () => void bridge.sales.clearFolder().then((st) => applySales(st)));
+  clear.disabled = !s.canClear;
+  rag.append(el('div', { className: 'folder-row' }, folder,
+    button(s.pickLabel, () => void bridge.sales.pickFolder().then((st) => applySales(st))),
+    clear,
+  ));
+  rag.append(el('p', { className: 'muted hint', textContent: s.ragStatus }));
+  page.append(rag);
+
+  // Call stand-in.
+  const call = el('fieldset', {}, el('legend', { textContent: s.callHeading }), el('p', { className: 'muted hint', textContent: s.callIntro }));
+  const field = (value: string, label: string) => {
+    const i = el('input', { type: 'text', value, spellcheck: false, autocomplete: 'off' });
+    i.setAttribute('aria-label', label);
+    return el('label', { className: 'stack' }, el('span', { className: 'muted', textContent: label }), i);
+  };
+  const ext = field(s.call.extension, s.extensionHeader);
+  const num = field(s.call.number, s.numberHeader);
+  const mgr = field(s.call.manager, s.managerHeader);
+  const val = (l: HTMLElement) => (l.querySelector('input') as HTMLInputElement).value;
+  call.append(el('div', { className: 'call-row' }, ext, num, mgr));
+  call.append(el('div', { className: 'row' },
+    button(s.showCallLabel, () => void bridge.sales.showCall(val(ext), val(num), val(mgr)).then((st) => applySales(st))),
+  ));
+  if (s.call.status) call.append(el('p', { className: 'muted hint', textContent: s.call.status }));
+  page.append(call);
   if (focusEl) focusEl.focus();
 }
 
@@ -1044,6 +1318,16 @@ function renderSpeech(): void {
     page.append(th, el('p', { className: 'muted hint', textContent: s.threadsHint }));
   }
 
+  if (s.vad) {
+    const v = s.vad;
+    const cb = el('input', { type: 'checkbox', checked: v.enabled });
+    cb.addEventListener('change', () => void bridge.speech.setVad(cb.checked).then(applySpeech));
+    page.append(el('label', { className: 'block' }, cb, L(' Обрезать тишину (VAD)', ' Trim silence (VAD)')));
+    const hint = el('p', { className: 'muted hint', textContent: v.note });
+    if (v.canDownload) hint.append(' ', button(L('Скачать (2 МБ)', 'Download (2 MB)'), () => void bridge.speech.downloadVad().then(applySpeech), 'link'));
+    page.append(hint);
+  }
+
   page.append(el('p', { className: 'muted line', textContent: s.status }));
 }
 
@@ -1085,8 +1369,19 @@ function renderFile(): void {
 
   const ts = el('input', { type: 'checkbox', checked: s.options.timestamps });
   ts.addEventListener('change', () => void bridge.file.setOptions({ timestamps: ts.checked }).then(apply));
+  // One row for every extra file; .srt keeps its own WPF setting, the others share FileExtraFormats.
+  const formats = el('span', { className: 'formats' });
   const srt = el('input', { type: 'checkbox', checked: s.options.srt });
   srt.addEventListener('change', () => void bridge.file.setOptions({ srt: srt.checked }).then(apply));
+  formats.append(el('label', { title: L('Субтитры SubRip', 'SubRip subtitles') }, srt, ' .srt'));
+  for (const [f, tip] of EXTRA_FORMATS) {
+    const box = el('input', { type: 'checkbox', checked: s.options.extra.includes(f) });
+    box.addEventListener('change', () => {
+      const next = EXTRA_FORMATS.map(([x]) => x).filter((x) => (x === f ? box.checked : s.options.extra.includes(x)));
+      void bridge.file.setOptions({ extra: next }).then(apply);
+    });
+    formats.append(el('label', { title: L(tip[0], tip[1]) }, box, ` .${f}`));
+  }
   const speed = el('select');
   for (const [v, label] of SPEED.map(([v, r]) => [v, ru ? r : SPEED_EN[v]] as [string, string])) speed.append(el('option', { value: v, textContent: label, selected: v === s.options.parallelism }));
   speed.addEventListener('change', () => void bridge.file.setOptions({ parallelism: speed.value }).then(apply));
@@ -1095,7 +1390,7 @@ function renderFile(): void {
     el('fieldset', {},
       el('legend', { textContent: L('Вывод', 'Output') }),
       el('label', {}, ts, L(' Метки времени [чч:мм:сс] в .txt', ' Timestamps [hh:mm:ss] in .txt')),
-      el('label', {}, srt, L(' Ещё и субтитры .srt', ' Also .srt subtitles')),
+      el('div', { className: 'row' }, L('Ещё сохранять рядом: ', 'Also save beside it: '), formats),
       el('label', {}, L('Скорость длинных записей ', 'Long recording speed '), speed),
     ),
   );
@@ -1133,6 +1428,16 @@ function show(name: string): void {
     void bridge.brain.state(true).then(applyBrain);
     return;
   }
+  if (name === 'history') {
+    renderHistory();
+    void bridge.history.state().then(applyHistory);
+    return;
+  }
+  if (name === 'sales') {
+    renderSales();
+    void bridge.sales.state().then((st) => applySales(st));
+    return;
+  }
   if (name === 'network') {
     renderNetwork();
     void bridge.network.state().then(applyNetwork);
@@ -1159,6 +1464,7 @@ bridge.dictation.onState(applyDictation);
 bridge.dictation.onLevel(onLevel);
 bridge.dictation.onCue(playCue);
 bridge.network.onState(applyNetwork);
+bridge.history.onState(applyHistory);
 bridge.file.onToast((msg) => {
   if (fileState) apply({ ...fileState, status: msg });
 });

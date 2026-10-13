@@ -1,6 +1,6 @@
 // Local sales materials: a folder of .txt / .md. No network and no model. Port of src/App/SalesRag.cs.
-// Used for dictionary suggestions the user still has to add by hand (and later for a card snippet
-// when the catalog code is missing; FindSnippet is not ported yet).
+// Used for a card snippet when the catalog code is missing (findSnippet), and for dictionary
+// suggestions the user still has to add by hand.
 
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { basename, extname, join } from 'node:path';
@@ -16,6 +16,13 @@ export interface DictSuggestion {
 export const MAX_FILES = 200;
 export const MAX_FILE_BYTES = 512_000;
 export const MAX_SUGGESTIONS = 40;
+export const SNIPPET_CHARS = 220;
+
+export interface RagSnippet {
+  text: string;
+  /** File name (not the full path). */
+  source: string;
+}
 
 const EXTS = new Set(['.txt', '.md', '.markdown']);
 
@@ -239,4 +246,92 @@ export function suggestDictionary(folder: string | null | undefined, existing: I
     }
   }
   return list;
+}
+
+/** Paragraphs of a material file: blank lines split, lines are joined with a space, long runs cut at 2×SNIPPET_CHARS. */
+export function splitBlocks(text: string): string[] {
+  const out: string[] = [];
+  let sb = '';
+  for (const raw of text.replace(/\r\n/g, '\n').split('\n')) {
+    const line = raw.trim();
+    if (line.length === 0) {
+      if (sb.length > 0) {
+        out.push(sb);
+        sb = '';
+      }
+      continue;
+    }
+    if (sb.length > 0) sb += ' ';
+    sb += line;
+    if (sb.length >= SNIPPET_CHARS * 2) {
+      out.push(sb);
+      sb = '';
+    }
+  }
+  if (sb.length > 0) out.push(sb);
+  return out;
+}
+
+/** Cuts at the last space before max (unless that is under half), adds «…». */
+export function clip(text: string, max: number): string {
+  if (text.length <= max) return text;
+  let cut = text.lastIndexOf(' ', max);
+  if (cut < max / 2) cut = max;
+  return text.slice(0, cut).trimEnd() + '…';
+}
+
+/**
+ * Best short paragraph from the folder that shares letters with the transcript (SalesRag.FindSnippet).
+ * Null when the folder is empty, missing, or nothing is close enough. Reads only the local disk.
+ */
+export function findSnippet(transcript: string | null | undefined, folder: string | null | undefined): RagSnippet | null {
+  if (!transcript || !transcript.trim() || !folder || !folder.trim()) return null;
+  if (!isDir(folder)) return null;
+  const folded = fold(transcript);
+  const words = [...new Set(folded.split(' ').filter((w) => w.length > 0).map(letters).filter((w) => w.length >= 3))];
+  if (words.length === 0) return null;
+  const spokenLen = folded.replace(/ /g, '').length;
+
+  let best: RagSnippet | null = null;
+  let bestScore = 0;
+  let bestOverlap = 0;
+  for (const { path, text } of readFiles(folder)) {
+    for (const block of splitBlocks(text)) {
+      const blockFold = fold(block);
+      const blockLetters = letters(blockFold);
+      if (blockLetters.length < 8) continue;
+      const blockWords = blockFold.split(' ').map(letters).filter((x) => x.length >= 3);
+      let overlap = 0;
+      for (const w of words) {
+        if (blockFold.includes(w) || blockWords.some((b) => looksLike(b, w))) overlap += w.length;
+      }
+      if (overlap < 4) continue;
+      const score = overlap / Math.max(blockLetters.length, spokenLen);
+      if (score < 0.08) continue;
+      if (score < bestScore || (Math.abs(score - bestScore) < 0.0001 && overlap <= bestOverlap)) continue;
+      bestScore = score;
+      bestOverlap = overlap;
+      best = { text: clip(block.trim(), SNIPPET_CHARS), source: basename(path) };
+    }
+  }
+  return best;
+}
+
+/**
+ * A spoken word and a material word that differ only by an ending or a letter or two («станцию» /
+ * «станция»). WPF compared each spoken word with the letters of the whole paragraph, so any long
+ * paragraph matched every word and short unrelated paragraphs won; here it is word against word.
+ */
+export function looksLike(materialWord: string, spoken: string): boolean {
+  const a = materialWord.length;
+  const b = spoken.length;
+  if (Math.abs(a - b) > 3) return false;
+  const share = sharedLetters(materialWord, spoken);
+  return share >= 4 && share >= Math.max(a, b) * 0.75 && materialWord.slice(0, 2) === spoken.slice(0, 2);
+}
+
+/** How many .txt/.md files the folder holds (the «Файлов .txt/.md: N.» line); -1 when it is not a folder. */
+export function countMaterialFiles(folder: string): number {
+  if (!isDir(folder)) return -1;
+  return materialPaths(folder, 100_000).length;
 }

@@ -9,6 +9,7 @@ import { FileRunner } from '../src/main/file/fileRunner';
 import { remoteFatal, remotePrepare, remoteTranscriber } from '../src/main/file/remoteTranscriber';
 import { RemoteHostException } from '../src/main/network/remoteSpeech';
 import * as Settings from '../src/main/settings';
+import { VadRuntime, setVadRuntime } from '../src/main/vad/vadModel';
 
 let dir: string;
 beforeAll(() => {
@@ -74,6 +75,18 @@ describe('file transcription in the Client role', () => {
     expect(statuses[0]).toBe(`Кусок 1 из ${sizes.length} на хосте…`);
   });
 
+  it('a timed extra format (.vtt/.json) also posts piece by piece; .md without timestamps does not', async () => {
+    let posts = 0;
+    const post = async () => { posts++; return 'x'; };
+    const s = client((x) => { x.FileTimestamps = false; x.FileSrt = false; x.FileExtraFormats = ['md', 'docx']; });
+    await remoteTranscriber(() => s, post)('/x/a.wav', long(), () => {}, new AbortController().signal);
+    expect(posts).toBe(1);
+    posts = 0;
+    s.FileExtraFormats = ['json'];
+    await remoteTranscriber(() => s, post)('/x/a.wav', long(), () => {}, new AbortController().signal);
+    expect(posts).toBeGreaterThan(1);
+  });
+
   it('prepare checks only the address; a bad one stops before any file', async () => {
     const s = client((x) => { x.RemoteHost = ''; });
     const prep = await remotePrepare(() => s, async () => 'x')();
@@ -120,5 +133,57 @@ describe('file transcription in the Client role', () => {
   it('remoteFatal only knows host errors', () => {
     expect(remoteFatal(new Error('x'))).toBeNull();
     expect(remoteFatal(new RemoteHostException('ру', 'en'))).toBe('ру');
+  });
+});
+
+describe('file transcription in the Client role + Silero VAD', () => {
+  it('with the VAD model the pieces are cut at speech pauses (status says so); without it the energy split', async () => {
+    // Speech 0.5–21.5 s and 22.5–59.5 s over a hiss louder than −35 dBFS: energy finds no pause.
+    const x = new Float32Array(16000 * 60);
+    let seed = 7;
+    for (let i = 0; i < x.length; i++) {
+      seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+      const t = i / 16000;
+      x[i] = 0.1 * (seed / 0x7fffffff - 0.5) + ((t > 0.5 && t < 21.5) || (t > 22.5 && t < 59.5) ? 0.3 * Math.sin(i * 0.1) : 0);
+    }
+    const fake = {
+      run: async (feeds: Record<string, { data: unknown; dims: readonly number[] }>) => {
+        const batch = Number(feeds.input.dims[0]);
+        const input = feeds.input.data as Float32Array;
+        const out = new Float32Array(batch);
+        for (let b = 0; b < batch; b++) {
+          let sum = 0;
+          for (let i = 64; i < 576; i++) sum += input[b * 576 + i] ** 2;
+          out[b] = Math.sqrt(sum / 512) > 0.12 ? 0.9 : 0.05;
+        }
+        return { output: { data: out }, stateN: { data: new Float32Array((feeds.state.data as Float32Array).length) } };
+      },
+    };
+    const s = client();
+    const run = async () => {
+      const cuts: number[] = [];
+      const lines: string[] = [];
+      let at = 0;
+      const tr = remoteTranscriber(() => s, async (_s, body) => {
+        at += readWav(body).samples.length;
+        cuts.push(at / 16000);
+        return 'текст';
+      });
+      await tr('/a.wav', x, (l) => void lines.push(l), new AbortController().signal);
+      return { cuts, lines };
+    };
+    try {
+      setVadRuntime(new VadRuntime(() => '/m/silero_vad.onnx', async () => fake as never));
+      const vad = await run();
+      expect(vad.lines[0]).toBe('Ищу паузы в речи…');
+      expect(vad.cuts[0]).toBeGreaterThan(21.5);
+      expect(vad.cuts[0]).toBeLessThan(22.5);
+      setVadRuntime(new VadRuntime(() => null));
+      const energy = await run();
+      expect(energy.cuts[0]).toBe(24);
+      expect(energy.lines[0]).not.toBe('Ищу паузы в речи…');
+    } finally {
+      setVadRuntime(null);
+    }
   });
 });
