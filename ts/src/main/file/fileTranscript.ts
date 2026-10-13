@@ -134,8 +134,8 @@ export async function load16k(path: string, signal?: AbortSignal): Promise<Float
   }
 
   const hint = t(
-    ' Установите ffmpeg (кнопка на странице «Расшифровка файла») для MP3, M4A, WebM/MKV, FLAC и AMR.',
-    ' Install ffmpeg (button on the File transcription page) for MP3, M4A, WebM/MKV, FLAC and AMR.',
+    ' Для AMR, WMA, MKV/MOV и файлов больше 400 МБ нужен ffmpeg (см. страницу «Расшифровка файла»).',
+    ' AMR, WMA, MKV/MOV and files over 400 MB need ffmpeg (see the File transcription page).',
   );
   throw new Error((platformError?.message ?? 'unsupported audio format') + hint);
 }

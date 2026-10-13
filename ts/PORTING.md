@@ -50,8 +50,8 @@ Re-align folder names and tooling with taptain-desktop once its layout is readab
   `CHAWO_MODEL_DIR` (and legacy `PISAR_*`).
 
 - No Media Foundation outside WPF. `fileTranscript.load16k` decodes WAV/Ogg-Opus natively, then an
-  injectable `PlatformDecoder` (planned: hidden sandboxed renderer with `decodeAudioData`, which
-  covers MP3/AAC/M4A/Opus-WebM/FLAC in Chromium), then ffmpeg. ffmpeg decodes straight to s16le on
+  injectable `PlatformDecoder` (`src/main/chromiumDecoder.ts`: hidden sandboxed renderer with
+  `decodeAudioData` at 16 kHz, covers MP3/AAC/M4A/FLAC/Vorbis/Opus-WebM/float WAV, files ≤ 400 MB), then ffmpeg. ffmpeg decodes straight to s16le on
   stdout (no temp WAV). The pinned BtbN zip download is offered only on Windows; Linux uses PATH.
 
 ## Log
@@ -107,3 +107,14 @@ Re-align folder names and tooling with taptain-desktop once its layout is readab
   real Russian voice sample before trusting the port. Next: that check, then the Chromium platform
   decoder (hidden renderer `decodeAudioData`) and the «Диктовка» page (model download + status).
 
+- 2026-10-13 tick 6: recognizer verified on real Russian speech (Wikimedia Commons spoken article
+  «Русский язык», CC BY-SA, not committed): correct text with punctuation, 3:44 Vorbis file in
+  16.6 s wall on the box CPU (3 workers). `bench_3min.wav` gives an empty transcript because it
+  has no speech, not because of a bug. Opt-in test `test/recognizer.speech.test.ts`
+  (CHAWO_TEST_MODEL_DIR + CHAWO_TEST_SPEECH). Chromium platform decoder done: hidden 1×1 sandboxed
+  window, bytes over IPC, `OfflineAudioContext(16 kHz).decodeAudioData`, mono back, idle close after
+  60 s, abort kills the renderer. Verified MP3/M4A/FLAC/WebM-Opus/float WAV/Vorbis decode, and the
+  full app path MP3 → .txt with ffmpeg hidden from PATH. ffmpeg hints now say it is only needed for
+  AMR, WMA, MKV/MOV and files over 400 MB. `scripts/smoke-decode.cjs`, `SMOKE_WAIT=1` for
+  smoke-shot. 75 tests green. Next: «Диктовка» page (model status + download with progress, device
+  choice), then microphone capture and the global hotkey.

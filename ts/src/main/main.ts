@@ -4,6 +4,8 @@
 import { app, BrowserWindow, Menu, Tray, nativeImage, nativeTheme, session } from 'electron';
 import { join } from 'node:path';
 import { registerFileIpc } from './fileIpc';
+import { chromiumDecode, disposeChromiumDecoder } from './chromiumDecoder';
+import { setPlatformDecoder } from './file';
 import * as Settings from './settings';
 import { applyLanguage } from '../core/strings';
 
@@ -93,6 +95,8 @@ if (!app.requestSingleInstanceLock()) {
     session.defaultSession.setPermissionRequestHandler((_wc, permission, cb) => cb(permission === 'media'));
     settings = Settings.load();
     applyLanguage(settings.Language, app.getLocale());
+    // MP3/M4A/FLAC/… decode in a hidden sandboxed renderer; ffmpeg stays an optional fallback.
+    setPlatformDecoder(chromiumDecode);
     registerFileIpc(() => win, { get: () => settings });
     win = createWindow();
     tray = createTray();
@@ -102,6 +106,7 @@ if (!app.requestSingleInstanceLock()) {
   });
   app.on('before-quit', () => {
     quitting = true;
+    disposeChromiumDecoder();
     tray?.destroy();
   });
 }

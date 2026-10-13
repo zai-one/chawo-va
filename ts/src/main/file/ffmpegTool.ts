@@ -56,12 +56,12 @@ export function statusLine(): string {
   if (!found) {
     return canDownload()
       ? t(
-          'ffmpeg нет. Нужен для MP3, M4A, WebM/MKV, FLAC и AMR — кнопка ниже скачает LGPL-сборку BtbN (~170 МБ), в архив программы не входит.',
-          'ffmpeg is missing. Needed for MP3, M4A, WebM/MKV, FLAC and AMR — the button below downloads the BtbN LGPL build (~170 MB); it is not in the app archive.',
+          'ffmpeg нет. MP3, M4A, FLAC и WebM открываются и без него; ffmpeg нужен для AMR, WMA, MKV/MOV и файлов больше 400 МБ — кнопка ниже скачает LGPL-сборку BtbN (~170 МБ), в архив программы не входит.',
+          'ffmpeg is missing. MP3, M4A, FLAC and WebM open without it; ffmpeg is needed for AMR, WMA, MKV/MOV and files over 400 MB — the button below downloads the BtbN LGPL build (~170 MB); it is not in the app archive.',
         )
       : t(
-          'ffmpeg нет. Нужен для MP3, M4A, WebM/MKV, FLAC и AMR — установите его пакетным менеджером (например, apt install ffmpeg).',
-          'ffmpeg is missing. Needed for MP3, M4A, WebM/MKV, FLAC and AMR — install it with your package manager (e.g. apt install ffmpeg).',
+          'ffmpeg нет. MP3, M4A, FLAC и WebM открываются и без него; ffmpeg нужен для AMR, WMA, MKV/MOV и файлов больше 400 МБ — установите его пакетным менеджером (например, apt install ffmpeg).',
+          'ffmpeg is missing. MP3, M4A, FLAC and WebM open without it; ffmpeg is needed for AMR, WMA, MKV/MOV and files over 400 MB — install it with your package manager (e.g. apt install ffmpeg).',
         );
   }
   return found === exePath() ? `ffmpeg: ${found}` : t(`ffmpeg в PATH: ${found}`, `ffmpeg on PATH: ${found}`);
