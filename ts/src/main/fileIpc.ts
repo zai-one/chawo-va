@@ -11,6 +11,7 @@ import * as Translate from './brain/translate';
 import { BrainException } from './brain/speechCleanup';
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { toTxt } from '../core/transcriptFormat';
+import { scriptCommand } from '../core/postScript';
 import * as Settings from './settings';
 import { asExtraFormats, type FileExtraFormat, type SettingsData, type SettingsFileParallelism } from './settings';
 import { isRussian, t } from '../core/strings';
@@ -160,7 +161,10 @@ export function registerFileIpc(getWindow: () => BrowserWindow | null, settings:
     prefetch: () => !client(),
     options: () => {
       const s = settings.get();
-      return { timestamps: s.FileTimestamps, srt: s.FileSrt, extra: [...s.FileExtraFormats], useBrain: s.FileUseBrain, diarize: s.FileDiarize, brief: s.MeetingBriefEnabled };
+      return {
+        timestamps: s.FileTimestamps, srt: s.FileSrt, extra: [...s.FileExtraFormats], useBrain: s.FileUseBrain, diarize: s.FileDiarize, brief: s.MeetingBriefEnabled,
+        postScript: s.PostScriptFiles ? scriptCommand(s.PostScript) : null,
+      };
     },
     status: () => {
       // The queue speaks again: its line replaces the last download/ffmpeg line.

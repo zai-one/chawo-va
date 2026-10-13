@@ -9,6 +9,7 @@ import type { FileParallelismKind } from '../core/fileParallel';
 import type { CtcScript, SpeechDeviceKind, SpeechModelKind } from '../core/speechModels';
 import { clock, toSrt, toTxt, type TranscriptSegment } from '../core/transcriptFormat';
 import { helpText, langFromArgv, parseArgs, type CliOptions } from './args';
+import { FILE_TIMEOUT_MS, failureText, logLine, runPostScript, scriptCommand, type PostScriptResult, type PostScriptRun } from '../core/postScript';
 
 export const EXIT_OK = 0;
 export const EXIT_FAILED = 1;
@@ -25,6 +26,8 @@ export interface CliDefaults {
   script: CtcScript;
   timestamps: boolean;
   language: 'Auto' | 'Russian' | 'English';
+  /** «Свой скрипт» from settings: PostScript when PostScriptFiles is on, else null. */
+  postScript?: string | null;
 }
 
 export interface EngineConfig {
@@ -97,6 +100,8 @@ export interface CliDeps {
   briefBrain(): BriefBrain;
   /** Brain for `translate` (Local / Server). Tests inject a fake ask. */
   translateBrain(): TranslateBrain;
+  /** «Свой скрипт» runner; defaults to core runPostScript (tests may inject). */
+  runScript?: (r: PostScriptRun) => Promise<PostScriptResult>;
   log(line: string): void;
   now(): number;
   signal: AbortSignal;
@@ -322,6 +327,7 @@ async function transcribe(o: CliOptions, defaults: CliDefaults, d: CliDeps): Pro
 
   const formats = o.formats.length > 0 ? o.formats : (['txt'] as const);
   const timestamps = o.timestamps ?? defaults.timestamps;
+  const script = o.noPostScript ? null : scriptCommand(o.postScript ?? defaults.postScript ?? null);
   // Output collisions and --skip-existing are settled before any model is loaded.
   const targets = new Map<string, string>();
   const work: { src: string; txt: string; prefix: string }[] = [];
@@ -392,8 +398,19 @@ async function transcribe(o: CliOptions, defaults: CliDefaults, d: CliDeps): Pro
         );
         if (drawn) d.err('\r\x1b[2K');
         if (d.signal.aborted) break;
-        const text = toTxt(segments, timestamps);
+        let text = toTxt(segments, timestamps);
         const notes = [clock(samples.length / RATE)];
+        if (script) {
+          const res = await (d.runScript ?? runPostScript)({ command: script, text, source: 'file', file: src, timeoutMs: FILE_TIMEOUT_MS, signal: d.signal });
+          if (d.signal.aborted) break;
+          d.log(logLine(res, 'file', text.length));
+          if (res.ok) {
+            text = res.text;
+            notes.push(t('скрипт', 'script'));
+          } else {
+            notes.push(t(`скрипт: ${failureText(res, t)}, .txt без него`, `script: ${failureText(res, t)}, .txt without it`));
+          }
+        }
         if (o.stdout) {
           if (files.length > 1) d.out(`==> ${src} <==\n`);
           d.out(text + '\n');

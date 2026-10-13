@@ -286,11 +286,11 @@ describe('readDefaults (settings.json read-only)', () => {
     const app = join(dir, 'ChawoVoiceAssistant');
     mkdirSync(app, { recursive: true });
     const file = join(app, 'settings.json');
-    const body = JSON.stringify({ SpeechModel: 'MultilingualLargeCtc', SpeechDevice: 'Cpu', FileParallelism: 'Two', CtcScript: 'English', FileTimestamps: false, Language: 'English', KeepAwakeWhileListening: true }, null, 1);
+    const body = JSON.stringify({ SpeechModel: 'MultilingualLargeCtc', SpeechDevice: 'Cpu', FileParallelism: 'Two', CtcScript: 'English', FileTimestamps: false, Language: 'English', KeepAwakeWhileListening: true, PostScript: ' python fix.py ', PostScriptFiles: true }, null, 1);
     writeFileSync(file, body);
     const before = statSync(file).mtimeMs;
     const { readDefaults } = await import('../src/cli');
-    expect(readDefaults()).toEqual({ model: 'multilingual_large_ctc', device: 'cpu', threads: 2, script: 'english', timestamps: false, language: 'English' });
+    expect(readDefaults()).toEqual({ model: 'multilingual_large_ctc', device: 'cpu', threads: 2, script: 'english', timestamps: false, language: 'English', postScript: 'python fix.py' });
     expect(readFileSync(file, 'utf8')).toBe(body);
     expect(statSync(file).mtimeMs).toBe(before);
   });
@@ -396,5 +396,35 @@ describe('runCli translate', () => {
   it('rejects --format / speech options on translate', async () => {
     expect(await run(harness(), 'translate', 'a.txt', '-f', 'srt')).toBe(EXIT_USAGE);
     expect(await run(harness(), 'translate', 'a.txt', '--model', 'v3')).toBe(EXIT_USAGE);
+  });
+});
+
+describe('runCli transcribe + «Свой скрипт»', () => {
+  const node = JSON.stringify(process.execPath);
+  const upper = `${node} ${JSON.stringify(join(__dirname, 'fixtures', 'postscript', 'upper.cjs'))}`;
+
+  it('--post-script runs a real script on the .txt (srt untouched) with CHAWO_FILE', async () => {
+    const h = harness({ existing: ['/rec/talk.wav'] });
+    expect(await run(h, 'transcribe', '/rec/talk.wav', '-f', 'txt,srt', '--no-timestamps', '--post-script', upper + ' --tag')).toBe(EXIT_OK);
+    expect(h.files.get('/rec/talk.txt')).toBe('ПРИВЕТ.\nКАК ДЕЛА? [file talk.wav]');
+    expect(h.files.get('/rec/talk.srt')).toContain('Привет.');
+    expect(h.err.join('')).toContain('Done: /rec/talk.txt (00:01:05 · script ·');
+    expect(h.logs.some((l) => /^post script \(file\): ok/.test(l))).toBe(true);
+  });
+
+  it('settings script applies to --stdout; --no-post-script skips it', async () => {
+    const h = harness({ existing: ['/a.wav'], defaults: { postScript: upper } });
+    expect(await run(h, 'transcribe', '/a.wav', '--stdout', '--no-timestamps')).toBe(EXIT_OK);
+    expect(h.out.join('')).toBe('ПРИВЕТ.\nКАК ДЕЛА?\n');
+    const n = harness({ existing: ['/a.wav'], defaults: { postScript: upper } });
+    expect(await run(n, 'transcribe', '/a.wav', '--stdout', '--no-timestamps', '--no-post-script')).toBe(EXIT_OK);
+    expect(n.out.join('')).toBe('Привет.\nКак дела?\n');
+  });
+
+  it('a failing script: .txt as recognized, exit 0, the line says why', async () => {
+    const h = harness({ existing: ['/a.wav'] });
+    expect(await run(h, 'transcribe', '/a.wav', '--no-timestamps', '--post-script', `${node} -e "process.exit(4)"`)).toBe(EXIT_OK);
+    expect(h.files.get('/a.txt')).toBe('Привет.\nКак дела?');
+    expect(h.err.join('')).toContain('script: exit code 4, .txt without it');
   });
 });

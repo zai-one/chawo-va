@@ -8,6 +8,7 @@ import { FileJob } from './core/fileJob';
 import { Recognizer } from './core/recognizer';
 import { applyLanguage, t } from './core/strings';
 import { fromRanges } from './core/transcriptFormat';
+import { scriptCommand } from './core/postScript';
 import { runCli, EXIT_INTERRUPTED, type CliDefaults, type CliDeps, type Engine, type EngineConfig } from './cli/run';
 import * as Log from './main/log';
 import { findComplete, looksComplete } from './main/models/speechModelStore';
@@ -51,6 +52,7 @@ export function readDefaults(): CliDefaults {
     script: toCtcScript(s.CtcScript),
     timestamps: s.FileTimestamps,
     language: s.Language,
+    postScript: s.PostScriptFiles ? scriptCommand(s.PostScript) : null,
   };
 }
 

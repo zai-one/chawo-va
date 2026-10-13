@@ -25,5 +25,8 @@ export function registerDictionaryIpc(
   ipcMain.handle('dict:addSuggestion', (_e, heard: unknown, written: unknown) => ctl.addSuggestion(str(heard), str(written)));
   ipcMain.handle('dict:setSpoken', (_e, kind: unknown, on: unknown) =>
     ctl.setSpoken(kind === 'numbers' ? 'numbers' : kind === 'punctuation' ? 'punctuation' : ('' as never), on === true));
+  ipcMain.handle('dict:setScript', (_e, command: unknown) => ctl.setScript(str(command)));
+  ipcMain.handle('dict:setScriptFiles', (_e, on: unknown) => ctl.setScriptFiles(on === true));
+  ipcMain.handle('dict:testScript', () => ctl.testScript());
   return ctl;
 }

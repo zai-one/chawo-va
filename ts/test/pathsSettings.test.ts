@@ -201,6 +201,18 @@ describe('log', () => {
     expect(existsSync(logPath())).toBe(true);
     expect(readFileSync(logPath(), 'utf8')).toContain('hello from test');
   });
+  it('PostScript / PostScriptFiles round-trip (empty / off by default)', () => {
+    const s = defaults();
+    expect(s.PostScript).toBe('');
+    expect(s.PostScriptFiles).toBe(false);
+    s.PostScript = 'python fix.py';
+    s.PostScriptFiles = true;
+    const obj = toJsonObject(s);
+    expect(obj).toMatchObject({ PostScript: 'python fix.py', PostScriptFiles: true });
+    expect(fromJsonObject(obj).settings).toMatchObject({ PostScript: 'python fix.py', PostScriptFiles: true });
+    expect(fromJsonObject({ PostScript: 1, PostScriptFiles: 'yes' }).settings).toMatchObject({ PostScript: '', PostScriptFiles: false });
+  });
+
   it('TranslateTarget round-trip (empty = auto)', () => {
     const s = defaults();
     expect(s.TranslateTarget).toBe('');

@@ -132,8 +132,12 @@ interface DictState {
   rows: DictRow[];
   suggestions: DictSuggestionRow[];
   spoken: { punctuation: boolean; numbers: boolean; punctuationLabel: string; punctuationHint: string; numbersLabel: string; numbersHint: string };
+  script: { heading: string; command: string; placeholder: string; hint: string; files: boolean; filesLabel: string; testLabel: string; testLine: string; testOk: boolean | null; busy: boolean };
 }
 interface DictApi {
+  setScript(command: string): Promise<DictState>;
+  setScriptFiles(on: boolean): Promise<DictState>;
+  testScript(): Promise<DictState>;
   setSpoken(kind: 'punctuation' | 'numbers', on: boolean): Promise<DictState>;
   state(): Promise<DictState>;
   setRow(id: number, from: string, to: string): Promise<DictState>;
@@ -1305,6 +1309,33 @@ function renderDictionary(focusId?: number): void {
     }
     page.append(list);
   }
+
+  // «Свой скрипт»: last, for people who write code. One field, one switch, one check button.
+  const sc = s.script;
+  const cmd = el('input', { type: 'text', value: sc.command, placeholder: sc.placeholder, spellcheck: false });
+  cmd.dataset.dict = 'script';
+  cmd.setAttribute('aria-label', sc.heading);
+  cmd.className = 'grow';
+  cmd.addEventListener('input', () => void bridge.dict.setScript(cmd.value).then((st) => { dictState = st; }));
+  const test = button(sc.testLabel, () => {
+    test.disabled = true;
+    void bridge.dict.setScript(cmd.value).then(() => bridge.dict.testScript()).then((st) => applyDict(st));
+  });
+  test.dataset.dict = 'scriptTest';
+  test.disabled = sc.busy;
+  const files = el('input', { type: 'checkbox', checked: sc.files });
+  files.dataset.dict = 'scriptFiles';
+  files.addEventListener('change', () => void bridge.dict.setScriptFiles(files.checked).then((st) => applyDict(st)));
+  const box = el('fieldset', { className: 'post-script' }, el('legend', { textContent: sc.heading }),
+    el('p', { className: 'muted hint', textContent: sc.hint }),
+    el('div', { className: 'row' }, cmd, test),
+    el('label', { className: 'check' }, files, ' ' + sc.filesLabel));
+  if (sc.testLine) {
+    const line = el('p', { className: 'status line' + (sc.testOk === false ? ' warn' : ''), textContent: sc.testLine });
+    line.dataset.dict = 'scriptResult';
+    box.append(line);
+  }
+  page.append(box);
   if (focusEl) focusEl.focus();
 }
 

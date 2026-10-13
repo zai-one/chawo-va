@@ -17,6 +17,7 @@ import { outputPath as briefOutputPath } from '../brain/meetingBrief';
 import type { FileExtraFormat } from '../settings';
 import { writeExtras } from './transcriptExport';
 import * as Log from '../log';
+import { FILE_TIMEOUT_MS, failureText, logLine, runPostScript, type PostScriptResult, type PostScriptRun } from '../../core/postScript';
 
 export interface FileRunOptions {
   timestamps: boolean;
@@ -29,6 +30,8 @@ export interface FileRunOptions {
   diarize: boolean;
   /** When true, write name.brief.txt («Кратко и задачи») via runBrief when provided. */
   brief: boolean;
+  /** «Свой скрипт» for the .txt (settings PostScript with PostScriptFiles on); null/absent = off. */
+  postScript?: string | null;
 }
 
 /** Turns 16 kHz samples into segments. status() shows a progress line for the current file. */
@@ -92,6 +95,8 @@ export interface FileRunnerDeps {
    * is marked failed, the rest stays queued.
    */
   fatal?: (e: unknown) => string | null;
+  /** «Свой скрипт» runner; defaults to core runPostScript. */
+  runScript?: (r: PostScriptRun) => Promise<PostScriptResult>;
   /** Decode the next file while this one runs (WPF skips it in the Client role). Default true. */
   prefetch?: () => boolean;
 }
@@ -289,7 +294,20 @@ export class FileRunner {
       }
     }
 
-    writeFileSync(out, toTxt(segments, opts.timestamps), 'utf8');
+    let txt = toTxt(segments, opts.timestamps);
+    if (opts.postScript) {
+      this.say(prefix + t('Свой скрипт…', 'Your script…'));
+      const res = await (this.d.runScript ?? runPostScript)({ command: opts.postScript, text: txt, source: 'file', file: item.path, timeoutMs: FILE_TIMEOUT_MS, signal });
+      if (signal.aborted) throw abortError();
+      Log.write(logLine(res, 'file', txt.length));
+      if (res.ok) {
+        txt = res.text;
+        notes.push(t('скрипт', 'script'));
+      } else {
+        notes.push(t(`скрипт: ${failureText(res, t)}`, `script: ${failureText(res, t)}`));
+      }
+    }
+    writeFileSync(out, txt, 'utf8');
     if (opts.srt) {
       writeFileSync(out.replace(/\.txt$/i, '.srt'), toSrt(segments), 'utf8');
       notes.push('.srt');
