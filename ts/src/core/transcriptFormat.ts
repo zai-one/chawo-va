@@ -51,6 +51,35 @@ export function toTxt(segments: readonly TranscriptSegment[], timestamps: boolea
   return lines.join('\n');
 }
 
+/**
+ * Back from a finished .txt (as toTxt wrote it, or edited by hand): one segment per non-empty line.
+ * «[hh:mm:ss] text» gives the start; a line without it keeps the previous start. `timestamps` says
+ * whether any line had one, so a re-run (e.g. `chawo-va brain`) writes the same style back.
+ * «Спикер N:» stays part of the text — the Brain sees it as written.
+ */
+export function fromTxt(text: string): { segments: TranscriptSegment[]; timestamps: boolean } {
+  const segments: TranscriptSegment[] = [];
+  let timestamps = false;
+  let start = 0;
+  for (const raw of (text ?? '').replace(/^\uFEFF/, '').split(/\r?\n/)) {
+    let line = raw.trim();
+    if (!line) continue;
+    const m = /^\[(\d{1,3}):([0-5]\d):([0-5]\d)\]\s*/.exec(line);
+    if (m) {
+      timestamps = true;
+      start = Number(m[1]) * 3600 + Number(m[2]) * 60 + Number(m[3]);
+      line = line.slice(m[0].length).trim();
+      if (!line) continue;
+    }
+    segments.push({ start, end: start, text: line });
+  }
+  for (let i = 0; i < segments.length; i++) {
+    const next = segments[i + 1];
+    segments[i].end = next && next.start > segments[i].start ? next.start : segments[i].start;
+  }
+  return { segments, timestamps };
+}
+
 /** SubRip: index, start --> end, text, blank line. Empty pieces skipped, numbering continuous. */
 export function toSrt(segments: readonly TranscriptSegment[]): string {
   const withSpeakers = hasSpeakerLabels(segments);

@@ -131,10 +131,25 @@ export async function runAsync(
   ask?: AskFn,
 ): Promise<FileBrainResult> {
   if (targetKind === 'None') throw new BrainException(t('мозг не настроен', 'the Brain is not set up'));
+  return runWithAsk(targetKind, segments, timestamps, status, signal, ask ?? createAsk(s, targetKind));
+}
+
+/**
+ * The «Прогнать через мозг» pass with a given ask: paragraphs cleaned one by one (unfaithful answers
+ * kept as-is), then «Кратко». Shared by the File page (runAsync) and `chawo-va brain` / `transcribe --brain`.
+ */
+export async function runWithAsk(
+  targetKind: FileBrainTarget,
+  segments: readonly TranscriptSegment[],
+  timestamps: boolean,
+  status: (line: string) => void,
+  signal: AbortSignal,
+  askFn: AskFn,
+): Promise<FileBrainResult> {
+  if (targetKind === 'None') throw new BrainException(t('мозг не настроен', 'the Brain is not set up'));
   const paragraphs = paragraphsOf(segments);
   if (paragraphs.length === 0) throw new BrainException(t('в расшифровке нет текста', 'the transcript is empty'));
 
-  const askFn = ask ?? createAsk(s, targetKind);
   const cleaned: { start: number; text: string }[] = [];
   let keptAsIs = 0;
   let failed = 0;

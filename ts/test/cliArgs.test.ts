@@ -205,3 +205,37 @@ describe('langFromArgv', () => {
     }
   });
 });
+
+describe('brain command and --brain / --brief', () => {
+  it('brain takes .txt files, -t/--no-timestamps, --stdout, -o; refuses speech/format/brief options', () => {
+    expect(ok(['brain', 'a.txt', 'b.txt'])).toMatchObject({ command: 'brain', inputs: ['a.txt', 'b.txt'], timestamps: null, stdout: false });
+    expect(ok(['brain', 'a.txt', '--no-timestamps', '--stdout'])).toMatchObject({ timestamps: false, stdout: true });
+    expect(ok(['brain', 'a.txt', '-o', 'out'])).toMatchObject({ outDir: 'out' });
+    expect(err(['brain', 'a.txt', '-f', 'srt'])).toContain('brain writes .brain.txt');
+    expect(err(['brain', 'a.txt', '--model', 'v3'])).toContain('speech options are for transcribe');
+    expect(err(['brain', 'a.txt', '--instruction', 'x'])).toContain('--instruction is for brief');
+    expect(err(['brain', 'a.txt', '--to', 'en'])).toContain('--to is for translate');
+    expect(err(['brain'])).toBe('no files given');
+  });
+
+  it('--brain / --brief: transcribe only, null = settings, not both ways at once', () => {
+    expect(ok(['transcribe', 'a.wav'])).toMatchObject({ brain: null, brief: null });
+    expect(ok(['transcribe', 'a.wav', '--brain', '--no-brief'])).toMatchObject({ brain: true, brief: false });
+    expect(ok(['transcribe', 'a.wav', '--brief', '--instruction', 'Only tasks.'])).toMatchObject({ brief: true, instruction: 'Only tasks.' });
+    expect(err(['transcribe', 'a.wav', '--brain', '--no-brain'])).toContain('cannot be used together');
+    expect(err(['transcribe', 'a.wav', '--brief', '--no-brief'])).toContain('cannot be used together');
+    expect(err(['brain', 'a.txt', '--brief'])).toContain('already does it');
+    expect(err(['translate', 'a.txt', '--brain'])).toBe('--brain and --brief are for transcribe');
+    expect(err(['history', '--brief'])).toBe('--brain and --brief are for transcribe');
+  });
+
+  it('help names brain, --brain and --brief in both languages', () => {
+    for (const lang of ['ru', 'en'] as const) {
+      const help = helpText((ru, en) => (lang === 'ru' ? ru : en));
+      expect(help).toContain('chawo-va brain <');
+      expect(help).toContain('--brain / --no-brain');
+      expect(help).toContain('--brief / --no-brief');
+      expect(help).toContain('.brain.txt');
+    }
+  });
+});

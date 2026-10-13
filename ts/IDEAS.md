@@ -139,5 +139,6 @@ CLI-паритет уже сделанного (правило пользова�
 - ✅ история: список и поиск (`chawo-va history`) — `ts/feat-cli-history`;
 - ✅ VAD: длинные файлы режутся по паузам Silero, как на странице (`fileRanges`), `--vad` / `--no-vad`, без флага — `VadEnabled`; модель VAD CLI не скачивает — `ts/feat-cli-diarize`;
 - ✅ диаризация: `--diarize` / `--no-diarize`, без флага — «Разделять спикеров» (`FileDiarize`) — `ts/feat-cli-diarize`;
-- ⏳ голосовая пунктуация/числа, по ссылке (yt-dlp), проход Мозга/сводка для файлов.
+- ✅ проход Мозга и сводка для файлов: `chawo-va brain <txt…>` → .brain.txt (тот же `FileBrain.runWithAsk`, что у «Прогнать через мозг»), `transcribe --brain` / `--no-brain` (без флага — `FileUseBrain`) и `--brief` / `--no-brief` (без флага — `MeetingBriefEnabled`, `--instruction` — свой формат) — `ts/feat-cli-brain`;
+- ⏳ по ссылке (yt-dlp); голосовая пунктуация/числа — только для диктовки, в CLI пока не нужно (решить, если появится `chawo-va dictate`).
 
