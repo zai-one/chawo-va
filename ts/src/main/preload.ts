@@ -92,6 +92,9 @@ const api = {
     refresh: () => ipcRenderer.invoke('brain:refresh'),
     openKeysLink: () => ipcRenderer.invoke('brain:keysLink'),
     deleteGguf: (path: string) => ipcRenderer.invoke('brain:deleteGguf', path),
+    download: (kind: string) => ipcRenderer.invoke('brain:download', kind),
+    cancelDownload: () => ipcRenderer.invoke('brain:cancelDownload'),
+    dismissDownload: () => ipcRenderer.invoke('brain:dismissDownload'),
     close: () => ipcRenderer.invoke('brain:close'),
     onState: (fn: (s: unknown) => void) => {
       const h = (_e: unknown, s: unknown) => fn(s);

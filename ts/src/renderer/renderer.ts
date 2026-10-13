@@ -76,7 +76,8 @@ interface DictApi {
   suggest(): Promise<DictState>;
   addSuggestion(heard: string, written: string): Promise<DictState>;
 }
-interface BrainRow { kind: string | null; label: string; selected: boolean; onDisk: boolean; path: string | null }
+interface BrainRow { kind: string | null; label: string; selected: boolean; onDisk: boolean; path: string | null; canDownload: boolean; downloadLabel: string }
+interface BrainDownload { kind: string; title: string; intro: string; percent: number | null; text: string; running: boolean; failed: boolean }
 interface BrainState {
   ru: boolean;
   heading: string;
@@ -112,6 +113,7 @@ interface BrainState {
   everyTake: { visible: boolean; on: boolean; hint: string };
   instruction: { visible: boolean; text: string; hint: string };
   selection: { visible: boolean; on: boolean; hint: string };
+  download: BrainDownload | null;
 }
 interface BrainApi {
   state(rebind?: boolean): Promise<BrainState>;
@@ -129,6 +131,9 @@ interface BrainApi {
   refresh(): Promise<BrainState>;
   openKeysLink(): Promise<boolean>;
   deleteGguf(path: string): Promise<BrainState>;
+  download(kind: string): Promise<BrainState>;
+  cancelDownload(): Promise<BrainState>;
+  dismissDownload(): Promise<BrainState>;
   close(): Promise<boolean>;
   onState(fn: (s: BrainState) => void): () => void;
 }
@@ -353,11 +358,12 @@ function renderBrain(): void {
   if (s.local.visible) {
     const v = s.local;
     page.append(el('label', { className: 'block', textContent: L('Модель на компьютере', 'Model on this computer') }));
+    const busy = s.download?.running === true;
     const rows = el('div', { className: 'models' });
     for (const r of v.rows) {
       const row = el('div', { className: 'model' });
       if (r.kind) {
-        const radio = el('input', { type: 'radio', name: 'brain-model', checked: r.selected });
+        const radio = el('input', { type: 'radio', name: 'brain-model', checked: r.selected, disabled: busy });
         const kind = r.kind;
         radio.addEventListener('change', () => void bridge.brain.setLocalModel(kind).then(applyBrain));
         row.append(el('label', {}, radio, ' ', r.label));
@@ -365,9 +371,17 @@ function renderBrain(): void {
         row.append(el('label', { textContent: r.label }));
       }
       if (r.onDisk) row.append(el('span', { className: 'disk', textContent: L('на диске', 'on disk') }));
+      if (r.kind && r.canDownload) {
+        const kind = r.kind;
+        const dl = button(r.downloadLabel, () => void bridge.brain.download(kind).then(applyBrain));
+        dl.disabled = busy;
+        row.append(dl);
+      }
       if (r.path) {
         const path = r.path;
-        row.append(button(L('Удалить', 'Delete'), () => void bridge.brain.deleteGguf(path).then(applyBrain)));
+        const del = button(L('Удалить', 'Delete'), () => void bridge.brain.deleteGguf(path).then(applyBrain));
+        del.disabled = busy && r.selected;
+        row.append(del);
       }
       rows.append(row);
     }
@@ -380,6 +394,27 @@ function renderBrain(): void {
       page.append(url);
     }
     if (v.fileStatus) page.append(el('p', { className: 'muted hint line', textContent: v.fileStatus }));
+    const d = s.download;
+    if (d) {
+      const card = el('div', { className: `card${d.failed ? ' failed' : ''}` });
+      card.append(el('div', { textContent: d.title }), el('p', { className: 'muted hint', textContent: d.intro }));
+      if (d.running) {
+        const bar = el('div', { className: `progress${d.percent === null ? ' indeterminate' : ''}` }, el('div'));
+        if (d.percent !== null) (bar.firstChild as HTMLElement).style.width = `${d.percent.toFixed(1)}%`;
+        card.append(bar);
+      }
+      card.append(el('p', { className: 'status muted', textContent: d.text }));
+      const act = el('div', { className: 'row' });
+      if (d.running) act.append(button(L('Отмена', 'Cancel'), () => void bridge.brain.cancelDownload().then(applyBrain)));
+      else {
+        if (d.failed) act.append(button(L('Повторить', 'Retry'), () => void bridge.brain.download(d.kind).then(applyBrain), 'primary'));
+        act.append(button(L('Скрыть', 'Hide'), () => void bridge.brain.dismissDownload().then(applyBrain), 'link'));
+      }
+      card.append(act);
+      page.append(card);
+    } else if (v.rows.some((r) => r.canDownload)) {
+      page.append(el('p', { className: 'muted hint', textContent: L('Пока кнопка «Скачать» не нажата, в сеть ничего не уходит.', 'Nothing goes out on the network until you press Download.') }));
+    }
     page.append(el('label', { className: 'block', textContent: L('Где считает', 'Where it runs') }),
       selectOf(v.deviceChoices, v.device, (d) => void bridge.brain.setDevice(d).then(applyBrain)),
       el('p', { className: 'muted hint', textContent: v.deviceHint }));

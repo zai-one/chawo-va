@@ -2,7 +2,7 @@
 // optional ffmpeg build. No dependency; reads the central directory, inflates on demand.
 
 import { closeSync, openSync, readSync, fstatSync, writeFileSync, mkdirSync } from 'node:fs';
-import { dirname } from 'node:path';
+import { dirname, join } from 'node:path';
 import { deflateRawSync, inflateRawSync } from 'node:zlib';
 
 export interface ZipEntry {
@@ -142,4 +142,25 @@ function crc32Js(b: Buffer): number {
     for (let k = 0; k < 8; k++) c = (c >>> 1) ^ (0xedb88320 & -(c & 1));
   }
   return ~c >>> 0;
+}
+
+/**
+ * Extracts every file of a zip under dest, keeping folders. Entries that would land outside dest
+ * (absolute, `..`, drive letters) are refused. Returns the relative paths written.
+ */
+export function extractZipTree(path: string, dest: string, maxEntryBytes = 512 * 1024 * 1024): string[] {
+  const out: string[] = [];
+  mkdirSync(dest, { recursive: true });
+  for (const e of listZip(path)) {
+    const name = e.name.replace(/\\/g, '/');
+    if (name.endsWith('/')) continue;
+    if (name.startsWith('/') || /^[a-zA-Z]:/.test(name)) throw new Error(`zip: unsafe path ${e.name}`);
+    const parts = name.split('/').filter((p) => p.length > 0 && p !== '.');
+    if (parts.length === 0) continue;
+    if (parts.some((p) => p === '..')) throw new Error(`zip: unsafe path ${e.name}`);
+    if (e.size > maxEntryBytes) throw new Error(`zip: entry too large: ${e.name}`);
+    extractEntry(path, e, join(dest, ...parts));
+    out.push(parts.join('/'));
+  }
+  return out;
 }

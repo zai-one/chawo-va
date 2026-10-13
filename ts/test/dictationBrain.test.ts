@@ -229,12 +229,12 @@ describe('DictationSession + Brain + SimpleSyntax', () => {
     expect(sess.phase).toBe('Idle');
   });
 
-  it('Local with the model on disk: the not-yet-ported server start is a graceful Brain failure', async () => {
-    LocalBrain.setRuntime({ ...LocalBrain.createDefaultRuntime(), isReady: () => true, running: false, endpointUrl: '', apiKey: '' });
+  it('Local with the model on disk but llama-server failing to start is a graceful Brain failure', async () => {
+    LocalBrain.setRuntime(new LocalBrain.LlamaServerRuntime({ isReady: () => true, exeFor: () => '/nonexistent/llama-server' }));
     const { take, sess, s } = make({}, (x) => { x.Brain = 'Local'; x.BrainEveryTake = true; });
     expect(defaultBrainUsable(s)).toBe(true);
     expect(await take('привет мир')).toBe('привет мир');
-    expect(sess.view().status).toBe('Мозг не справился: локальный сервер мозга ещё не запускается в этой сборке. В буфере обмена текст без правки.');
+    expect(sess.view().status).toBe('Мозг не справился: движок мозга не скачан. В буфере обмена текст без правки.');
   });
 
   it('Local with no model on disk is not usable (App.BrainUsable)', async () => {

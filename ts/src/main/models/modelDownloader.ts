@@ -3,6 +3,7 @@
 
 import { createHash } from 'node:crypto';
 import {
+  createReadStream,
   createWriteStream,
   existsSync,
   mkdirSync,
@@ -11,8 +12,9 @@ import {
   renameSync,
   rmSync,
   closeSync,
+  statSync,
 } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import type { SpeechModelKind } from '../../core/speechModels';
 import { localDataDir } from '../paths';
 import { unpackTarGzFlat } from './tarGz';
@@ -350,5 +352,157 @@ export function verifyShaBuffer(data: Buffer, expected: string, label = 'buffer'
   const actual = sha256Hex(data);
   if (actual.toLowerCase() !== expected.toLowerCase()) {
     throw new Error(`checksum mismatch for ${label}`);
+  }
+}
+
+/** Data that does not match what was expected (size cap, checksum, archive layout). Maps to 'corrupt'. */
+export class InvalidDataError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'InvalidDataError';
+  }
+}
+
+/** SHA-256 of a file without blocking the main process on a multi-GB read. */
+export async function sha256File(path: string, signal?: AbortSignal): Promise<string> {
+  const hash = createHash('sha256');
+  const stream = createReadStream(path, { highWaterMark: 1 << 20 });
+  const onAbort = () => stream.destroy(abortError());
+  signal?.addEventListener('abort', onAbort, { once: true });
+  try {
+    for await (const chunk of stream) hash.update(chunk as Buffer);
+  } finally {
+    signal?.removeEventListener('abort', onAbort);
+  }
+  if (signal?.aborted) throw abortError();
+  return hash.digest('hex');
+}
+
+/** Async verifySha; throws InvalidDataError("checksum mismatch for the <what>"). */
+export async function verifyShaAsync(path: string, expected: string, what: string, signal?: AbortSignal): Promise<void> {
+  const actual = await sha256File(path, signal);
+  if (actual.toLowerCase() !== expected.toLowerCase()) throw new InvalidDataError(`checksum mismatch for the ${what}`);
+}
+
+export function abortError(): Error {
+  const e = new Error('aborted');
+  e.name = 'AbortError';
+  return e;
+}
+
+export interface ResumableOptions {
+  /** Injected in tests; defaults to global fetch. */
+  fetch?: typeof fetch;
+  /** No bytes for this long: the download is treated as stalled. C# DownloadIdleTimeout, 60 s for the Brain. */
+  idleMs?: number;
+  /** Hard cap when `expected` is 0 (custom GGUF). */
+  maxBytes?: number;
+  userAgent?: string;
+}
+
+/**
+ * Downloads url into path, continuing from what is already there (HTTP Range). Port of LocalBrain.FetchAsync:
+ * 416 on a resumed request means the file is complete; a server that ignores Range (200) restarts from zero;
+ * a response larger than `expected` (or `maxBytes` when expected is 0) is refused. The .part file is kept on
+ * network errors so the next attempt resumes.
+ */
+export async function fetchResumable(
+  url: string,
+  path: string,
+  expected: number,
+  onProgress: ((received: number, total: number) => void) | null,
+  signal?: AbortSignal,
+  opts: ResumableOptions = {},
+): Promise<void> {
+  const doFetch = opts.fetch ?? globalThis.fetch;
+  const idleMs = opts.idleMs ?? 60_000;
+  const cap = expected > 0 ? expected : (opts.maxBytes ?? MAX_FILE_BYTES);
+  let have = existsSync(path) ? statSync(path).size : 0;
+  if (have > cap) {
+    rmSync(path, { force: true });
+    have = 0;
+  }
+  if (signal?.aborted) throw abortError();
+
+  const idle = new AbortController();
+  let stalled = false;
+  const onOuterAbort = () => idle.abort();
+  signal?.addEventListener('abort', onOuterAbort, { once: true });
+  let idleTimer: NodeJS.Timeout | null = null;
+  const bumpIdle = () => {
+    if (idleTimer) clearTimeout(idleTimer);
+    idleTimer = setTimeout(() => {
+      stalled = true;
+      idle.abort();
+    }, idleMs);
+  };
+  bumpIdle();
+
+  const headers: Record<string, string> = { 'User-Agent': opts.userAgent ?? USER_AGENT };
+  if (have > 0) headers.Range = `bytes=${have}-`;
+  let file: ReturnType<typeof createWriteStream> | null = null;
+  try {
+    const res = await doFetch(url, { signal: idle.signal, headers, redirect: 'follow' });
+    if (have > 0 && res.status === 416) {
+      await res.body?.cancel().catch(() => undefined);
+      return; // already complete
+    }
+    if (!res.ok) {
+      await res.body?.cancel().catch(() => undefined);
+      throw new ModelDownloadException('network', `HTTP ${res.status}`);
+    }
+    if (have > 0 && res.status !== 206) have = 0; // server ignored Range
+    const cl = res.headers.get('content-length');
+    const len = cl != null && cl !== '' ? Number(cl) : NaN;
+    const total = Number.isFinite(len) && len >= 0 ? have + len : expected;
+    if (total > cap) {
+      await res.body?.cancel().catch(() => undefined);
+      throw new InvalidDataError(`${basename(path)} is larger than expected: ${total}`);
+    }
+    if (!res.body) throw new ModelDownloadException('network', 'empty body');
+
+    mkdirSync(dirname(path), { recursive: true });
+    const out = (file = createWriteStream(path, { flags: have > 0 ? 'a' : 'w' }));
+    const failed = new Promise<never>((_, reject) => out.once('error', reject));
+    failed.catch(() => undefined);
+    const reader = res.body.getReader();
+    let received = have;
+    let lastReport = 0;
+    for (;;) {
+      const { done, value } = await Promise.race([reader.read(), failed]);
+      if (done) break;
+      bumpIdle();
+      const chunk = Buffer.from(value);
+      received += chunk.length;
+      if (received > cap) throw new InvalidDataError('download larger than expected');
+      if (!out.write(chunk)) await Promise.race([new Promise<void>((r) => out.once('drain', r)), failed]);
+      const now = Date.now();
+      if (onProgress && now - lastReport > 100) {
+        onProgress(received, total);
+        lastReport = now;
+      }
+    }
+    await Promise.race([new Promise<void>((r) => out.end(() => r())), failed]);
+    file = null;
+    if (total > 0 && received !== total) {
+      throw new ModelDownloadException('network', `incomplete download: ${received} of ${total}`);
+    }
+    if (expected === 0 && received < 1024) throw new ModelDownloadException('network', 'download too small to be a GGUF');
+    onProgress?.(received, total > 0 ? total : received);
+  } catch (e) {
+    if (signal?.aborted) throw abortError();
+    if (stalled && !(e instanceof ModelDownloadException) && !(e instanceof InvalidDataError)) {
+      throw new ModelDownloadException('network', 'download stalled', e);
+    }
+    throw e;
+  } finally {
+    if (idleTimer) clearTimeout(idleTimer);
+    signal?.removeEventListener('abort', onOuterAbort);
+    if (file) {
+      // Keep what arrived for the next Range request; a broken stream is just dropped.
+      const f = file;
+      if (f.destroyed || f.errored) f.destroy();
+      else await new Promise<void>((r) => f.end(() => r()));
+    }
   }
 }

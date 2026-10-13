@@ -185,7 +185,7 @@ describe('«Мозг» page', () => {
       ['Custom', false],
       [null, true],
     ]);
-    expect(st.local.fileStatus).toMatch(/^Файла ещё нет\. Скачивание модели и движка в этой версии ещё не перенесено/);
+    expect(st.local.fileStatus).toBe("Файла ещё нет. Нажмите кнопку, сама модель не скачивается.");
     ctl.selectLocalModel('Custom');
     st = ctl.state();
     expect(st.local.customUrlVisible).toBe(true);
@@ -217,5 +217,123 @@ describe('«Мозг» page', () => {
     expect(s.BrainInstruction).toBe('Переведи на английский');
     expect(s.BrainOnSelection).toBe(false);
     expect(saves()).toBe(2);
+  });
+});
+
+describe('«Мозг» page: download card', () => {
+  type Prog = (p: LocalBrain.BrainProgress) => void;
+  function gate() {
+    let progress: Prog = () => {};
+    let resolve!: () => void;
+    let reject!: (e: unknown) => void;
+    let signal!: AbortSignal;
+    const calls: Settings.SettingsData[] = [];
+    const download = (s: Settings.SettingsData, p: Prog, sig: AbortSignal) => {
+      calls.push(s);
+      progress = p;
+      signal = sig;
+      return new Promise<void>((res, rej) => {
+        resolve = res;
+        reject = rej;
+        sig.addEventListener('abort', () => rej(Object.assign(new Error('aborted'), { name: 'AbortError' })));
+      });
+    };
+    return { download, calls, progress: (p: LocalBrain.BrainProgress) => progress(p), resolve: () => resolve(), reject: (e: unknown) => reject(e), signal: () => signal };
+  }
+
+  it('row button selects the model, shows «Скачиваю Мозг» with progress, clears on success', async () => {
+    const g = gate();
+    let ready = false;
+    let pushes = 0;
+    let changed = 0;
+    const { s, ctl, stops } = make({ download: g.download, isReady: () => ready, push: () => void pushes++, changed: () => void changed++ }, (x) => { x.Brain = 'Local'; });
+    let st = ctl.state();
+    expect(st.download).toBeNull();
+    expect(st.local.rows.filter((r) => r.canDownload).map((r) => r.kind)).toEqual(['Qwen3', 'Qwen35', 'Custom']);
+    expect(st.local.rows[0]!.downloadLabel).toBe('Скачать');
+
+    const done = ctl.download('Qwen35');
+    expect(s.BrainModel).toBe('Qwen35');
+    expect(stops()).toBe(1);
+    expect(g.calls.length).toBe(1);
+    st = ctl.state();
+    expect(st.download).toMatchObject({ kind: 'Qwen35', title: 'Скачиваю Мозг', running: true, failed: false, text: 'Соединяюсь…', percent: null });
+    expect(st.download!.intro).toBe('Нейросеть Qwen3.5 4B и движок llama.cpp. Если связь оборвётся, скачивание продолжится с того же места. Файл не запускается как программа.');
+
+    g.progress({ received: 512 * 1048576, total: 1024 * 1048576, phase: 'download' });
+    st = ctl.state();
+    expect(st.download).toMatchObject({ running: true, percent: 50, text: 'Скачано 512 из 1024 МБ' });
+    g.progress({ received: 0, total: 0, phase: 'verify' });
+    expect(ctl.state().download!.text).toBe('Проверяю файл…');
+    g.progress({ received: 0, total: 0, phase: 'unpack' });
+    expect(ctl.state().download!.text).toBe('Распаковываю…');
+
+    // A second press while running does nothing.
+    await ctl.download('Qwen3');
+    expect(g.calls.length).toBe(1);
+    expect(s.BrainModel).toBe('Qwen35');
+
+    ready = true;
+    g.resolve();
+    await done;
+    st = ctl.state();
+    expect(st.download).toBeNull();
+    expect(changed).toBeGreaterThan(0);
+    expect(pushes).toBeGreaterThan(3);
+    expect(st.local.fileStatus.startsWith('Уже на диске: ')).toBe(true);
+  });
+
+  it('failure shows the WPF text with Retry; cancel just closes the card', async () => {
+    const g = gate();
+    const { ctl } = make({ download: g.download }, (x) => { x.Brain = 'Local'; });
+    let p = ctl.download('Qwen3');
+    const { ModelDownloadException } = await import('../src/main/models/modelDownloader');
+    g.reject(new ModelDownloadException('noSpace', 'only 5 MB free'));
+    await p;
+    let st = ctl.state();
+    expect(st.download).toMatchObject({ failed: true, running: false });
+    expect(st.download!.text).toMatch(/^Мало места на диске: нужно около 2,5 ГБ свободных/);
+    ctl.dismissDownload();
+    expect(ctl.state().download).toBeNull();
+
+    p = ctl.download('Qwen3');
+    g.reject(new Error('socket hang up'));
+    await p;
+    expect(ctl.state().download!.text).toBe('Не получилось скачать. Проверьте интернет и попробуйте ещё раз.');
+
+    p = ctl.download('Qwen3');
+    expect(ctl.downloading).toBe(true);
+    ctl.cancelDownload();
+    await p;
+    expect(g.signal().aborted).toBe(true);
+    st = ctl.state();
+    expect(st.download).toBeNull();
+  });
+
+  it('custom link: a bad link fails at once, no download; already on disk says so', async () => {
+    const g = gate();
+    const { ctl } = make({ download: g.download }, (x) => { x.Brain = 'Local'; x.BrainModel = 'Custom'; x.BrainCustomUrl = 'https://example.com/a.gguf'; });
+    await ctl.download('Custom');
+    expect(g.calls.length).toBe(0);
+    expect(ctl.state().download).toMatchObject({ failed: true, text: 'Нужна ссылка Hugging Face на файл .gguf.' });
+
+    const r = make({ download: g.download, isReady: () => true }, (x) => { x.Brain = 'Local'; });
+    await r.ctl.download('Qwen3');
+    expect(g.calls.length).toBe(0);
+    expect(r.ctl.state().download!.text.startsWith('Эта модель уже на диске.')).toBe(true);
+  });
+
+  it('model on disk but no engine for the device: «Скачать движок» on the selected row; DeviceNote in the status', () => {
+    const dir = LocalBrain.dir();
+    const files = [{ path: `${dir}/${LocalBrain.ModelFile}`, label: 'Qwen3 4B' }];
+    let ready = false;
+    const { ctl } = make({ installed: () => files, isReady: () => ready, deviceNote: () => 'Видеокарта не поднялась, мозг считает на процессоре.' }, (x) => { x.Brain = 'Local'; x.BrainDevice = 'Gpu'; });
+    let row = ctl.state().local.rows[0]!;
+    expect(row).toMatchObject({ onDisk: true, canDownload: true, downloadLabel: 'Скачать движок' });
+    ready = true;
+    const st = ctl.state();
+    row = st.local.rows[0]!;
+    expect(row.canDownload).toBe(false);
+    expect(st.local.fileStatus.endsWith(' Видеокарта не поднялась, мозг считает на процессоре.')).toBe(true);
   });
 });

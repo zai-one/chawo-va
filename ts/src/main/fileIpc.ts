@@ -81,10 +81,6 @@ export function registerFileIpc(getWindow: () => BrowserWindow | null, settings:
       if (kind === 'None') {
         return { note: t('мозг не настроен', 'the Brain is not set up') };
       }
-      if (kind === 'Local') {
-        // Process start deferred this tick; surface a clear reason instead of hanging.
-        return { note: t('локальный мозг ещё не запускается в этой сборке', 'local Brain not started in this build') };
-      }
       try {
         const result = await FileBrain.runAsync(s, kind, segments, opts.timestamps, status, signal);
         const note =

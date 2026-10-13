@@ -7,6 +7,7 @@ import { registerFileIpc } from './fileIpc';
 import { registerSpeechIpc } from './speechIpc';
 import { registerDictionaryIpc } from './dictionaryIpc';
 import { registerBrainIpc } from './brainIpc';
+import * as LocalBrain from './brain/localBrain';
 import { registerDictationIpc } from './dictationIpc';
 import { OverlayWindow } from './overlay/overlayWindow';
 import { chromiumDecode, disposeChromiumDecoder } from './chromiumDecoder';
@@ -126,6 +127,7 @@ if (!app.requestSingleInstanceLock()) {
   });
   app.on('before-quit', () => {
     quitting = true;
+    LocalBrain.stop();
     disposeChromiumDecoder();
     void releaseDictation?.();
     destroyOverlay?.();

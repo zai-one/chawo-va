@@ -3,11 +3,12 @@
 // back to the renderer.
 
 import { BrowserWindow, dialog, ipcMain, shell } from 'electron';
-import { rmSync } from 'node:fs';
+import { basename } from 'node:path';
 import { t } from '../core/strings';
 import * as Settings from './settings';
 import type { SettingsData } from './settings';
 import { BrainController, LOCAL_KINDS } from './brain/brainPage';
+import * as LocalBrain from './brain/localBrain';
 
 export function registerBrainIpc(
   getWindow: () => BrowserWindow | null,
@@ -23,7 +24,14 @@ export function registerBrainIpc(
       if (w && !w.isDestroyed()) w.webContents.send('brain:state', ctl.state());
     }, 80);
   };
-  const ctl: BrainController = new BrainController({ settings: settings.get, save: Settings.save, push, changed: opts.changed });
+  const ctl: BrainController = new BrainController({
+    settings: settings.get,
+    save: Settings.save,
+    push,
+    changed: opts.changed,
+    stopLocal: () => LocalBrain.stop(),
+    download: (s, progress, signal) => LocalBrain.downloadAsync(s, progress, signal),
+  });
   const str = (v: unknown) => (typeof v === 'string' ? v : '');
 
   ipcMain.handle('brain:state', (_e, rebind: unknown) => {
@@ -84,6 +92,19 @@ export function registerBrainIpc(
     if (url.startsWith('https://')) void shell.openExternal(url);
     return true;
   });
+  // Only on the user's click; the kind is checked against the fixed list.
+  ipcMain.handle('brain:download', (_e, v: unknown) => {
+    if (typeof v === 'string' && (LOCAL_KINDS as readonly string[]).includes(v)) void ctl.download(v as (typeof LOCAL_KINDS)[number]);
+    return ctl.state();
+  });
+  ipcMain.handle('brain:cancelDownload', () => {
+    ctl.cancelDownload();
+    return ctl.state();
+  });
+  ipcMain.handle('brain:dismissDownload', () => {
+    ctl.dismissDownload();
+    return ctl.state();
+  });
   ipcMain.handle('brain:deleteGguf', async (_e, v: unknown) => {
     const path = ctl.deletablePath(str(v));
     if (!path) return ctl.state();
@@ -91,7 +112,10 @@ export function registerBrainIpc(
     const box = {
       type: 'warning' as const,
       title: t('Удалить модель', 'Delete model'),
-      message: t(`Удалить файл модели мозга?\n\n${path}`, `Delete the Brain model file?\n\n${path}`),
+      message: t(
+        `Удалить модель мозга «${basename(path)}»?\n\n${path}\n\nПрограмма и движок llama.cpp не удаляются.`,
+        `Delete the brain model "${basename(path)}"?\n\n${path}\n\nThe program and the llama.cpp engine stay.`,
+      ),
       buttons: [t('Удалить', 'Delete'), t('Отмена', 'Cancel')],
       defaultId: 1,
       cancelId: 1,
@@ -100,7 +124,7 @@ export function registerBrainIpc(
     const r = w ? await dialog.showMessageBox(w, box) : await dialog.showMessageBox(box);
     if (r.response !== 0) return ctl.state();
     try {
-      rmSync(path, { force: true });
+      LocalBrain.deleteGguf(path);
     } catch (e) {
       const msg = { type: 'warning' as const, title: box.title, message: e instanceof Error ? e.message : String(e) };
       if (w) await dialog.showMessageBox(w, msg);

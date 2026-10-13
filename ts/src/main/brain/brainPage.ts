@@ -12,6 +12,8 @@ import * as Providers from './brainProviders';
 import type { BrainProvider } from './brainProviders';
 import { serverConfigured } from './brain';
 import * as LocalBrain from './localBrain';
+import { ModelDownloadException, type DownloadFailure } from '../models/modelDownloader';
+import { failureText, progressText } from '../speech/speechPage';
 import { getModelsAsync, hostOf, isInsecureRemote, probeAsync, tryGetCompletionsUrl, type FetchLike } from './speechCleanup';
 
 export const LOCAL_KINDS: readonly LocalBrainKind[] = ['Qwen3', 'Qwen35', 'Custom'];
@@ -23,6 +25,20 @@ export interface BrainModelRowDto {
   selected: boolean;
   onDisk: boolean;
   path: string | null;
+  /** «Скачать» on the row: the file is missing, or it is selected and the engine for the device is not. */
+  canDownload: boolean;
+  downloadLabel: string;
+}
+
+/** The in-page download card (WPF DownloadWindow folded into the page). */
+export interface BrainDownloadDto {
+  kind: LocalBrainKind;
+  title: string;
+  intro: string;
+  percent: number | null;
+  text: string;
+  running: boolean;
+  failed: boolean;
 }
 
 export interface BrainStateDto {
@@ -60,6 +76,7 @@ export interface BrainStateDto {
   everyTake: { visible: boolean; on: boolean; hint: string };
   instruction: { visible: boolean; text: string; hint: string };
   selection: { visible: boolean; on: boolean; hint: string };
+  download: BrainDownloadDto | null;
 }
 
 export interface TimerLike {
@@ -74,8 +91,12 @@ export interface BrainPageHooks {
   changed?: () => void;
   /** Push a fresh state to the window after async work (model list, probe). */
   push?: () => void;
-  /** LocalBrain.Stop once the process port lands. */
+  /** LocalBrain.Stop. */
   stopLocal?: () => void;
+  /** LocalBrain.downloadAsync; tests pass a fake. Runs only when the user presses «Скачать». */
+  download?: (s: SettingsData, progress: (p: LocalBrain.BrainProgress) => void, signal: AbortSignal) => Promise<void>;
+  /** LocalBrain.DeviceNote: set after a Vulkan → CPU fallback. */
+  deviceNote?: () => string | null;
   fetch?: FetchLike;
   timer?: TimerLike;
   installed?: () => LocalBrain.InstalledGguf[];
@@ -115,12 +136,13 @@ export function brainFileFor(kind: LocalBrainKind, customUrl: string, files: rea
   return null;
 }
 
-export function downloadNote(): string {
-  return t(
-    'Файла ещё нет. Скачивание модели и движка в этой версии ещё не перенесено: пока скачайте в WPF-приложении или положите .gguf в папку мозга.',
-    'Not on disk yet. Model and engine download is not ported to this version: download it in the WPF app for now or put a .gguf into the Brain folder.',
-  );
+export function notOnDiskNote(): string {
+  return t('Файла ещё нет. Нажмите кнопку, сама модель не скачивается.', 'Not on disk yet. Press the button. It does not download by itself.');
 }
+
+const isAbort = (e: unknown) =>
+  (e instanceof Error && e.name === 'AbortError') ||
+  (typeof e === 'object' && e !== null && (e as { code?: string }).code === 'ABORT_ERR');
 
 export function insecureWarning(): string {
   return t(
@@ -141,6 +163,8 @@ export class BrainController {
   private serverStatus = '';
   private keyTimer: unknown = null;
   private abort: AbortController | null = null;
+  private dlAbort: AbortController | null = null;
+  private dl: BrainDownloadDto | null = null;
   private readonly timer: TimerLike;
 
   constructor(private readonly h: BrainPageHooks) {
@@ -257,6 +281,92 @@ export class BrainController {
     s.BrainCustomUrl = v;
     if (s.BrainModel === 'Custom') this.h.stopLocal?.();
     this.persist();
+  }
+
+  get downloading(): boolean {
+    return this.dl?.running === true;
+  }
+
+  private card(kind: LocalBrainKind, s: SettingsData, over: Partial<BrainDownloadDto>): BrainDownloadDto {
+    // WPF says «Нейросеть Своя модель»; the file name reads better for a custom link.
+    const custom = s.BrainModel === 'Custom' ? LocalBrain.tryParseCustomUrl(s.BrainCustomUrl) : null;
+    const name = custom?.ok ? custom.fileName : LocalBrain.title(s);
+    return {
+      kind,
+      title: t('Скачиваю Мозг', 'Downloading the Brain'),
+      intro: t(
+        `Нейросеть ${name} и движок llama.cpp. Если связь оборвётся, скачивание продолжится с того же места. Файл не запускается как программа.`,
+        `The ${name} model and the llama.cpp engine. If the connection drops, the download resumes. The file is not run as a program.`,
+      ),
+      percent: null,
+      text: '',
+      running: false,
+      failed: false,
+      ...over,
+    };
+  }
+
+  /**
+   * SettingsWindow.BrainRowDownload_Click + DownloadBrainAsync: selects the row's model, then fetches the engine
+   * and the GGUF with progress on the page. Resolves when it ends (done, failed or cancelled).
+   */
+  async download(kind: LocalBrainKind): Promise<void> {
+    if (!LOCAL_KINDS.includes(kind) || this.downloading) return;
+    this.selectLocalModel(kind);
+    const s = this.s();
+    if (kind === 'Custom') {
+      const parsed = LocalBrain.tryParseCustomUrl(s.BrainCustomUrl);
+      if (!parsed.ok) {
+        this.dl = this.card(kind, s, { failed: true, text: parsed.error });
+        this.h.push?.();
+        return;
+      }
+    }
+    if (this.isReady(s)) {
+      this.dl = this.card(kind, s, {
+        percent: 100,
+        text: t(`Эта модель уже на диске. ${LocalBrain.modelPath(s)}`, `This model is already on disk. ${LocalBrain.modelPath(s)}`),
+      });
+      this.h.push?.();
+      return;
+    }
+    const abort = new AbortController();
+    this.dlAbort = abort;
+    this.dl = this.card(kind, s, { running: true, text: t('Соединяюсь…', 'Connecting…') });
+    this.h.push?.();
+    const run = this.h.download ?? ((st, p, sig) => LocalBrain.downloadAsync(st, p, sig));
+    try {
+      await run(s, (p) => {
+        if (abort.signal.aborted) return;
+        this.dl = this.card(kind, s, { running: true, ...progressText({ received: p.received, total: p.total, stage: p.phase }) });
+        this.h.push?.();
+      }, abort.signal);
+      this.dl = null;
+      Log.write(`brain downloaded: ${LocalBrain.title(s)}`);
+      this.h.changed?.();
+    } catch (e) {
+      if (abort.signal.aborted || isAbort(e)) this.dl = null;
+      else {
+        Log.write(`brain download failed: ${e instanceof Error ? e.stack ?? e.message : String(e)}`);
+        const fk: DownloadFailure = e instanceof ModelDownloadException ? e.kind : 'network';
+        const gb = LocalBrain.gb(LocalBrain.memoryNeeded(s));
+        const need = t(gb.replace('.', ',') + ' ГБ', gb + ' GB');
+        this.dl = this.card(kind, s, { failed: true, text: failureText(fk, e instanceof Error ? e.message : String(e), need) });
+      }
+    } finally {
+      if (this.dlAbort === abort) this.dlAbort = null;
+      this.h.push?.();
+    }
+  }
+
+  cancelDownload(): void {
+    this.dlAbort?.abort();
+  }
+
+  dismissDownload(): void {
+    if (this.downloading) return;
+    this.dl = null;
+    this.h.push?.();
   }
 
   /** A .gguf the page may delete: only files listed in the brain folder. */
@@ -422,18 +532,30 @@ export class BrainController {
 
   // ── state ──────────────────────────────────────────────
 
-  private localRows(s: SettingsData): BrainModelRowDto[] {
+  private localRows(s: SettingsData, ready: boolean): BrainModelRowDto[] {
     const files = (this.h.installed ?? LocalBrain.installedGgufs)();
     const claimed = new Set<string>();
     const rows: BrainModelRowDto[] = [];
     for (const kind of LOCAL_KINDS) {
       const path = brainFileFor(kind, s.BrainCustomUrl, files);
       if (path) claimed.add(path);
-      rows.push({ kind, label: LocalBrain.choiceLabel(kind), selected: s.BrainModel === kind, onDisk: path != null, path });
+      const selected = s.BrainModel === kind;
+      const onDisk = path != null;
+      // Model on disk but the engine for this device is not (e.g. Vulkan picked later): the button fetches only that.
+      const engineOnly = onDisk && selected && !ready;
+      rows.push({
+        kind,
+        label: LocalBrain.choiceLabel(kind),
+        selected,
+        onDisk,
+        path,
+        canDownload: !onDisk || engineOnly,
+        downloadLabel: engineOnly ? t('Скачать движок', 'Download engine') : t('Скачать', 'Download'),
+      });
     }
     for (const f of files) {
       if (claimed.has(f.path)) continue;
-      rows.push({ kind: null, label: f.label, selected: false, onDisk: true, path: f.path });
+      rows.push({ kind: null, label: f.label, selected: false, onDisk: true, path: f.path, canDownload: false, downloadLabel: '' });
     }
     return rows;
   }
@@ -457,9 +579,10 @@ export class BrainController {
     if (local) {
       const parsed = LocalBrain.tryParseCustomUrl(s.BrainCustomUrl);
       if (s.BrainModel === 'Custom' && !parsed.ok) fileStatus = parsed.error;
-      else if (ready) fileStatus = t('Уже на диске: ', 'Already on disk: ') + LocalBrain.modelPath(s);
-      // WPF says «Нажмите кнопку»; the download button is not ported yet, so say what to do instead.
-      else fileStatus = downloadNote();
+      else if (ready) {
+        const note = (this.h.deviceNote ?? LocalBrain.deviceNote)();
+        fileStatus = t('Уже на диске: ', 'Already on disk: ') + LocalBrain.modelPath(s) + (note ? ' ' + note : '');
+      } else fileStatus = notOnDiskNote();
     }
     const p = this.provider;
     const keySaved = this.key.trim().length > 0;
@@ -502,7 +625,7 @@ export class BrainController {
       },
       local: {
         visible: local,
-        rows: local ? this.localRows(s) : [],
+        rows: local ? this.localRows(s, ready) : [],
         device: s.BrainDevice,
         deviceChoices: [
           { value: 'Cpu', label: t('Процессор (CPU)', 'Processor (CPU)') },
@@ -540,6 +663,7 @@ export class BrainController {
           'Select text, hold the key, and say what to do. Turn off to dictate over a selection.',
         ),
       },
+      download: this.dl,
     };
   }
 }

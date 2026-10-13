@@ -32,6 +32,6 @@ export {
   transformAsync,
 } from './brain';
 export * as LocalBrain from './localBrain';
-export type { LocalBrainRuntime, InstalledGguf } from './localBrain';
+export type { LocalBrainRuntime, InstalledGguf, BrainProgress, EngineSpec, ModelSpec, RuntimeOptions } from './localBrain';
 export * as FileBrain from './fileBrain';
 export type { FileBrainTarget, FileBrainResult, AskFn } from './fileBrain';

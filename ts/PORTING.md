@@ -26,9 +26,9 @@ Re-align folder names and tooling with taptain-desktop once its layout is readab
 | App/Settings.cs, Log | src/main/settings.ts, paths.ts, log.ts | ✅ ported + tests |
 | App/DataMigration.cs | src/main/dataMigration.ts | ✅ ported + tests |
 | App/SpeechModelStore.cs | src/main/models/speechModelStore.ts | ✅ ported + tests |
-| App/ModelDownloader.cs | src/main/models/modelDownloader.ts, tarGz.ts | ✅ ported + tests (no network); real v3 download verified on the box |
+| App/ModelDownloader.cs | src/main/models/modelDownloader.ts, tarGz.ts | ✅ ported + tests (no network); real v3 download verified on the box; `fetchResumable` (HTTP Range) + `verifyShaAsync` + `unpackTarGzTree` (folders, modes, sibling symlinks) for the Brain |
 | App/FileTranscript.cs, FileQueue.cs, FfmpegTool.cs | src/main/file/ (+ zip.ts) | ✅ ported + tests (system ffmpeg mp3 decode) |
-| App/BrainProviders.cs, SpeechCleanup.cs, Brain.cs, FileBrain.cs, LocalBrain.cs | src/main/brain/ | ✅ providers/cleanup/Brain/FileBrain + tests; LocalBrain helpers ✅, process/download 🟡 |
+| App/BrainProviders.cs, SpeechCleanup.cs, Brain.cs, FileBrain.cs, LocalBrain.cs | src/main/brain/ | ✅ providers/cleanup/Brain/FileBrain + tests; LocalBrain helpers ✅, download (Range resume, mirrors, SHA, engine unpack) ✅, llama-server process (start/health/GPU→CPU fallback/idle stop/kill on exit) ✅ + tests; Windows job object ⏳ |
 | App/Recorder.cs | src/core/takeBuffer.ts (accumulator, adaptive VU meter, 5-min cap, take checks) + src/renderer/mic-processor.js (AudioWorklet, 16 kHz mono, 40 ms chunks) | ✅ ported + tests; waveIn/WASAPI replaced by getUserMedia |
 | App/KeyboardHook.cs | native helper (see «Hold-to-talk hotkey» below); in-window hold button meanwhile | ⏳ designed, not built |
 | App/TextInserter.cs, SelectionReader.cs, Native.cs | native helper + clipboard | ⏳ (takes are copied to the clipboard and shown on the page for now) |
@@ -42,8 +42,8 @@ Re-align folder names and tooling with taptain-desktop once its layout is readab
 | SettingsWindow dictionary page (FillDictionaryRows / PersistDictionary / SuggestDictionary_Click / AddSuggestion_Click) | src/main/dictionary/dictionaryPage.ts (DictionaryController), src/main/dictionaryIpc.ts | ✅ ported + tests |
 | SettingsWindow dictation page (Localize dictation block, FillStartCard, Mode/Hotkey/Insert/Overlay/Mic handlers, SetPhase), App.SetPhase | src/main/dictation/dictationPage.ts (DictationController), src/main/dictationIpc.ts | ✅ ported + tests (language box, copy-to-clipboard options, autostart, updates, unpin not on this page yet) |
 | App.HandlePressAsync / HandleReleaseAsync / RunBrainAsync / RequestStop / StartPartials / PartialTickAsync / ReloadSpeechAsync / SpeechStatusText (local path) | src/main/dictation/dictationSession.ts (DictationSession) | ✅ local take → dictionary → Brain (every take / «Чаво, …») → simple syntax → clipboard, live drafts on the pill, cancel aborts the Brain + tests; Brain on a selection, ConfirmBrainMemory, sales card, remote host ⏳ |
-| SettingsWindow brain page (Localize brain part / UpdateBrainTexts / FillBrainModelRows), BrainServerPanel, App.SelectBrainAsync | src/main/brain/brainPage.ts (BrainController), src/main/brainIpc.ts | ✅ ported + tests; local download/engine start 🟡 |
-| App.RunFileQueueAsync / RunQueue / RunOneFile / TranscribeLocal | src/main/file/fileRunner.ts, localTranscriber.ts, src/main/fileIpc.ts | ✅ local path + Brain hook (cloud FileBrain; local process 🟡) |
+| SettingsWindow brain page (Localize brain part / UpdateBrainTexts / FillBrainModelRows), BrainServerPanel, App.SelectBrainAsync | src/main/brain/brainPage.ts (BrainController), src/main/brainIpc.ts | ✅ ported + tests; «Скачать» / «Скачать движок» on the rows + in-page «Скачиваю Мозг» card (progress, cancel, retry) ✅ |
+| App.RunFileQueueAsync / RunQueue / RunOneFile / TranscribeLocal | src/main/file/fileRunner.ts, localTranscriber.ts, src/main/fileIpc.ts | ✅ local path + Brain hook (cloud and local FileBrain) |
 | App/Strings.cs | src/core/strings.ts (ru/en `t()`) | ✅ ported |
 
 ## Notes
@@ -271,3 +271,41 @@ Re-align folder names and tooling with taptain-desktop once its layout is readab
   Next: LocalBrain download + llama-server start (so «На этом компьютере» works on takes and files),
   then the Windows native helper (hold key, TextInserter, SelectionReader → Brain on a selection,
   caret placement for the pill); remote host / Hermes; «Продажи» card.
+
+- 2026-10-13 tick 13: LocalBrain download + llama-server start, so «На этом компьютере» works for
+  dictation takes and the file Brain once the engine and model are on disk. `downloadAsync` ports
+  DownloadAsync: Stop, free-space check (minus the `.part`), engine first, then the GGUF through
+  `fetchResumable` (new in modelDownloader.ts, C# FetchAsync: `Range: bytes=N-`, 416 → complete, a
+  200 to a Range restarts, size cap = expected or MaxCustomBytes for a custom link, 60 s idle →
+  «download stalled», the `.part` survives errors and cancel), Qwen3 GitHub mirror → Hugging Face
+  fallback, SHA-256 (`verifyShaAsync`, streamed so a 2 GB hash does not block the main process) or
+  the GGUF header for a custom link (non-GGUF → rejected, `.part` removed), rename into place;
+  failures map to network / noSpace / corrupt / rejected like WPF. `ensureEngine`: b10701 for the
+  device; Windows zip with the WPF SHAs, Linux ubuntu x64/arm64 tar.gz (CPU and Vulkan) pinned to
+  the GitHub release digests; unpacked keeping folders + sibling symlinks (`libllama.so.0 ->
+  libllama.so.0.3.0`), the folder holding `llama-server(.exe)` becomes `engine-b10701[-vulkan]`,
+  chmod +x. `hasGgufMagic` now reads 4 bytes instead of the whole file. `LlamaServerRuntime` replaces
+  the throwing stub: isReady first (clear «модель Мозга не скачана» / «движок мозга не скачан»),
+  free loopback port, random 16-byte hex key, the WPF argument list (+ `-ngl 99` on Vulkan),
+  stdout/stderr to brain.log, /health polled (2 s per try, 400 ms apart, 90 s cap, ticks from 3 s),
+  crash/timeout → BrainException with the WPF texts, Vulkan failure → CPU engine + DeviceNote (and
+  no new GPU try on every phrase until Stop), 15-minute idle stop, Stop kills (SIGKILL after 2 s),
+  concurrent callers share one start, killed on before-quit and on process exit. Module `stop()`,
+  `deleteGguf()` (inside the brain folder, .gguf only, not next to the program, with its .part),
+  `deleteModel()`, `deviceNote()`. brainIpc: `stopLocal` → LocalBrain.stop, deletes through
+  LocalBrain.deleteGguf, `brain:download` / `brain:cancelDownload` / `brain:dismissDownload`.
+  «Мозг» page: «Скачать» on rows not on disk («Скачать движок» on the selected row when only the
+  device's engine is missing), the WPF «Скачиваю Мозг» card with progress / cancel / retry / hide,
+  WPF «Файла ещё нет. Нажмите кнопку…» status, DeviceNote after the path; nothing downloads by
+  itself. Tests: in-memory Range-aware fake fetch (resume, drop + resume, 416, ignored Range, caps,
+  stall, cancel), zip and nested tar.gz engine unpack with path-escape attempts, mirror fallback,
+  checksum/noSpace/cancel, delete guards; runtime against `test/fixtures/fake-llama-server.cjs`
+  (args, key, reuse, restart on model change, shared start, GPU crash → CPU, crash/timeout texts,
+  ticks, idle stop, abort); BrainController download state machine. 254 tests green (218 before).
+  Smoke on the box: the real ubuntu-x64 engine (16 MB) downloaded, SHA-checked and unpacked by
+  `ensureEngine`, `llama-server --version` → build 10701; with a 1 MB stories260K GGUF as a custom
+  model `ensureStarted` came up in 70 ms, /v1/chat/completions answered with the key, a wrong key got
+  401, Stop left no process; `FileBrain.runAsync` on Local (fileIpc no longer short-circuits Local)
+  ran paragraphs + «Кратко» through the same server. No multi-GB model was downloaded.
+  Next: the Windows native helper (hold key, TextInserter, SelectionReader → Brain on a selection,
+  caret placement, job object for llama-server), then remote host / Hermes, then the «Продажи» card.
