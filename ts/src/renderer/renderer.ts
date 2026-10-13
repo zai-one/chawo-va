@@ -37,10 +37,10 @@ interface MeetingState {
   note: string;
   ru: boolean;
 }
-type SystemPlan = { kind: 'loopback' } | { kind: 'device'; deviceId: string; label: string } | { kind: 'none' };
+type SystemPlan = { kind: 'loopback' } | { kind: 'none' };
 interface MeetingApi {
   state(): Promise<MeetingState>;
-  start(devices: { deviceId: string; label: string }[]): Promise<{ ok: boolean; micId: string; system: SystemPlan; state: MeetingState }>;
+  start(): Promise<{ ok: boolean; micId: string; system: SystemPlan; state: MeetingState }>;
   systemOpened(ok: boolean, reason?: string): Promise<MeetingState>;
   pcm(chunk: Float32Array): void;
   stop(): Promise<MeetingState>;
@@ -1111,17 +1111,13 @@ class MeetingCapture {
   private static async system(plan: SystemPlan): Promise<MediaStream | null> {
     if (plan.kind === 'none') return null;
     try {
-      let st: MediaStream;
-      if (plan.kind === 'loopback') {
-        st = await navigator.mediaDevices.getDisplayMedia({ audio: true, video: true });
-        // Only the sound is wanted: the screen track is stopped before any frame is used.
-        for (const v of st.getVideoTracks()) { v.stop(); st.removeTrack(v); }
-      } else {
-        st = await navigator.mediaDevices.getUserMedia({
-          audio: { deviceId: { exact: plan.deviceId }, echoCancellation: false, noiseSuppression: false, autoGainControl: false },
-          video: false,
-        });
-      }
+      // Raw like the mic: Chromium's AGC would otherwise turn the output monitor's volume down (seen on Linux).
+      const st = await navigator.mediaDevices.getDisplayMedia({
+        audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
+        video: true,
+      });
+      // Only the sound is wanted: the screen track is stopped before any frame is used.
+      for (const v of st.getVideoTracks()) { v.stop(); st.removeTrack(v); }
       if (st.getAudioTracks().length === 0) {
         await bridge.meeting.systemOpened(false, L('нет звуковой дорожки', 'no audio track'));
         return null;
@@ -1221,14 +1217,7 @@ async function meetingStart(): Promise<void> {
   if (meetingBusy || meetingState?.recording) return;
   meetingBusy = true;
   try {
-    let devices: { deviceId: string; label: string }[] = [];
-    try {
-      // Labels are only filled once the page may use the mic (granted by the app's permission handler).
-      devices = (await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === 'audioinput').map((d) => ({ deviceId: d.deviceId, label: d.label }));
-    } catch {
-      /* no mediaDevices: mic only */
-    }
-    const r = await bridge.meeting.start(devices);
+    const r = await bridge.meeting.start();
     if (!r.ok) {
       applyMeeting(r.state);
       return;

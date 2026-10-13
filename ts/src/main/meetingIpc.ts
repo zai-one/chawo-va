@@ -1,8 +1,9 @@
 // IPC for «Запись встречи». The page captures (getUserMedia / getDisplayMedia → meeting worklet)
 // and streams interleaved stereo chunks here; MeetingController writes the WAV and hands it to the
-// file queue. On Windows the computer sound is Chromium's loopback: the display-media request is
-// answered with the first screen + `audio: 'loopback'` only while a meeting start is pending, and
-// the page drops the video track at once (nothing of the screen is recorded or kept).
+// file queue. The computer sound is Chromium's loopback (Windows WASAPI, Linux Pulse/PipeWire
+// monitor): the display-media request is answered with the first screen + `audio: 'loopback'` only
+// while a meeting start is pending, and the page drops the video track at once (nothing of the
+// screen is recorded or kept). Any other getDisplayMedia call is refused.
 
 import { BrowserWindow, app, desktopCapturer, ipcMain, session } from 'electron';
 import { join } from 'node:path';
@@ -12,7 +13,7 @@ import { env } from './paths';
 import { isRussian, t } from '../core/strings';
 import * as Log from './log';
 import { MeetingController } from './meeting/meetingController';
-import { linuxDefaultMonitorLabel, systemAudioMode, type InputDevice } from './meeting/systemAudio';
+import { systemAudioMode } from './meeting/systemAudio';
 
 /** The worklet posts 4000 stereo frames; anything far bigger is not ours. */
 const MAX_CHUNK = 64000;
@@ -33,7 +34,6 @@ export function registerMeetingIpc(
     settings: () => settings.get(),
     save: () => Settings.save(settings.get()),
     mode: () => systemAudioMode(),
-    monitorLabel: () => (process.platform === 'linux' ? linuxDefaultMonitorLabel() : Promise.resolve('')),
     armLoopback: (on) => (loopbackArmed = on),
     enqueue: files.enqueue,
     changed: push,
@@ -56,14 +56,7 @@ export function registerMeetingIpc(
   }
 
   ipcMain.handle('meeting:state', () => controller.state());
-  ipcMain.handle('meeting:start', (_e, devices: unknown) => {
-    const list: InputDevice[] = Array.isArray(devices)
-      ? devices
-          .filter((d): d is { deviceId: string; label: string } => !!d && typeof d.deviceId === 'string' && typeof d.label === 'string')
-          .map((d) => ({ deviceId: d.deviceId, label: d.label }))
-      : [];
-    return controller.start(list);
-  });
+  ipcMain.handle('meeting:start', () => controller.start());
   ipcMain.handle('meeting:systemOpened', (_e, ok: unknown, reason: unknown) => controller.systemOpened(ok === true, typeof reason === 'string' ? reason : ''));
   ipcMain.on('meeting:pcm', (_e, chunk: unknown) => {
     if (chunk instanceof Float32Array && chunk.length <= MAX_CHUNK) controller.pcm(chunk);

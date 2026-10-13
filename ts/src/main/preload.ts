@@ -29,7 +29,7 @@ const api = {
   },
   meeting: {
     state: () => ipcRenderer.invoke('meeting:state'),
-    start: (devices: { deviceId: string; label: string }[]) => ipcRenderer.invoke('meeting:start', devices),
+    start: () => ipcRenderer.invoke('meeting:start'),
     systemOpened: (ok: boolean, reason?: string) => ipcRenderer.invoke('meeting:systemOpened', ok, reason ?? ''),
     pcm: (chunk: Float32Array) => ipcRenderer.send('meeting:pcm', chunk),
     stop: () => ipcRenderer.invoke('meeting:stop'),

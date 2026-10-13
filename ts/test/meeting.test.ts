@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { readWav } from '../src/core/audio';
 import { applyLanguage } from '../src/core/strings';
 import { MEETING_RATE, MeetingRecorder, meetingPath, repairUnfinished, repairWav, wavHeader } from '../src/main/meeting/meetingRecorder';
-import { defaultMonitorLabel, parsePactlSources, pickMonitor, systemAudioMode } from '../src/main/meeting/systemAudio';
+import { systemAudioMode } from '../src/main/meeting/systemAudio';
 import { MeetingController, type MeetingDeps } from '../src/main/meeting/meetingController';
 import * as Settings from '../src/main/settings';
 
@@ -145,45 +145,10 @@ describe('MeetingRecorder', () => {
 });
 
 describe('system audio source', () => {
-  it('per OS: Windows loopback, Linux monitor, macOS not yet', () => {
+  it('per OS: Windows and Linux loopback, macOS not yet', () => {
     expect(systemAudioMode('win32')).toBe('loopback');
-    expect(systemAudioMode('linux')).toBe('monitor');
+    expect(systemAudioMode('linux')).toBe('loopback');
     expect(systemAudioMode('darwin')).toBe('none');
-  });
-
-  const PACTL = `Source #0
-\tState: SUSPENDED
-\tName: alsa_output.pci-0000_00_1f.3.analog-stereo.monitor
-\tDescription: Monitor of Built-in Audio Analog Stereo
-\tDriver: module-alsa-card.c
-Source #1
-\tName: alsa_input.pci-0000_00_1f.3.analog-stereo
-\tDescription: Built-in Audio Analog Stereo
-Source #2
-\tName: bluez_sink.AA.monitor
-\tDescription: Monitor of WH-1000XM4
-`;
-
-  it('finds the monitor of the default output by pactl', () => {
-    const src = parsePactlSources(PACTL);
-    expect(src).toHaveLength(3);
-    expect(defaultMonitorLabel('bluez_sink.AA', src)).toBe('Monitor of WH-1000XM4');
-    expect(defaultMonitorLabel('', src)).toBe('');
-    expect(defaultMonitorLabel('nope', src)).toBe('');
-  });
-
-  it('picks the preferred monitor, else the first monitor, never a microphone', () => {
-    const devs = [
-      { deviceId: 'default', label: 'Default' },
-      { deviceId: 'mic', label: 'Built-in Audio Analog Stereo' },
-      { deviceId: 'm1', label: 'Monitor of Built-in Audio Analog Stereo' },
-      { deviceId: 'm2', label: 'Monitor of WH-1000XM4' },
-    ];
-    expect(pickMonitor(devs, 'Monitor of WH-1000XM4')?.deviceId).toBe('m2');
-    expect(pickMonitor(devs, '')?.deviceId).toBe('m1');
-    expect(pickMonitor(devs, 'gone')?.deviceId).toBe('m1');
-    expect(pickMonitor([{ deviceId: 'x', label: 'Монитор Встроенное аудио' }], '')?.deviceId).toBe('x');
-    expect(pickMonitor(devs.slice(0, 2), '')).toBeNull();
   });
 });
 
@@ -195,8 +160,7 @@ describe('MeetingController', () => {
       dir: () => dir,
       settings: () => s,
       save: () => calls.saved++,
-      mode: () => 'monitor',
-      monitorLabel: async () => 'Monitor of Speakers',
+      mode: () => 'loopback',
       armLoopback: (on) => calls.armed.push(on),
       enqueue: (p) => calls.enqueue.push(p),
       changed: () => calls.changed++,
@@ -207,31 +171,31 @@ describe('MeetingController', () => {
     };
     return { c: new MeetingController(d), s, calls };
   };
-  const devs = [{ deviceId: 'mic-1', label: 'USB mic' }, { deviceId: 'mon', label: 'Monitor of Speakers' }];
 
-  it('Linux: records mic + monitor, then queues the file for transcription', async () => {
+  it('records mic + computer sound, then queues the file for transcription', async () => {
     const { c, calls } = make();
-    const r = await c.start(devs);
+    const r = c.start();
     expect(r.ok).toBe(true);
     expect(r.micId).toBe('mic-1');
-    expect(r.system).toEqual({ kind: 'device', deviceId: 'mon', label: 'Monitor of Speakers' });
+    expect(r.system).toEqual({ kind: 'loopback' });
     expect(r.state.recording).toBe(true);
     expect(r.state.capturing).toBe('mic+system');
-    expect((await c.start(devs)).ok).toBe(false); // one meeting at a time
+    expect(c.start().ok).toBe(false); // one meeting at a time
+    expect(calls.armed).toEqual([true]);
     c.systemOpened(true);
     c.pcm(stereo(MEETING_RATE * 2, 0.2, 0.3));
     const st = c.stop();
     expect(st.recording).toBe(false);
     const p = join(dir, 'Встреча 2026-10-13 12-45.wav');
     expect(calls.enqueue).toEqual([p]);
-    expect(st.note).toBe(`Записано 00:00:02, расшифровываю: ${p}`);
+    expect(st.note).toBe(`Записано 00:00:02, файл добавлен в очередь расшифровки: ${p}`);
     expect(statSync(p).size).toBe(44 + MEETING_RATE * 2 * 4);
-    expect(calls.armed.every((a) => a === false)).toBe(true);
+    expect(calls.armed.slice(1).every((a) => a === false)).toBe(true);
   });
 
-  it('Windows: arms loopback for the one display-media request and disarms after', async () => {
-    const { c, calls } = make({ mode: () => 'loopback' });
-    const r = await c.start(devs);
+  it('arms loopback for the one display-media request and disarms after a refusal', async () => {
+    const { c, calls } = make();
+    const r = c.start();
     expect(r.system).toEqual({ kind: 'loopback' });
     expect(calls.armed).toEqual([true]);
     const st = c.systemOpened(false, 'NotAllowedError');
@@ -241,23 +205,17 @@ describe('MeetingController', () => {
     c.cancel();
   });
 
-  it('mic only when the setting is off, no monitor exists, or the OS has no capture yet', async () => {
+  it('mic only when the setting is off or the OS has no capture yet', async () => {
     const off = make();
     off.s.MeetingSystemAudio = false;
-    let r = await off.c.start(devs);
+    let r = off.c.start();
     expect(r.system).toEqual({ kind: 'none' });
     expect(r.state.capturing).toBe('mic');
     expect(r.state.note).toBe('');
     off.c.cancel();
 
-    const none = make();
-    r = await none.c.start([{ deviceId: 'mic-1', label: 'USB mic' }]);
-    expect(r.ok).toBe(true);
-    expect(r.state.note).toMatch(/Не нашёл звук компьютера/);
-    none.c.cancel();
-
     const mac = make({ mode: () => 'none' });
-    r = await mac.c.start(devs);
+    r = mac.c.start();
     expect(r.state.systemSupported).toBe(false);
     expect(r.state.note).toMatch(/на этой системе пока не записывается/);
     mac.c.cancel();
@@ -265,12 +223,12 @@ describe('MeetingController', () => {
 
   it('cancel deletes, a failed mic drops the file, a mis-click is not queued', async () => {
     const { c, calls } = make();
-    await c.start(devs);
+    c.start();
     c.pcm(stereo(MEETING_RATE * 3, 0.1, 0.1));
     expect(c.cancel().note).toBe('Запись отменена и удалена.');
-    await c.start(devs);
+    c.start();
     expect(c.failed('NotAllowedError').note).toBe('Микрофон не открылся: NotAllowedError');
-    await c.start(devs);
+    c.start();
     c.pcm(stereo(4000, 0.1, 0.1));
     expect(c.stop().note).toBe('Запись короче секунды — не сохранена.');
     expect(calls.enqueue).toEqual([]);
@@ -284,7 +242,7 @@ describe('MeetingController', () => {
     expect(c.setSystem(false).systemOn).toBe(false);
     expect(s.MeetingSystemAudio).toBe(false);
     expect(calls.saved).toBe(1);
-    await c.start(devs);
+    c.start();
     c.pcm(stereo(MEETING_RATE * 2, 0.1, 0.1));
     c.dispose();
     expect(c.state().recording).toBe(false);
@@ -295,13 +253,13 @@ describe('MeetingController', () => {
   it('repairs leftovers once when a meeting starts; a bad folder is reported', async () => {
     writeFileSync(join(dir, 'old.wav'), Buffer.concat([wavHeader(0), Buffer.alloc(400)]));
     const { c, calls } = make();
-    await c.start(devs);
+    c.start();
     c.cancel();
     expect(calls.log.some((l) => l.includes('repaired header'))).toBe(true);
     const blocker = join(dir, 'file');
     writeFileSync(blocker, 'x');
     const bad = make({ dir: () => join(blocker, 'sub') });
-    const r = await bad.c.start(devs);
+    const r = bad.c.start();
     expect(r.ok).toBe(false);
     expect(r.state.note).toMatch(/Не удалось создать файл записи/);
   });
@@ -309,10 +267,10 @@ describe('MeetingController', () => {
   it('English UI lines', async () => {
     applyLanguage('English');
     const { c } = make({ mode: () => 'none' });
-    const r = await c.start(devs);
+    const r = c.start();
     expect(r.state.note).toBe('Computer sound cannot be recorded on this OS yet — recording the microphone only.');
     c.pcm(stereo(MEETING_RATE, 0.1, 0.1));
-    expect(c.stop().note).toMatch(/^Recorded 00:00:01, transcribing: .*Meeting 2026-10-13 12-45\.wav$/);
+    expect(c.stop().note).toMatch(/^Recorded 00:00:01, the file is queued for transcription: .*Meeting 2026-10-13 12-45\.wav$/);
   });
 });
 

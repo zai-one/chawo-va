@@ -4,8 +4,7 @@
 // next to it. No Electron here, so the flow is unit-tested; meetingIpc.ts wires it up.
 
 import { MeetingRecorder, meetingPath, repairUnfinished } from './meetingRecorder';
-import type { InputDevice, SystemAudioMode } from './systemAudio';
-import { pickMonitor } from './systemAudio';
+import type { SystemAudioMode } from './systemAudio';
 import { t } from '../../core/strings';
 
 export interface MeetingStateDto {
@@ -25,7 +24,7 @@ export interface MeetingStateDto {
   ru: boolean;
 }
 
-export type SystemPlan = { kind: 'loopback' } | { kind: 'device'; deviceId: string; label: string } | { kind: 'none' };
+export type SystemPlan = { kind: 'loopback' } | { kind: 'none' };
 
 export interface StartResult {
   ok: boolean;
@@ -39,9 +38,7 @@ export interface MeetingDeps {
   settings: () => { MeetingSystemAudio: boolean; MicrophoneId: string };
   save: () => void;
   mode: () => SystemAudioMode;
-  /** Linux: Chromium label of the default output's monitor ('' = unknown). */
-  monitorLabel: () => Promise<string>;
-  /** Windows: allow the next getDisplayMedia to be answered with loopback audio. */
+  /** Allow the next getDisplayMedia to be answered with loopback audio (only while starting). */
   armLoopback: (on: boolean) => void;
   /** Adds the finished file to the file queue and starts the run. */
   enqueue: (path: string) => void;
@@ -82,8 +79,8 @@ export class MeetingController {
     };
   }
 
-  /** Opens the file and tells the page which streams to open. `devices` = the page's audio inputs. */
-  async start(devices: readonly InputDevice[]): Promise<StartResult> {
+  /** Opens the file and tells the page which streams to open. */
+  start(): StartResult {
     const s = this.d.settings();
     if (this.recorder.recording) return { ok: false, micId: s.MicrophoneId, system: { kind: 'none' }, state: this.state() };
     const dir = this.d.dir();
@@ -98,13 +95,8 @@ export class MeetingController {
     let system: SystemPlan = { kind: 'none' };
     this.note = '';
     if (s.MeetingSystemAudio) {
-      const mode = this.d.mode();
-      if (mode === 'loopback') system = { kind: 'loopback' };
-      else if (mode === 'monitor') {
-        const m = pickMonitor(devices, await this.d.monitorLabel());
-        if (m) system = { kind: 'device', deviceId: m.deviceId, label: m.label };
-        else this.note = t('Не нашёл звук компьютера (монитор PulseAudio/PipeWire) — пишу только микрофон.', 'Computer sound not found (no PulseAudio/PipeWire monitor) — recording the microphone only.');
-      } else this.note = t('Звук компьютера на этой системе пока не записывается — пишу только микрофон.', 'Computer sound cannot be recorded on this OS yet — recording the microphone only.');
+      if (this.d.mode() === 'loopback') system = { kind: 'loopback' };
+      else this.note = t('Звук компьютера на этой системе пока не записывается — пишу только микрофон.', 'Computer sound cannot be recorded on this OS yet — recording the microphone only.');
     }
     const word = t('Встреча', 'Meeting');
     let path: string;
@@ -118,7 +110,7 @@ export class MeetingController {
     }
     this.capturing = system.kind === 'none' ? 'mic' : 'mic+system';
     if (system.kind === 'loopback') this.d.armLoopback(true);
-    this.d.log(`meeting: start ${path} (${system.kind === 'device' ? `monitor «${system.label}»` : system.kind})`);
+    this.d.log(`meeting: start ${path} (${system.kind})`);
     this.d.changed();
     return { ok: true, micId: s.MicrophoneId, system, state: this.state() };
   }
@@ -147,7 +139,7 @@ export class MeetingController {
     if (!r) {
       this.note = t('Запись короче секунды — не сохранена.', 'The recording was under a second — not saved.');
     } else {
-      this.note = t(`Записано ${clock(r.seconds)}, расшифровываю: ${r.path}`, `Recorded ${clock(r.seconds)}, transcribing: ${r.path}`);
+      this.note = t(`Записано ${clock(r.seconds)}, файл добавлен в очередь расшифровки: ${r.path}`, `Recorded ${clock(r.seconds)}, the file is queued for transcription: ${r.path}`);
       this.d.log(`meeting: stop ${r.path} ${r.seconds.toFixed(1)} s`);
       this.d.enqueue(r.path);
     }
