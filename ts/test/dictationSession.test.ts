@@ -684,7 +684,7 @@ describe('DictationSession idle unload (IDEAS №13)', () => {
     await Promise.resolve();
     expect(sess.current()).toBeNull();
     expect(recs[0].disposed).toBe(1);
-    expect(sess.sessionLine()).toBeNull();
+    expect(sess.sessionLine()).toBe('Выгружена из памяти после простоя, загрузится при следующей диктовке.');
     expect(sess.phase).toBe('Idle');
     // Lazy warm-up: the key press starts loading while the user speaks.
     sess.startTake();
@@ -692,6 +692,7 @@ describe('DictationSession idle unload (IDEAS №13)', () => {
     feed(sess, speech(1));
     expect(await sess.stopTake()).toBe('привет мир');
     expect(recs).toHaveLength(2);
+    expect(sess.sessionLine()).toMatch(/^Загружена v3_e2e_rnnt/);
   });
 
   it('never unloads at 0 minutes', async () => {

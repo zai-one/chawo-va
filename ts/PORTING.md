@@ -676,3 +676,28 @@ Re-align folder names and tooling with taptain-desktop once its layout is readab
   is not exercised for real (the hook ignores injected keys; needs a Windows keyboard), clipboard
   history wait is the registry approximation, SelectionReader (UI Automation first) + Brain on a
   selection, caret-placed pill and the llama-server job object are the next native pieces.
+
+- 2026-10-13 tick (branch `ts/feat-idle-unload`, IDEAS.md №13, approved batch 2 п.5): выгрузка моделей при
+  простое. `src/core/idleTimer.ts` (pure, инжектируемые часы): `IdleTimer` (touch/cancel, задержка
+  читается при каждом взводе, busy в момент срабатывания → ждём ещё полный срок, 0 = никогда),
+  `IDLE_UNLOAD_MINUTES` = 0/5/15/30/60, `normalizeIdleMinutes`. Настройка `IdleUnloadMinutes`
+  (по умолчанию 15 — столько раньше было зашито для llama-server). DictationSession: таймер
+  взводится после загрузки модели и после каждой фразы; не выгружает во время записи/распознавания/
+  загрузки и пока Hermes держит запрос (`idleBusy` = `hermesTranscribe.inFlight() > 0`, `used` после
+  каждого запроса Hermes); после выгрузки строка статуса «Выгружена из памяти после простоя,
+  загрузится при следующей диктовке.»; нажатие клавиши (startTake → ensureLoaded) грузит модель,
+  пока человек говорит. LocalBrain: `idleStopMs` может быть геттером, `touch()` после каждого ответа
+  (brain.ts и fileBrain.ts, в finally), `setIdleSource`/`idleChanged` из main. UI: один select
+  «Выгружать модели при простое» на «Распознавании» под VAD + подсказка; смена сразу перевзводит оба
+  таймера. Новых пунктов меню нет. CLI не трогал: процесс и так закрывается после задания.
+  Тесты: idleTimer (5, fake timers), dictationSession (+4: выгрузка и ленивая перезагрузка, 0 = никогда,
+  ожидание записи и Hermes, touchIdle/release), localBrainRuntime (+1: геттер, 0, touch от конца
+  ответа), hermesTranscribe (+1), speechPage (+1), pathsSettings (+1). 620 тестов зелёные (607 до).
+  Smoke под xvfb (`scripts/smoke-idle.cjs`, настоящая v3_e2e_rnnt на CPU, фейковый микрофон
+  ru30.wav): выбор «Через 5 мин» через change у select → settings.json `IdleUnloadMinutes: 5`;
+  фраза 1 «Русский язык — это один из восточнославянских языков.» за 7.6 с от нажатия, RSS главного
+  процесса 597 МБ; через 5 мин в логе «speech model idle for 5 min, releasing memory», RSS 266 МБ,
+  статус «Unloaded from memory after being idle; it loads again on the next take.» (второй прогон, после
+  добавления этой строки; RSS 601 → 267 МБ); фраза 2 снова тот же текст за 7.3–7.5 с от нажатия
+  (перезагрузка спряталась за речью), RSS 600 МБ. Gaps: Silero VAD (2 МБ) не выгружается — не стоит; настоящий llama-server на
+  боксе не гонял (проверен фейковым сервером в тестах).
