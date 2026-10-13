@@ -86,3 +86,10 @@ select.wide { min-width: 360px; max-width: 100%; }
 .hist-text { white-space: pre-wrap; overflow-wrap: anywhere; margin: 4px 0 2px; user-select: text; }
 .hist-raw { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; user-select: text; }
 .hist-acts { margin: 4px 0 0; gap: 4px; }
+.formats { display: inline-flex; gap: 14px; flex-wrap: wrap; }
+/* «Продажи»: catalog rows (code, name, line, similar code, delete), the folder row and the call stand-in. */
+.dict.sales .dict-row { grid-template-columns: 110px minmax(0, 1fr) minmax(0, 1fr) 110px 90px; }
+.folder-row { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 8px; align-items: center; }
+.call-row { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+label.stack { display: flex; flex-direction: column; gap: 3px; font-size: 12px; }
+.hint.warn { color: var(--accent); }

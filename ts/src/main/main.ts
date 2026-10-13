@@ -11,12 +11,15 @@ import * as LocalBrain from './brain/localBrain';
 import { registerDictationIpc } from './dictationIpc';
 import { registerNetworkIpc } from './networkIpc';
 import { registerHistoryIpc } from './historyIpc';
+import { registerSalesIpc } from './salesIpc';
 import { makeHermesTranscribe } from './network/hermesTranscribe';
 import * as KeepAwake from './network/keepAwake';
 import { OverlayWindow } from './overlay/overlayWindow';
 import { chromiumDecode, disposeChromiumDecoder } from './chromiumDecoder';
 import { setPlatformDecoder } from './file';
 import * as Settings from './settings';
+import * as Log from './log';
+import { helperExePath, NativeHelper } from './native/nativeHelper';
 import { applyLanguage } from '../core/strings';
 
 const APP_NAME = 'Chawo Voice Assistant';
@@ -27,7 +30,9 @@ let tray: Tray | null = null;
 let settings: Settings.SettingsData = Settings.defaults();
 let releaseDictation: (() => Promise<void>) | null = null;
 let destroyOverlay: (() => void) | null = null;
+let destroySalesCard: (() => void) | null = null;
 let disposeNetwork: (() => Promise<void>) | null = null;
+let nativeHelper: NativeHelper | null = null;
 
 function iconPath(set: 'app' | 'tray-dark' | 'tray-light', size: number): string {
   return join(__dirname, '..', 'assets', 'iconset', set, `icon_${size}.png`);
@@ -50,6 +55,8 @@ function createWindow(): BrowserWindow {
       nodeIntegration: false,
       sandbox: true,
       spellcheck: false,
+      // The global hold key records while the window sits hidden in the tray: keep its timers awake.
+      backgroundThrottling: false,
     },
   });
   w.removeMenu();
@@ -116,7 +123,34 @@ if (!app.requestSingleInstanceLock()) {
     destroyOverlay = () => overlay.destroy();
     // «История»: finished takes (text only) in a local file, as long as the user chose to keep them.
     const history = registerHistoryIpc(() => win, { get: () => settings });
-    const dictation = registerDictationIpc(() => win, { get: () => settings }, { overlay, record: (take) => history.record(take) });
+    // «Продажи»: catalog page + the always-on-top card fed by live drafts (only in Sales mode).
+    const sales = registerSalesIpc(() => win, { get: () => settings });
+    destroySalesCard = () => sales.card.destroy();
+    const dictation = registerDictationIpc(() => win, { get: () => settings }, {
+      overlay,
+      record: (take) => history.record(take),
+      keys: () => nativeHelper,
+      sales: (text) => sales.session.show(text),
+      // Leaving Sales mode closes the stand-in call and hides the card (App.ApplySettings).
+      changed: () => sales.session.settingsChanged(),
+    });
+    // Windows: the global hold key and inserting into other apps (KeyboardHook / TextInserter) live in a
+    // small helper exe. Elsewhere the in-window hold button is the way to dictate for now.
+    if (process.platform === 'win32') {
+      const exe = helperExePath(join(__dirname, '..'), process.resourcesPath);
+      if (exe) {
+        nativeHelper = new NativeHelper({
+          file: exe,
+          hotkey: () => settings.HotkeyVk,
+          onDown: () => dictation.hotDown(),
+          onUp: () => dictation.hotUp(),
+          onEscape: () => dictation.hotEscape(),
+          onState: () => dictation.keysChanged(),
+          log: (line) => Log.write(line),
+        });
+        void nativeHelper.start();
+      } else Log.write('native helper: ChawoNative.exe not found, hold key off');
+    }
     releaseDictation = () => dictation.session.release();
     // Hermes (local HTTP transcription host) reuses the dictation recognizer; opens it from disk if
     // needed, never downloads. Listens only while this PC is the host.
@@ -151,8 +185,10 @@ if (!app.requestSingleInstanceLock()) {
     void disposeNetwork?.();
     KeepAwake.allowSleep();
     disposeChromiumDecoder();
+    nativeHelper?.dispose();
     void releaseDictation?.();
     destroyOverlay?.();
+    destroySalesCard?.();
     tray?.destroy();
   });
 }

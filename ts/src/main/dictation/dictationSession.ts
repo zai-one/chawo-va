@@ -2,7 +2,8 @@
 // recognition → dictionary → Brain (every take or a «Чаво, …» command) → simple syntax → final text.
 // Port of App.HandlePressAsync / HandleReleaseAsync / RunBrainAsync / RequestStop / PartialTickAsync /
 // ReloadSpeechAsync / SpeechStatusText minus the parts that are not ported yet (Brain on a selection,
-// memory check before a cold local Brain, sales card, inserting into other apps). In the Client role
+// memory check before a cold local Brain, inserting into other apps). In «Продажи» mode the live
+// drafts run even with the pill off and every draft and the finished recognition go to the sales card. In the Client role
 // the take (and the live drafts) go to the host through RemoteSpeech instead of a local recognizer.
 // No Electron imports: the clipboard, the WAV writer, the pill and the Brain come in as hooks, and
 // tests pass a fake recognizer and a fake OpenAI-compatible fetch. The recognizer is opened on demand
@@ -29,6 +30,7 @@ import * as RemoteSpeech from '../network/remoteSpeech';
 import { RemoteHostException } from '../network/remoteSpeech';
 import * as Log from '../log';
 import type { OverlaySink } from '../overlay/overlayModel';
+import type { TextInserterLike } from '../native/nativeHelper';
 import { findComplete } from '../models';
 import {
   effectiveWordReplacementRules,
@@ -78,8 +80,15 @@ export interface SessionHooks {
   fetch?: FetchLike;
   /** Live-draft pass interval while listening (WPF 1000 ms); 0 turns drafts off. */
   partialMs?: number;
+  /**
+   * The Windows helper for takes started by the global hold key: the phrase goes into the focused app
+   * (TextInserter). Null or missing: the phrase goes to the clipboard as for the in-window button.
+   */
+  inserter?: () => TextInserterLike | null;
   /** Client role: RemoteSpeech.transcribe (tests pass a fake host). Throws RemoteHostException. */
   remote?: (s: SettingsData, samples: Float32Array, rate: number, signal: AbortSignal) => Promise<string>;
+  /** App.ShowSales: the local catalog card. Called only in «Продажи» mode, with drafts and the recognized take. */
+  sales?: (transcript: string) => void;
   /** A finished take with text, for «История». Errors here never affect the take. */
   record?: (take: TakeRecord) => void;
 }
@@ -106,6 +115,9 @@ export interface StartResult {
   ok: boolean;
 }
 
+/** Who started the take: the in-window hold button (text to the clipboard) or the global key (inserted). */
+export type TakeSource = 'window' | 'hotkey';
+
 async function openRecognizer(dir: string, kind: SpeechModelKind, device: SpeechDeviceKind, threads: number, script: CtcScript): Promise<RecognizerLike> {
   const rec = await Recognizer.open(dir, kind, device, threads);
   rec.script = script;
@@ -126,6 +138,7 @@ export class DictationSession {
   private abandon = false;
   private status = '';
   private lastText = '';
+  private source: TakeSource = 'window';
   private takeAbort: AbortController | null = null;
   private partialTimer: NodeJS.Timeout | null = null;
   private partialEpoch = 0;
@@ -166,6 +179,20 @@ export class DictationSession {
     this.overlay?.showHint(text);
   }
 
+  /** Live drafts: for the pill, or for the sales card (which needs them even with the pill off). */
+  private wantsDrafts(s: SettingsData): boolean {
+    return s.ShowOverlay || s.Mode === 'Sales';
+  }
+
+  private showSales(text: string): void {
+    if (this.h.settings().Mode !== 'Sales' || !this.h.sales) return;
+    try {
+      this.h.sales(text);
+    } catch (e) {
+      Log.write(`sales card: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+
   private get client(): boolean {
     return this.h.settings().NetworkRole === 'Client';
   }
@@ -197,7 +224,7 @@ export class DictationSession {
   }
 
   /** Key press / hold button down (HandlePressAsync). The renderer opens the mic only when ok. */
-  startTake(): StartResult {
+  startTake(source: TakeSource = 'window'): StartResult {
     if (this.isBusy) return { ok: false };
     if (this.client) {
       // No local model here: only the host address has to make sense.
@@ -218,9 +245,11 @@ export class DictationSession {
     }
     this.abandon = false;
     this.status = '';
+    this.source = source;
     this.buf.start();
     this.overlay?.showListening();
-    if (this.h.settings().ShowOverlay) this.startPartials();
+    // Sales needs the live draft even when the pill is hidden. Dictation does not.
+    if (this.wantsDrafts(this.h.settings())) this.startPartials();
     this.push();
     return { ok: true };
   }
@@ -338,6 +367,7 @@ export class DictationSession {
           Log.write('recognize cancelled');
           return null;
         }
+        if (text.length > 0) this.showSales(text);
         // Dictionary on the finished recognition only, before the Brain sees the phrase. Not the live draft.
         if (text.length > 0) {
           const replaced = applyRules(text, effectiveWordReplacementRules(this.h.settings()));
@@ -385,13 +415,6 @@ export class DictationSession {
         overlay?.hideNow();
         this.lastText = text;
         result = text;
-        let copied = true;
-        try {
-          this.h.copy?.(text);
-        } catch (e) {
-          copied = false;
-          Log.write(`clipboard: ${e instanceof Error ? e.message : String(e)}`);
-        }
         try {
           this.h.record?.({
             raw: raw || text,
@@ -404,20 +427,15 @@ export class DictationSession {
         } catch (e) {
           Log.write(`history: ${e instanceof Error ? e.message : String(e)}`);
         }
-        if (brainFailure !== null) {
-          this.hint(copied
-            ? t(`Мозг не справился: ${brainFailure}. В буфере обмена текст без правки.`, `The Brain failed: ${brainFailure}. The clipboard has the text as recognized.`)
-            : t(`Мозг не справился: ${brainFailure}. В буфер обмена скопировать не получилось.`, `The Brain failed: ${brainFailure}. Could not copy to the clipboard.`));
-        } else {
-          this.status = copied
-            ? t('Готово. Фраза в буфере обмена: вставьте её Ctrl+V. Вставка прямо в другие программы появится позже.',
-              'Done. The phrase is on the clipboard: paste it with Ctrl+V. Inserting straight into other apps comes later.')
-            : t('Готово. В буфер обмена скопировать не получилось.', 'Done. Could not copy to the clipboard.');
-        }
+        const inserter = this.source === 'hotkey' ? this.h.inserter?.() ?? null : null;
+        if (inserter) await this.insertInto(inserter, text, brainFailure);
+        else this.copyOut(text, brainFailure);
       } else if (samples.length <= MIN_TAKE_SAMPLES) {
         // WPF just hides the pill on an accidental tap; the page says what happened.
         overlay?.hideNow();
-        this.status = t('Слишком коротко. Держите кнопку, пока говорите.', 'Too short. Keep holding the button while you speak.');
+        this.status = this.source === 'hotkey'
+          ? t('Слишком коротко. Держите клавишу, пока говорите.', 'Too short. Keep holding the key while you speak.')
+          : t('Слишком коротко. Держите кнопку, пока говорите.', 'Too short. Keep holding the button while you speak.');
       } else {
         const mic = this.h.micName?.() ?? '';
         this.hint(silent
@@ -437,6 +455,65 @@ export class DictationSession {
       this.push();
     }
     return result;
+  }
+
+  /** In-window take (or no helper): the phrase goes to the clipboard and the page. */
+  private copyOut(text: string, brainFailure: string | null): void {
+    let copied = true;
+    try {
+      this.h.copy?.(text);
+    } catch (e) {
+      copied = false;
+      Log.write(`clipboard: ${e instanceof Error ? e.message : String(e)}`);
+    }
+    if (brainFailure !== null) {
+      this.hint(copied
+        ? t(`Мозг не справился: ${brainFailure}. В буфере обмена текст без правки.`, `The Brain failed: ${brainFailure}. The clipboard has the text as recognized.`)
+        : t(`Мозг не справился: ${brainFailure}. В буфер обмена скопировать не получилось.`, `The Brain failed: ${brainFailure}. Could not copy to the clipboard.`));
+    } else {
+      this.status = copied
+        ? t('Готово. Фраза в буфере обмена: вставьте её Ctrl+V.', 'Done. The phrase is on the clipboard: paste it with Ctrl+V.')
+        : t('Готово. В буфер обмена скопировать не получилось.', 'Done. Could not copy to the clipboard.');
+    }
+  }
+
+  /** Global-key take: TextInserter.Insert into the focused app with the WPF hints. */
+  private async insertInto(inserter: TextInserterLike, text: string, brainFailure: string | null): Promise<void> {
+    const s = this.h.settings();
+    let r: 'Done' | 'Blocked';
+    try {
+      r = await inserter.insert(text, s.InsertMode, { keep: s.CopyPhraseToClipboard, restore: s.RestoreClipboardAfterCopy });
+    } catch (e) {
+      // The helper is gone: never drop the phrase, put it on the clipboard instead.
+      Log.write(`insert failed: ${e instanceof Error ? e.message : String(e)}`);
+      let copied = true;
+      try {
+        this.h.copy?.(text);
+      } catch {
+        copied = false;
+      }
+      this.hint(copied
+        ? t('Вставить не получилось. Фраза в буфере обмена: вставьте её Ctrl+V.', 'Could not insert. The phrase is on the clipboard: paste it with Ctrl+V.')
+        : t('Вставить не получилось. Фраза показана на странице «Диктовка».', 'Could not insert. The phrase is shown on the Dictation page.'));
+      return;
+    }
+    Log.write(`insert ${s.InsertMode}: ${r}, ${text.length} chars`);
+    if (r === 'Blocked') {
+      this.hint(t('Это окно запущено от администратора, вставить туда нельзя. Текст лежит в буфере обмена.',
+        'That window runs as administrator; typing into it is blocked. The text is on the clipboard.'));
+      // Typing leaves the clipboard alone (Paste already left the phrase there): make the hint true.
+      if (s.InsertMode === 'Type') {
+        try {
+          this.h.copy?.(text);
+        } catch {
+          /* the page still shows the phrase */
+        }
+      }
+    } else if (brainFailure !== null) {
+      this.hint(t(`Мозг не справился: ${brainFailure}. Вставлен текст без правки.`, `The Brain failed: ${brainFailure}. Inserted the text as recognized.`));
+    } else {
+      this.status = t('Готово. Фраза вставлена.', 'Done. The phrase is inserted.');
+    }
   }
 
   /**
@@ -496,8 +573,8 @@ export class DictationSession {
    */
   async partialTick(): Promise<void> {
     if (!this.buf.isRecording) return;
-    if (!this.h.settings().ShowOverlay) return; // Sales (needs drafts without the pill) is not ported
     const settings = this.h.settings();
+    if (!this.wantsDrafts(settings)) return;
     const remote = settings.NetworkRole === 'Client';
     const rec = this.rec;
     if ((!remote && !rec) || this.partialBusy) return;
@@ -522,7 +599,10 @@ export class DictationSession {
     this.partialTask = task;
     try {
       const text = await run;
-      if (wanted() && this.buf.isRecording && text.length > 0) this.overlay?.showPartial(text);
+      if (wanted() && this.buf.isRecording && text.length > 0) {
+        this.overlay?.showPartial(text);
+        this.showSales(text);
+      }
       if (text.length > 0) Log.write(`partial ${text.length} chars`);
     } catch (e) {
       if (e instanceof RemoteHostException) Log.write(`partial remote: ${e.english}`);
