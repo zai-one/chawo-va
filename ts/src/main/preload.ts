@@ -102,6 +102,20 @@ const api = {
       return () => ipcRenderer.removeListener('brain:state', h);
     },
   },
+  history: {
+    state: () => ipcRenderer.invoke('history:state'),
+    setQuery: (q: string) => ipcRenderer.invoke('history:query', q),
+    setKeep: (k: string) => ipcRenderer.invoke('history:keep', k),
+    copy: (id: string, which: 'final' | 'raw') => ipcRenderer.invoke('history:copy', id, which),
+    remove: (id: string) => ipcRenderer.invoke('history:remove', id),
+    clearAll: () => ipcRenderer.invoke('history:clear'),
+    rerun: (id: string) => ipcRenderer.invoke('history:rerun', id),
+    onState: (fn: (s: unknown) => void) => {
+      const h = (_e: unknown, s: unknown) => fn(s);
+      ipcRenderer.on('history:state', h);
+      return () => ipcRenderer.removeListener('history:state', h);
+    },
+  },
   network: {
     state: () => ipcRenderer.invoke('network:state'),
     setRole: (v: string) => ipcRenderer.invoke('network:role', v),

@@ -12,7 +12,7 @@ import * as Settings from './settings';
 import type { SettingsData } from './settings';
 import { lastTakePath } from './paths';
 import { DictationController, type MicDevice } from './dictation/dictationPage';
-import { DictationSession } from './dictation/dictationSession';
+import { DictationSession, type TakeRecord } from './dictation/dictationSession';
 import type { OverlayWindow } from './overlay/overlayWindow';
 
 /** One chunk is ~640 samples; anything far bigger is not from our worklet. */
@@ -27,7 +27,7 @@ export interface DictationIpc {
 export function registerDictationIpc(
   getWindow: () => BrowserWindow | null,
   settings: { get: () => SettingsData },
-  opts: { changed?: () => void; overlay?: OverlayWindow } = {},
+  opts: { changed?: () => void; overlay?: OverlayWindow; record?: (take: TakeRecord) => void } = {},
 ): DictationIpc {
   const send = (channel: string, payload: unknown) => {
     const w = getWindow();
@@ -72,6 +72,7 @@ export function registerDictationIpc(
     },
     micName: () => ctl.micName(),
     overlay: opts.overlay,
+    record: opts.record,
   });
   const ctl: DictationController = new DictationController({
     settings: settings.get,

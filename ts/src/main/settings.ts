@@ -9,6 +9,7 @@ import { HERMES_PORT } from '../core/speechModels';
 import { write as logWrite } from './log';
 import { appDataDir, settingsPath } from './paths';
 import { providerIdFromUrl } from './brainProviders';
+import { HISTORY_KEEPS, type HistoryKeep } from './history/historyStore';
 
 export type InsertMode = 'Type' | 'Paste';
 export type NetworkRole = 'Host' | 'Client';
@@ -40,6 +41,8 @@ export interface SettingsData {
   CopyPhraseToClipboard: boolean;
   RestoreClipboardAfterCopy: boolean;
   KeepLastRecording: boolean;
+  /** How long the dictation history keeps takes («История»); Off keeps nothing. */
+  HistoryKeep: HistoryKeep;
   FirstRunDone: boolean;
   Language: UiLanguage;
   CheckUpdates: boolean;
@@ -89,6 +92,7 @@ export function defaults(): SettingsData {
     CopyPhraseToClipboard: false,
     RestoreClipboardAfterCopy: true,
     KeepLastRecording: false,
+    HistoryKeep: 'Week',
     FirstRunDone: false,
     Language: 'Auto',
     CheckUpdates: false,
@@ -308,6 +312,7 @@ export function fromJsonObject(raw: Record<string, unknown>): { settings: Settin
   d.CopyPhraseToClipboard = asBool(raw.CopyPhraseToClipboard, d.CopyPhraseToClipboard);
   d.RestoreClipboardAfterCopy = asBool(raw.RestoreClipboardAfterCopy, d.RestoreClipboardAfterCopy);
   d.KeepLastRecording = asBool(raw.KeepLastRecording, d.KeepLastRecording);
+  d.HistoryKeep = asEnum(raw.HistoryKeep, HISTORY_KEEPS, d.HistoryKeep);
   d.FirstRunDone = asBool(raw.FirstRunDone, d.FirstRunDone);
   d.Language = asEnum(raw.Language, ['Auto', 'Russian', 'English'] as const, d.Language);
   d.CheckUpdates = asBool(raw.CheckUpdates, d.CheckUpdates);
@@ -391,6 +396,7 @@ export function toJsonObject(s: SettingsData): Record<string, unknown> {
     CopyPhraseToClipboard: s.CopyPhraseToClipboard,
     RestoreClipboardAfterCopy: s.RestoreClipboardAfterCopy,
     KeepLastRecording: s.KeepLastRecording,
+    HistoryKeep: s.HistoryKeep,
     FirstRunDone: s.FirstRunDone,
     Language: s.Language,
     CheckUpdates: false,
