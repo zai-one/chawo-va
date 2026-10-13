@@ -51,6 +51,7 @@ const api = {
     remove: (id: number) => ipcRenderer.invoke('dict:remove', id),
     suggest: () => ipcRenderer.invoke('dict:suggest'),
     addSuggestion: (heard: string, written: string) => ipcRenderer.invoke('dict:addSuggestion', heard, written),
+    setSpoken: (kind: 'punctuation' | 'numbers', on: boolean) => ipcRenderer.invoke('dict:setSpoken', kind, on),
   },
   sales: {
     state: () => ipcRenderer.invoke('sales:state'),

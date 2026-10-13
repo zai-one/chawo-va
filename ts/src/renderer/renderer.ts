@@ -76,8 +76,10 @@ interface DictState {
   hintKind: 'idle' | 'noFolder' | 'none' | 'found';
   rows: DictRow[];
   suggestions: DictSuggestionRow[];
+  spoken: { punctuation: boolean; numbers: boolean; punctuationLabel: string; punctuationHint: string; numbersLabel: string; numbersHint: string };
 }
 interface DictApi {
+  setSpoken(kind: 'punctuation' | 'numbers', on: boolean): Promise<DictState>;
   state(): Promise<DictState>;
   setRow(id: number, from: string, to: string): Promise<DictState>;
   add(): Promise<{ id: number; state: DictState }>;
@@ -1218,6 +1220,19 @@ function renderDictionary(focusId?: number): void {
   page.append(el('div', { className: 'row' },
     button(s.addLabel, () => void bridge.dict.add().then((res) => applyDict(res.state, res.id))),
   ));
+
+  // Voice punctuation and numbers: two switches, each with one hint line.
+  const sp = s.spoken;
+  const punct = el('input', { type: 'checkbox', checked: sp.punctuation });
+  punct.dataset.dict = 'punctuation';
+  punct.addEventListener('change', () => void bridge.dict.setSpoken('punctuation', punct.checked).then((st) => applyDict(st)));
+  page.append(el('label', { className: 'check' }, punct, ' ' + sp.punctuationLabel),
+    el('p', { className: 'muted hint indent', textContent: sp.punctuationHint }));
+  const nums = el('input', { type: 'checkbox', checked: sp.numbers });
+  nums.dataset.dict = 'numbers';
+  nums.addEventListener('change', () => void bridge.dict.setSpoken('numbers', nums.checked).then((st) => applyDict(st)));
+  page.append(el('label', { className: 'check' }, nums, ' ' + sp.numbersLabel),
+    el('p', { className: 'muted hint indent', textContent: sp.numbersHint }));
 
   page.append(el('div', { className: 'row' },
     button(s.suggestLabel, () => void bridge.dict.suggest().then((st) => applyDict(st))),

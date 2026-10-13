@@ -82,6 +82,10 @@ export interface SettingsData {
   /** Stop a take after this many ms of silence following speech; 0 = off (settings.json only for now). */
   VadAutoStopMs: number;
   WordReplacementRules: string;
+  /** «запятая», «новая строка» … → marks in a dictated phrase (IDEAS №9). Off by default. */
+  SpokenPunctuation: boolean;
+  /** «двадцать пять» → «25» in a dictated phrase. Off by default. */
+  SpokenNumbers: boolean;
   /** Per-app modes: overrides of the take editing for a focused program (first match wins). */
   AppRules: AppRule[];
   CleanupEndpointUrl: string;
@@ -138,6 +142,8 @@ export function defaults(): SettingsData {
     VadEnabled: true,
     VadAutoStopMs: 0,
     WordReplacementRules: '',
+    SpokenPunctuation: false,
+    SpokenNumbers: false,
     AppRules: [],
     CleanupEndpointUrl: '',
     CleanupApiKey: '',
@@ -380,6 +386,8 @@ export function fromJsonObject(raw: Record<string, unknown>): { settings: Settin
   d.VadEnabled = asBool(raw.VadEnabled, d.VadEnabled);
   d.VadAutoStopMs = Math.min(60_000, Math.max(0, asInt(raw.VadAutoStopMs, d.VadAutoStopMs)));
   d.WordReplacementRules = asString(raw.WordReplacementRules, d.WordReplacementRules);
+  d.SpokenPunctuation = asBool(raw.SpokenPunctuation, d.SpokenPunctuation);
+  d.SpokenNumbers = asBool(raw.SpokenNumbers, d.SpokenNumbers);
   d.AppRules = parseAppRules(raw.AppRules);
   d.CleanupEndpointUrl = asString(raw.CleanupEndpointUrl, d.CleanupEndpointUrl);
   d.CleanupModel = asString(raw.CleanupModel, d.CleanupModel);
@@ -461,6 +469,8 @@ export function toJsonObject(s: SettingsData): Record<string, unknown> {
     VadEnabled: s.VadEnabled,
     VadAutoStopMs: s.VadAutoStopMs,
     WordReplacementRules: s.WordReplacementRules,
+    SpokenPunctuation: s.SpokenPunctuation,
+    SpokenNumbers: s.SpokenNumbers,
     AppRules: s.AppRules,
     CleanupEndpointUrl: s.CleanupEndpointUrl,
     CleanupModel: s.CleanupModel,

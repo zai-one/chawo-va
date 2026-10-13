@@ -23,6 +23,7 @@ import {
   normalizeQuietTake,
 } from '../../core/takeBuffer';
 import { applyRules } from '../../core/wordReplace';
+import { applySpoken } from '../../core/spokenText';
 import { SilenceWatch } from '../../core/vad';
 import { trimTake } from '../vad/vadModel';
 import { parseCommand, serverConfigured, transformAsync } from '../brain/brain';
@@ -428,6 +429,11 @@ export class DictationSession {
           const replaced = applyRules(text, effectiveWordReplacementRules(this.h.settings()));
           if (replaced !== text) Log.write(`word replace before brain: ${text.length} -> ${replaced.length} chars`);
           text = replaced;
+          // Voice punctuation and numbers (each only when on in «Словарь»), after the dictionary so a
+          // dictionary row can still catch a word first, before the Brain so «Чаво, …» sees marks.
+          const spoken = applySpoken(text, this.h.settings());
+          if (spoken !== text) Log.write(`spoken marks/numbers: ${text.length} -> ${spoken.length} chars`);
+          text = spoken;
         }
         raw = text;
         // Brain on a selection waits for SelectionReader (Windows); a take is plain dictation here.
