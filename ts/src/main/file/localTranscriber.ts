@@ -22,8 +22,8 @@ export function localPrepare(settings: () => SettingsData): FileRunnerDeps['prep
       return {
         ok: false,
         message: t(
-          'Модели нет на диске. Откройте «Диктовка» и скачайте выбранную модель.',
-          'The model is not on disk. Open Dictation and download the selected model.',
+          'Модели нет на диске. Откройте «Распознавание» и скачайте выбранную модель.',
+          'The model is not on disk. Open Speech and download the selected model.',
         ),
       };
     }

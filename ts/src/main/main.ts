@@ -4,6 +4,7 @@
 import { app, BrowserWindow, Menu, Tray, nativeImage, nativeTheme, session } from 'electron';
 import { join } from 'node:path';
 import { registerFileIpc } from './fileIpc';
+import { registerSpeechIpc } from './speechIpc';
 import { chromiumDecode, disposeChromiumDecoder } from './chromiumDecoder';
 import { setPlatformDecoder } from './file';
 import * as Settings from './settings';
@@ -97,7 +98,8 @@ if (!app.requestSingleInstanceLock()) {
     applyLanguage(settings.Language, app.getLocale());
     // MP3/M4A/FLAC/… decode in a hidden sandboxed renderer; ffmpeg stays an optional fallback.
     setPlatformDecoder(chromiumDecode);
-    registerFileIpc(() => win, { get: () => settings });
+    const files = registerFileIpc(() => win, { get: () => settings });
+    registerSpeechIpc(() => win, { get: () => settings }, { busy: files.busy });
     win = createWindow();
     tray = createTray();
   });

@@ -27,6 +27,21 @@ const api = {
       return () => ipcRenderer.removeListener('file:toast', h);
     },
   },
+  speech: {
+    state: () => ipcRenderer.invoke('speech:state'),
+    select: (kind: string) => ipcRenderer.invoke('speech:select', kind),
+    setDevice: (d: 'Gpu' | 'Cpu') => ipcRenderer.invoke('speech:device', d),
+    setThreads: (n: number) => ipcRenderer.invoke('speech:threads', n),
+    download: (kind: string) => ipcRenderer.invoke('speech:download', kind),
+    cancel: () => ipcRenderer.invoke('speech:cancel'),
+    dismiss: () => ipcRenderer.invoke('speech:dismiss'),
+    remove: (kind: string) => ipcRenderer.invoke('speech:delete', kind),
+    onState: (fn: (s: unknown) => void) => {
+      const h = (_e: unknown, s: unknown) => fn(s);
+      ipcRenderer.on('speech:state', h);
+      return () => ipcRenderer.removeListener('speech:state', h);
+    },
+  },
 };
 
 contextBridge.exposeInMainWorld('chawo', api);

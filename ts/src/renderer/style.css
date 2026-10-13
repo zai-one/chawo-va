@@ -30,3 +30,17 @@ fieldset { border: 1px solid var(--line); border-radius: 8px; margin: 0 0 12px; 
 legend { color: var(--muted); padding: 0 4px; }
 select { background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 6px; padding: 4px 8px; font: inherit; }
 input[type=checkbox] { accent-color: var(--accent); }
+.models { display: flex; flex-direction: column; gap: 6px; margin: 6px 0 4px; }
+.model { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); }
+.model label { flex: 1; min-width: 0; }
+.model .disk { color: #7fd18b; font-size: 12px; }
+input[type=radio] { accent-color: var(--accent); }
+.progress { height: 6px; background: var(--line); border-radius: 3px; overflow: hidden; margin: 8px 0 4px; }
+.progress > div { height: 100%; background: var(--accent); width: 0; transition: width .2s; }
+.progress.indeterminate > div { width: 30%; animation: slide 1.2s linear infinite; }
+@keyframes slide { from { margin-left: -30%; } to { margin-left: 100%; } }
+.card { border: 1px solid var(--line); border-radius: 8px; background: var(--panel); padding: 10px 14px; margin: 10px 0; }
+.card.failed { border-color: #ff8a7a; }
+label.block { display: block; font-weight: 600; margin: 14px 0 4px; }
+.hint { font-size: 12px; margin: 4px 0 0; }
+.line { overflow-wrap: anywhere; }

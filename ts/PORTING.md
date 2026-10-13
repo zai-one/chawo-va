@@ -25,7 +25,7 @@ Re-align folder names and tooling with taptain-desktop once its layout is readab
 | App/Settings.cs, Log | src/main/settings.ts, paths.ts, log.ts | ✅ ported + tests |
 | App/DataMigration.cs | src/main/dataMigration.ts | ✅ ported + tests |
 | App/SpeechModelStore.cs | src/main/models/speechModelStore.ts | ✅ ported + tests |
-| App/ModelDownloader.cs | src/main/models/modelDownloader.ts, tarGz.ts | ✅ ported + tests (no network) |
+| App/ModelDownloader.cs | src/main/models/modelDownloader.ts, tarGz.ts | ✅ ported + tests (no network); real v3 download verified on the box |
 | App/FileTranscript.cs, FileQueue.cs, FfmpegTool.cs | src/main/file/ (+ zip.ts) | ✅ ported + tests (system ffmpeg mp3 decode) |
 | App/Brain*.cs, LocalBrain.cs, FileBrain.cs, SpeechCleanup.cs | src/main/brain/ | ⏳ |
 | App/Recorder.cs | renderer getUserMedia → AudioWorklet → main | ⏳ |
@@ -33,7 +33,8 @@ Re-align folder names and tooling with taptain-desktop once its layout is readab
 | App/HermesServer.cs, HermesFirewall.cs, RemoteSpeech.cs | src/main/network/ | ⏳ |
 | App/Sales*.cs | src/main/sales/ | ⏳ |
 | App/Updater.cs, Autostart.cs, KeepAwake.cs | src/main/system/ | ⏳ |
-| SettingsWindow, OverlayWindow, SalesCardWindow, Download/Update windows, BrainServerPanel | src/renderer/ pages | 🟡 «Расшифровка файла» page works; other sections are placeholders |
+| SettingsWindow, OverlayWindow, SalesCardWindow, Download/Update windows, BrainServerPanel | src/renderer/ pages | 🟡 «Расшифровка файла» and «Распознавание» pages work (DownloadWindow folded into the page as a progress card); sidebar has all 7 WPF sections, the rest are placeholders |
+| SettingsWindow speech page, App.SpeechStatusText / DownloadSpeechAsync / DeleteSpeechModelAsync | src/main/speech/speechPage.ts (SpeechController), src/main/speechIpc.ts | ✅ ported + tests (GPU warmup and live session line wait for dictation) |
 | App.RunFileQueueAsync / RunQueue / RunOneFile / TranscribeLocal | src/main/file/fileRunner.ts, localTranscriber.ts, src/main/fileIpc.ts | ✅ local path ported (remote host + Brain pending) |
 | App/Strings.cs | src/core/strings.ts (ru/en `t()`) | ✅ ported |
 
@@ -118,3 +119,17 @@ Re-align folder names and tooling with taptain-desktop once its layout is readab
   AMR, WMA, MKV/MOV and files over 400 MB. `scripts/smoke-decode.cjs`, `SMOKE_WAIT=1` for
   smoke-shot. 75 tests green. Next: «Диктовка» page (model status + download with progress, device
   choice), then microphone capture and the global hotkey.
+
+- 2026-10-13 tick 7: «Распознавание» page. `SpeechController` (no Electron imports, unit-tested
+  with fake hooks): both model rows with selection, on-disk badge, Download / Delete, WPF progress
+  and failure texts (noSpace / corrupt / rejected / network), cancel, retry, client role never
+  downloads, already-on-disk is not fetched again, delete is refused while files are transcribing
+  and goes through a native confirmation box listing the exact paths. Device choice says DirectML
+  on Windows and CUDA elsewhere (what onnxruntime-node actually uses); CPU threads only on CPU.
+  The download card replaces the separate WPF DownloadWindow. Sidebar now has all 7 WPF sections
+  (Диктовка, Расшифровка файла, Распознавание, Словарь, Продажи, Мозг, Сеть). File transcription's
+  "no model" hint points to «Распознавание». Real end-to-end check on the box: v3 downloaded from
+  the GitHub release, unpacked, all SHA-256 matched, temp archive removed, page shows «на диске».
+  83 tests green. Next: «Словарь» page (rules editor over wordReplace + settings), then microphone
+  capture (getUserMedia → AudioWorklet → main) and the hold-to-talk hotkey design.
+

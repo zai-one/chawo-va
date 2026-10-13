@@ -1,4 +1,4 @@
-// Sidebar navigation plus the «Расшифровка файла» page. Other pages get real content as the
+// Sidebar navigation plus the «Расшифровка файла» and «Распознавание» pages. Other pages get real content as the
 // WPF SettingsWindow is ported. Plain DOM, no framework; paths are set via textContent only.
 
 interface FileItem { id: number; path: string; state: 'Queued' | 'Running' | 'Done' | 'Failed' | 'Stopped'; note: string; outputPath?: string }
@@ -25,12 +25,49 @@ interface FileApi {
   onState(fn: (s: FileState) => void): () => void;
   onToast(fn: (s: string) => void): () => void;
 }
-const bridge = (window as unknown as { chawo: { file: FileApi } }).chawo;
+interface SpeechModelRow { kind: string; label: string; selected: boolean; onDisk: boolean; path: string | null; canDelete: boolean; deleteTip: string }
+interface SpeechState {
+  ru: boolean;
+  client: boolean;
+  intro: string;
+  models: SpeechModelRow[];
+  note: string;
+  device: 'Gpu' | 'Cpu';
+  deviceChoices: { value: 'Gpu' | 'Cpu'; label: string }[];
+  cpuThreads: number;
+  cores: number;
+  threadsHint: string;
+  status: string;
+  download: { kind: string; percent: number | null; text: string; running: boolean; failed: boolean } | null;
+}
+interface SpeechApi {
+  state(): Promise<SpeechState>;
+  select(kind: string): Promise<SpeechState>;
+  setDevice(d: 'Gpu' | 'Cpu'): Promise<SpeechState>;
+  setThreads(n: number): Promise<SpeechState>;
+  download(kind: string): Promise<SpeechState>;
+  cancel(): Promise<SpeechState>;
+  dismiss(): Promise<SpeechState>;
+  remove(kind: string): Promise<SpeechState>;
+  onState(fn: (s: SpeechState) => void): () => void;
+}
+const bridge = (window as unknown as { chawo: { file: FileApi; speech: SpeechApi } }).chawo;
 
-const titlesEn: Record<string, string> = { dictation: 'Dictation', file: 'File transcription', brain: 'Brain', network: 'Network' };
+const titlesEn: Record<string, string> = {
+  dictation: 'Dictation',
+  file: 'File transcription',
+  speech: 'Speech',
+  dictionary: 'Dictionary',
+  sales: 'Sales',
+  brain: 'Brain',
+  network: 'Network',
+};
 const titles: Record<string, string> = {
   dictation: 'Диктовка',
   file: 'Расшифровка файла',
+  speech: 'Распознавание',
+  dictionary: 'Словарь',
+  sales: 'Продажи',
   brain: 'Мозг',
   network: 'Сеть',
 };
@@ -38,6 +75,7 @@ const titles: Record<string, string> = {
 const page = document.getElementById('page') as HTMLElement;
 let current = 'dictation';
 let fileState: FileState | null = null;
+let speechState: SpeechState | null = null;
 let ru = true;
 const L = (r: string, e: string) => (ru ? r : e);
 
@@ -79,13 +117,92 @@ const apply = (s: FileState) => {
   if (current === 'file') renderFile();
 };
 
+const applySpeech = (s: SpeechState) => {
+  speechState = s;
+  if (s.ru !== ru) setLanguage(s.ru);
+  else if (current === 'speech') renderSpeech();
+};
+
 const title = (name: string) => (ru ? titles[name] : titlesEn[name]) ?? '';
 
 function setLanguage(r: boolean): void {
   ru = r;
   document.documentElement.lang = r ? 'ru' : 'en';
   for (const b of Array.from(document.querySelectorAll<HTMLButtonElement>('.nav button'))) b.textContent = title(b.dataset.page ?? '');
-  if (current !== 'file') show(current);
+  if (current === 'speech') renderSpeech();
+  else if (current !== 'file') show(current);
+}
+
+function renderSpeech(): void {
+  const s = speechState;
+  page.replaceChildren(el('h1', { textContent: title('speech') }));
+  if (!s) return;
+  page.append(el('p', { className: 'muted', textContent: s.intro }));
+  page.append(el('label', { className: 'block', textContent: L('Речевые модели', 'Speech models') }));
+  const busy = s.download?.running === true;
+  const rows = el('div', { className: 'models' });
+  for (const m of s.models) {
+    const radio = el('input', { type: 'radio', name: 'speech-model', checked: m.selected, disabled: busy });
+    radio.addEventListener('change', () => radio.checked && void bridge.speech.select(m.kind).then(applySpeech));
+    const label = el('label', { title: m.path ?? '' }, radio, ' ' + m.label);
+    const row = el('div', { className: 'model' }, label);
+    if (m.onDisk) row.append(el('span', { className: 'disk', textContent: L('на диске', 'on disk') }));
+    else {
+      const dl = button(L('Скачать', 'Download'), () => void bridge.speech.download(m.kind).then(applySpeech));
+      dl.disabled = busy || s.client;
+      if (s.client) dl.title = L('Клиент не скачивает модель.', 'A client does not download a model.');
+      row.append(dl);
+    }
+    if (m.canDelete) {
+      const del = button(L('Удалить', 'Delete'), () => void bridge.speech.remove(m.kind).then(applySpeech));
+      del.title = m.deleteTip;
+      del.disabled = busy && s.download?.kind === m.kind;
+      row.append(del);
+    }
+    rows.append(row);
+  }
+  page.append(rows);
+  page.append(el('p', { className: 'muted hint', textContent: s.note }));
+
+  const d = s.download;
+  if (d) {
+    const card = el('div', { className: `card${d.failed ? ' failed' : ''}` });
+    const name = s.models.find((m) => m.kind === d.kind)?.label ?? d.kind;
+    card.append(el('div', { textContent: name }));
+    if (d.running) {
+      const bar = el('div', { className: `progress${d.percent === null ? ' indeterminate' : ''}` }, el('div'));
+      if (d.percent !== null) (bar.firstChild as HTMLElement).style.width = `${d.percent.toFixed(1)}%`;
+      card.append(bar);
+    }
+    card.append(el('p', { className: 'status muted', textContent: d.text }));
+    const act = el('div', { className: 'row' });
+    if (d.running) act.append(button(L('Отмена', 'Cancel'), () => void bridge.speech.cancel().then(applySpeech)));
+    else {
+      if (d.failed && !s.client) act.append(button(L('Повторить', 'Retry'), () => void bridge.speech.download(d.kind).then(applySpeech), 'primary'));
+      act.append(button(L('Скрыть', 'Hide'), () => void bridge.speech.dismiss().then(applySpeech), 'link'));
+    }
+    card.append(act);
+    page.append(card);
+  } else if (!s.client && s.models.some((m) => !m.onDisk)) {
+    page.append(el('p', { className: 'muted hint', textContent: L('Пока кнопка «Скачать» не нажата, в сеть ничего не уходит.', 'Nothing goes out on the network until you press Download.') }));
+  }
+
+  page.append(el('label', { className: 'block', textContent: L('Где считать речь', 'Where speech runs') }));
+  const dev = el('select');
+  for (const c of s.deviceChoices) dev.append(el('option', { value: c.value, textContent: c.label, selected: c.value === s.device }));
+  dev.addEventListener('change', () => void bridge.speech.setDevice(dev.value as 'Gpu' | 'Cpu').then(applySpeech));
+  page.append(dev);
+
+  if (s.device === 'Cpu') {
+    page.append(el('label', { className: 'block', textContent: L('Потоки процессора для диктовки', 'Processor threads for dictation') }));
+    const th = el('select');
+    th.append(el('option', { value: '0', textContent: L(`Все ядра (${s.cores})`, `All cores (${s.cores})`), selected: s.cpuThreads === 0 }));
+    for (let n = 1; n <= s.cores; n++) th.append(el('option', { value: String(n), textContent: String(n), selected: s.cpuThreads === n }));
+    th.addEventListener('change', () => void bridge.speech.setThreads(Number(th.value)).then(applySpeech));
+    page.append(th, el('p', { className: 'muted hint', textContent: s.threadsHint }));
+  }
+
+  page.append(el('p', { className: 'muted line', textContent: s.status }));
 }
 
 function renderFile(): void {
@@ -153,6 +270,11 @@ function show(name: string): void {
     void bridge.file.state().then(apply);
     return;
   }
+  if (name === 'speech') {
+    renderSpeech();
+    void bridge.speech.state().then(applySpeech);
+    return;
+  }
   page.replaceChildren(
     el('h1', { textContent: title(name) }),
     el('p', { className: 'muted', textContent: L('TypeScript-версия в разработке. Этот раздел пока работает в WPF-приложении.', 'The TypeScript version is in progress. This section still lives in the WPF app.') }),
@@ -168,6 +290,7 @@ for (const btn of Array.from(document.querySelectorAll<HTMLButtonElement>('.nav 
 }
 
 bridge.file.onState(apply);
+bridge.speech.onState(applySpeech);
 bridge.file.onToast((msg) => {
   if (fileState) apply({ ...fileState, status: msg });
 });

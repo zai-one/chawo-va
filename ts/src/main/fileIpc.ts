@@ -28,7 +28,7 @@ export interface FileStateDto {
 
 const PARALLELISM: readonly SettingsFileParallelism[] = ['Auto', 'Gentle1', 'Two', 'Four', 'Max'];
 
-export function registerFileIpc(getWindow: () => BrowserWindow | null, settings: { get: () => SettingsData }): void {
+export function registerFileIpc(getWindow: () => BrowserWindow | null, settings: { get: () => SettingsData }): { busy: () => boolean } {
   const queue = new FileQueue();
   let ffmpegBusy = false;
   let ffmpegStatus = '';
@@ -157,4 +157,5 @@ export function registerFileIpc(getWindow: () => BrowserWindow | null, settings:
       });
     return state();
   });
+  return { busy: () => runner.busy };
 }
