@@ -207,6 +207,17 @@ describe('«Мозг» page', () => {
     expect(brainFileFor('Custom', '', files)).toBeNull();
   });
 
+  it('«Команды над выделенным текстом» shows only on Windows (the helper reads the selection) and with a Brain', () => {
+    const win = make({ platform: 'win32' }, (x) => (x.Brain = 'Server'));
+    expect(win.ctl.state().selection.visible).toBe(true);
+    const off = make({ platform: 'win32' }, (x) => (x.Brain = 'Off'));
+    expect(off.ctl.state().selection.visible).toBe(false);
+    for (const platform of ['linux', 'darwin'] as const) {
+      const other = make({ platform }, (x) => (x.Brain = 'Server'));
+      expect(other.ctl.state().selection.visible).toBe(false);
+    }
+  });
+
   it('instruction and selection save only on change', () => {
     const { s, ctl, saves } = make({}, (x) => (x.Brain = 'Server'));
     ctl.setInstruction('');

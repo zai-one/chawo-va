@@ -3,7 +3,7 @@
 // so it never outlives the app.
 //
 // app → helper:  hotkey <vk> | arm <0|1> | insert <id> <Paste|Type> <keep 0|1> <restore 0|1> <b64>
-//                copysel <id> | fg <id> | ping <id>
+//                copysel <id> | selread <id> | fg <id> | ping <id>
 // helper → app:  ready <protocol> | hookfail <b64> | down | up | esc | ok <id> <Done|Blocked>
 //                sel <id> <b64|-> | fg <id> <b64> | pong <id> | err <id> <reason> | log <b64>
 //

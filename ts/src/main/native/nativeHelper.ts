@@ -27,6 +27,14 @@ export interface TextInserterLike {
   insert(text: string, mode: InsertMode, clip: PhraseClipboard): Promise<InsertResult>;
 }
 
+/** SelectionReader.TryGetAsync: the text selected in the focused app, or null. Never rejects. */
+export interface SelectionReaderLike {
+  readSelection(): Promise<string | null>;
+}
+
+/** WPF SelectionReader.Timeout: a hung app must not hold up the take. */
+export const SELECTION_TIMEOUT_MS = 1800;
+
 export type SpawnLike = (file: string, args: readonly string[]) => ChildProcess;
 
 export interface NativeHelperOptions {
@@ -73,7 +81,7 @@ export function helperExePath(distDir: string, resourcesPath?: string): string |
   return candidates.find((p) => existsSync(p)) ?? null;
 }
 
-export class NativeHelper implements TextInserterLike {
+export class NativeHelper implements TextInserterLike, SelectionReaderLike {
   private readonly o: NativeHelperOptions;
   private proc: ChildProcess | null = null;
   private nextId = 1;
@@ -300,6 +308,42 @@ export class NativeHelper implements TextInserterLike {
   async copySelection(): Promise<string | null> {
     const ev = await this.request((id) => ({ kind: 'copysel', id }), 4000);
     return ev.kind === 'sel' ? ev.text : null;
+  }
+
+  private selectionInFlight: Promise<HelperEvent> | null = null;
+
+  /**
+   * SelectionReader.TryGetAsync: UI Automation in the helper, Ctrl+C (clipboard put back) only for apps
+   * that do not expose their text; terminals and spreadsheets are skipped. Null when nothing is selected,
+   * the helper is gone, a previous read still hangs, or it takes longer than SELECTION_TIMEOUT_MS.
+   */
+  async readSelection(timeoutMs = SELECTION_TIMEOUT_MS): Promise<string | null> {
+    if (this.selectionInFlight) return null;
+    let req: Promise<HelperEvent>;
+    try {
+      req = this.request((id) => ({ kind: 'selread', id }), 5000);
+    } catch {
+      return null;
+    }
+    this.selectionInFlight = req;
+    void req.catch(() => undefined).finally(() => {
+      if (this.selectionInFlight === req) this.selectionInFlight = null;
+    });
+    let timer: NodeJS.Timeout | undefined;
+    const late = new Promise<null>((resolve) => {
+      timer = setTimeout(() => {
+        this.o.log?.('selection: timed out');
+        resolve(null);
+      }, timeoutMs);
+    });
+    try {
+      const ev = await Promise.race([req, late]);
+      return ev && ev.kind === 'sel' && ev.text !== null && ev.text.trim().length > 0 ? ev.text : null;
+    } catch {
+      return null;
+    } finally {
+      clearTimeout(timer);
+    }
   }
 
   /** Process name of the foreground window (for per-app modes), '' when unknown. */

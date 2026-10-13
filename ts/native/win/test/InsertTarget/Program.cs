@@ -1,6 +1,6 @@
 // Usage: InsertTarget.exe <report file> <command file>
 // Shows a focused text box, puts "OLD clipboard" on the clipboard, then every 100 ms writes
-// "text\tclipboard" (base64 each) to the report file. Commands from the command file: "selectall".
+// "text\tclipboard" (base64 each) to the report file. Commands from the command file: "selectall", "selectfirst <n>" (the first n characters), "deselect".
 
 using System;
 using System.IO;
@@ -27,6 +27,8 @@ internal static class Program
                 var cmd = File.ReadAllText(commands).Trim();
                 File.Delete(commands);
                 if (cmd == "selectall") { box.Focus(); box.SelectAll(); }
+                else if (cmd.StartsWith("selectfirst ")) { box.Focus(); box.Select(0, int.Parse(cmd.Substring(12))); }
+                else if (cmd == "deselect") { box.Focus(); box.Select(box.TextLength, 0); }
             }
             string clip = "";
             try { clip = Clipboard.ContainsText() ? Clipboard.GetText() : "<none>"; } catch (Exception e) { clip = "<err " + e.Message + ">"; }

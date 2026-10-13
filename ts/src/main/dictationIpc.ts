@@ -18,11 +18,11 @@ import type { ForegroundApp } from '../core/appRules';
 import { detectForeground } from './foreground/foregroundApp';
 import { CueTracker, cueTones, type CuePhase } from '../core/cues';
 import type { GlobalKeyState } from './dictation/dictationPage';
-import type { TextInserterLike } from './native/nativeHelper';
+import type { SelectionReaderLike, TextInserterLike } from './native/nativeHelper';
 import * as Log from './log';
 
 /** The part of NativeHelper the dictation IPC uses (tests: a fake). */
-export interface GlobalKeys extends TextInserterLike {
+export interface GlobalKeys extends TextInserterLike, SelectionReaderLike {
   readonly keyWorks: boolean;
   readonly state: 'off' | 'starting' | 'ready' | 'failed';
   readonly hookFailure: string;
@@ -115,6 +115,10 @@ export function registerDictationIpc(
     record: opts.record,
     sales: opts.sales,
     inserter: () => {
+      const k = opts.keys?.() ?? null;
+      return k && k.state === 'ready' ? k : null;
+    },
+    selection: () => {
       const k = opts.keys?.() ?? null;
       return k && k.state === 'ready' ? k : null;
     },

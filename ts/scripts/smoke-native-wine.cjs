@@ -10,6 +10,8 @@ const { existsSync, readFileSync, writeFileSync, rmSync, mkdtempSync } = require
 const { join } = require('node:path');
 const { tmpdir } = require('node:os');
 const { NativeHelper } = require('../dist/main/native/nativeHelper.js');
+const { DictationSession } = require('../dist/main/dictation/dictationSession.js');
+const Settings = require('../dist/main/settings.js');
 
 const root = join(__dirname, '..');
 const helperExe = join(root, 'native/win/bin/out/ChawoNative.exe');
@@ -88,6 +90,73 @@ const check = (name, ok, extra = '') => {
     check('copySelection reads the selected text', (sel || '').replace(/\r\n/g, '\n') === typed + pasted, JSON.stringify(sel));
     await sleep(300);
     check('clipboard back to "OLD clipboard" after the selection read', read().clip === 'OLD clipboard', read().clip);
+
+    // Brain on a selection: SelectionReader (UI Automation, then Ctrl+C for apps that do not say),
+    // then the Brain's answer pasted over the selection, the clipboard back as it was.
+    writeFileSync(commands, 'selectfirst 6');
+    await sleep(500);
+    const part = await helper.readSelection();
+    check('readSelection: the selected part only', part === 'Привет', JSON.stringify(part));
+    await sleep(300);
+    check('clipboard back to "OLD clipboard" after readSelection', read().clip === 'OLD clipboard', read().clip);
+    const before = read().text;
+    check('insert over the selection → Done', (await helper.insert('Здравствуйте', 'Paste', { keep: false, restore: true })) === 'Done');
+    r = await until('selection replaced', (x) => x.text === 'Здравствуйте' + before.slice(6)).catch((e) => (check('the answer replaced the selection', false, e.message), null));
+    if (r) check('the answer replaced the selection', true, JSON.stringify(r.text.slice(0, 24)));
+    r = await until('clipboard restored', (x) => x.clip === 'OLD clipboard', 5000).catch((e) => (check('clipboard restored after replacing', false, e.message), null));
+    if (r) check('clipboard restored after replacing', true);
+    writeFileSync(commands, 'deselect');
+    await sleep(500);
+    const none = await helper.readSelection();
+    check('readSelection: nothing selected → null', none === null, JSON.stringify(none));
+    check('clipboard untouched with nothing selected', read().clip === 'OLD clipboard', read().clip);
+    const textBeforeReads = read().text;
+    check('reading the selection never changed the text', textBeforeReads === 'Здравствуйте' + before.slice(6));
+
+    // The whole take through DictationSession: global-key take with text selected in the target,
+    // recognized command «Чаво, сделай заглавными» → (fake) Brain on the selection → pasted over it.
+    {
+      const st = Settings.defaults();
+      st.Brain = 'Server';
+      st.ShowOverlay = false;
+      const brainCalls = [];
+      const sess = new DictationSession({
+        settings: () => st,
+        find: (k) => '/m/' + k,
+        open: async () => ({
+          kind: 'v3_e2e_rnnt', modelId: 'v3_e2e_rnnt', deviceActual: 'cpu', deviceNote: null, intraOpThreads: 1,
+          transcribeCancelable: async () => 'Чаво, сделай заглавными.', cancelOwned() {}, async dispose() {},
+        }),
+        platform: 'win32',
+        partialMs: 0,
+        inserter: () => helper,
+        selection: () => helper,
+        brainUsable: () => true,
+        transform: async (_s, body, command, _st, _sig, selection) => {
+          brainCalls.push({ body, command, selection });
+          return body.toUpperCase();
+        },
+      });
+      writeFileSync(commands, 'selectfirst 12');
+      await sleep(500);
+      const rest = read().text.slice(12);
+      check('session: hotkey take starts', sess.startTake('hotkey').ok);
+      const n = 16000;
+      for (let i = 0; i < n; i += 640) {
+        const c = new Float32Array(640);
+        for (let j = 0; j < 640; j++) { const k = i + j; c[j] = (k > n * 0.3 && k < n * 0.7 ? 0.3 : 0) * Math.sin(k * 0.2) + 0.001 * Math.sin(k * 1.3); }
+        sess.appendPcm(c);
+      }
+      await sleep(300);
+      const out = await sess.stopTake();
+      check('session: Brain got the selection and the command', JSON.stringify(brainCalls) === JSON.stringify([{ body: 'Здравствуйте', command: 'сделай заглавными', selection: true }]), JSON.stringify(brainCalls));
+      check('session: result', out === 'ЗДРАВСТВУЙТЕ', JSON.stringify(out));
+      r = await until('session replaced the selection', (x) => x.text === 'ЗДРАВСТВУЙТЕ' + rest).catch((e) => (check('session: the answer replaced the selection in the app', false, e.message), null));
+      if (r) check('session: the answer replaced the selection in the app', true, JSON.stringify(r.text.slice(0, 24)));
+      check('session: Ctrl+Z hint', sess.view().status === 'Готово. Вернуть как было: Ctrl+Z', sess.view().status);
+      r = await until('clipboard restored', (x) => x.clip === 'OLD clipboard', 5000).catch((e) => (check('session: clipboard back after the take', false, e.message), null));
+      if (r) check('session: clipboard back after the take', true);
+    }
 
     // Keep the phrase (CopyPhraseToClipboard) with history off (no registry value in a fresh prefix):
     // the phrase stays the current clipboard.
