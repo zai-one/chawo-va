@@ -370,6 +370,21 @@ Re-align folder names and tooling with taptain-desktop once its layout is readab
   unit-tested with a fake spawn only (needs a Windows run). Next: the Windows native helper (hold
   key, TextInserter, SelectionReader, caret placement, job object), the «Продажи» card, then
   Updater/Autostart.
+
+- 2026-10-13 tick (branch `ts/feat-diarization`, IDEAS.md №11): локальная диаризация спикеров после
+  файловой расшифровки. `src/core/diarize.ts` (pure): `assignSpeakers(transcript, diarSpans)` —
+  max time-overlap, remap id по первому появлению в транскрипте; `speakerPrefix` → «Спикер N:»
+  (1-based, всегда по-русски). `TranscriptSegment.speaker?`; `toTxt`/`toSrt` добавляют префикс,
+  когда хотя бы у одного сегмента есть speaker. Runtime: `sherpa-onnx-node` `OfflineSpeakerDiarization`
+  (lazy `require`, тесты без native addon), конфиг clustering `numClusters: -1`, `threshold: 0.5`,
+  `minDurationOn: 0.2`, `minDurationOff: 0.5`; float32 mono 16 kHz. Модели по запросу в
+  `models/diarization/` (pyannote segmentation tar.bz2 → `model.onnx` + 3D-Speaker embedding onnx,
+  ~47 МБ; unpack через python3 bz2). Настройка `FileDiarize` (default false). `FileRunner.runDiarize`
+  после локальных сегментов: нет моделей → заметка в note, очередь не падает; есть → assign + «спикеры».
+  UI: чекбокс «Разделять спикеров» + «Скачать модели (~47 МБ)» на «Расшифровка файла». Тесты:
+  diarize, diarizeRuntime (fake fetch + tar.bz2), fileRunner (3), settings FileDiarize, formats.
+  Smoke: `scripts/smoke-diarize.cjs` (skip-friendly). Gap: remote/Client path не диаризует на хосте
+  (только локальный PCM); DER-метрика не считается автоматически.
 - 2026-10-13 tick (branch `ts/feat-meeting`, IDEAS.md №10 = approved batch 2 item 2): meeting recording
   with the computer sound. «Расшифровка файла» got a «Встреча» box: «Записать встречу» → «● Запись
   чч:мм:сс · микрофон ▮▮▮ · компьютер ▮▮▮» with «Остановить и расшифровать» / «Отменить»; one

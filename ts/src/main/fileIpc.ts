@@ -4,6 +4,7 @@
 import { BrowserWindow, Notification, dialog, ipcMain, shell } from 'electron';
 import { dirname } from 'node:path';
 import { FileQueue, FileRunner, Ffmpeg, OPEN_FILTERS, load16k, localPrepare, remoteFatal, remotePrepare } from './file';
+import { getDiarizeRuntime } from './diarize';
 import * as FileBrain from './brain/fileBrain';
 import { BrainException } from './brain/speechCleanup';
 import * as Settings from './settings';
@@ -17,6 +18,7 @@ export interface FileOptionsDto {
   /** vtt / json / md / docx */
   extra: FileExtraFormat[];
   parallelism: SettingsFileParallelism;
+  diarize: boolean;
 }
 
 export interface FileStateDto {
@@ -25,6 +27,7 @@ export interface FileStateDto {
   busy: boolean;
   options: FileOptionsDto;
   ffmpeg: { line: string; canDownload: boolean; installed: boolean };
+  diarization: { onDisk: boolean; ready: boolean; downloading: boolean; line: string; canDownload: boolean };
   lastOutput: string | null;
   /** UI language picked in main (Auto follows the OS locale), so the page matches status lines. */
   ru: boolean;
@@ -36,17 +39,30 @@ export function registerFileIpc(getWindow: () => BrowserWindow | null, settings:
   const queue = new FileQueue();
   let ffmpegBusy = false;
   let ffmpegStatus = '';
+  let diarBusy = false;
+  let diarStatus = '';
+  let ffmpegAbort: AbortController | null = null;
+  let diarAbort: AbortController | null = null;
 
   const state = (): FileStateDto => {
     const s = settings.get();
+    const diar = getDiarizeRuntime();
+    const ruLang = isRussian();
     return {
       items: queue.snapshot(),
-      status: ffmpegStatus || runner.status,
-      busy: runner.busy || ffmpegBusy,
-      options: { timestamps: s.FileTimestamps, srt: s.FileSrt, extra: [...s.FileExtraFormats], parallelism: s.FileParallelism },
+      status: ffmpegStatus || diarStatus || runner.status,
+      busy: runner.busy || ffmpegBusy || diarBusy,
+      options: { timestamps: s.FileTimestamps, srt: s.FileSrt, extra: [...s.FileExtraFormats], parallelism: s.FileParallelism, diarize: s.FileDiarize },
       ffmpeg: { line: Ffmpeg.statusLine(), canDownload: Ffmpeg.canDownload(), installed: Ffmpeg.isInstalled() },
+      diarization: {
+        onDisk: diar.onDisk,
+        ready: diar.ready,
+        downloading: diar.isDownloading,
+        line: ruLang ? diar.statusRu() : diar.statusEn(),
+        canDownload: !diar.onDisk && !diar.isDownloading,
+      },
       lastOutput: queue.lastOutput,
-      ru: isRussian(),
+      ru: ruLang,
     };
   };
 
@@ -72,7 +88,7 @@ export function registerFileIpc(getWindow: () => BrowserWindow | null, settings:
     prefetch: () => !client(),
     options: () => {
       const s = settings.get();
-      return { timestamps: s.FileTimestamps, srt: s.FileSrt, extra: [...s.FileExtraFormats], useBrain: s.FileUseBrain };
+      return { timestamps: s.FileTimestamps, srt: s.FileSrt, extra: [...s.FileExtraFormats], useBrain: s.FileUseBrain, diarize: s.FileDiarize };
     },
     status: () => push(),
     notifyDone: (title, body, _ok, last) => {
@@ -100,6 +116,12 @@ export function registerFileIpc(getWindow: () => BrowserWindow | null, settings:
         const msg = e instanceof BrainException || e instanceof Error ? e.message : String(e);
         return { note: msg };
       }
+    },
+    runDiarize: async (pcm, status, signal) => {
+      const diar = getDiarizeRuntime();
+      if (!diar.ready) return null;
+      status(t('Разделяю спикеров…', 'Separating speakers…'));
+      return diar.run(pcm, signal);
     },
   });
   queue.onChanged(push);
@@ -147,6 +169,7 @@ export function registerFileIpc(getWindow: () => BrowserWindow | null, settings:
   ipcMain.handle('file:stop', () => {
     runner.stop();
     ffmpegAbort?.abort();
+    diarAbort?.abort();
     return state();
   });
 
@@ -161,13 +184,13 @@ export function registerFileIpc(getWindow: () => BrowserWindow | null, settings:
     const s = settings.get();
     if (typeof o?.timestamps === 'boolean') s.FileTimestamps = o.timestamps;
     if (typeof o?.srt === 'boolean') s.FileSrt = o.srt;
+    if (typeof o?.diarize === 'boolean') s.FileDiarize = o.diarize;
     if (Array.isArray(o?.extra)) s.FileExtraFormats = asExtraFormats(o.extra);
     if (typeof o?.parallelism === 'string' && PARALLELISM.includes(o.parallelism)) s.FileParallelism = o.parallelism;
     Settings.save(s);
     return state();
   });
 
-  let ffmpegAbort: AbortController | null = null;
   ipcMain.handle('file:ffmpegDownload', () => {
     if (runner.busy || ffmpegBusy || !Ffmpeg.canDownload()) return state();
     ffmpegBusy = true;
@@ -186,8 +209,32 @@ export function registerFileIpc(getWindow: () => BrowserWindow | null, settings:
       });
     return state();
   });
+  ipcMain.handle('file:diarizeDownload', () => {
+    const diar = getDiarizeRuntime();
+    if (runner.busy || ffmpegBusy || diarBusy || diar.onDisk) return state();
+    diarBusy = true;
+    diarAbort = new AbortController();
+    diarStatus = t('Скачиваю модели спикеров…', 'Downloading speaker models…');
+    void diar
+      .download(diarAbort.signal, () => {
+        diarStatus = isRussian() ? diar.statusRu() : diar.statusEn();
+        push();
+      })
+      .then(() => (diarStatus = t('Модели спикеров готовы.', 'Speaker models are ready.')))
+      .catch((e) => {
+        if ((e as Error)?.name === 'AbortError') diarStatus = t('Скачивание спикеров отменено.', 'Speaker download cancelled.');
+        else diarStatus = t(`Модели спикеров не скачались: ${(e as Error).message}`, `Speaker models failed: ${(e as Error).message}`);
+      })
+      .finally(() => {
+        diarBusy = false;
+        diarAbort = null;
+        push();
+      });
+    return state();
+  });
+
   return {
-    busy: () => runner.busy,
+    busy: () => runner.busy || diarBusy,
     /** A finished meeting recording: queue it and start (or join) the run. */
     enqueue: (path: string) => {
       queue.add([path], false);

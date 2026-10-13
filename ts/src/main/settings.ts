@@ -59,6 +59,8 @@ export interface SettingsData {
   /** Extra outputs beside the .txt besides .srt (TS port only; WPF ignores the key). */
   FileExtraFormats: FileExtraFormat[];
   FileUseBrain: boolean;
+  /** Opt-in local speaker diarization after file transcription. */
+  FileDiarize: boolean;
   /** «Запись встречи»: also record the computer sound (Zoom/Teams/Telegram), not just the mic. */
   MeetingSystemAudio: boolean;
   StartHintDismissed: boolean;
@@ -123,6 +125,7 @@ export function defaults(): SettingsData {
     FileSrt: false,
     FileExtraFormats: [],
     FileUseBrain: false,
+    FileDiarize: false,
     MeetingSystemAudio: true,
     StartHintDismissed: false,
     MicrophoneId: '',
@@ -368,6 +371,7 @@ export function fromJsonObject(raw: Record<string, unknown>): { settings: Settin
   d.FileSrt = asBool(raw.FileSrt, d.FileSrt);
   d.FileExtraFormats = asExtraFormats(raw.FileExtraFormats);
   d.FileUseBrain = asBool(raw.FileUseBrain, d.FileUseBrain);
+  d.FileDiarize = asBool(raw.FileDiarize, d.FileDiarize);
   d.MeetingSystemAudio = asBool(raw.MeetingSystemAudio, d.MeetingSystemAudio);
   d.StartHintDismissed = asBool(raw.StartHintDismissed, d.StartHintDismissed);
   d.MicrophoneId = asString(raw.MicrophoneId, d.MicrophoneId);
@@ -452,6 +456,7 @@ export function toJsonObject(s: SettingsData): Record<string, unknown> {
     FileSrt: s.FileSrt,
     FileExtraFormats: [...s.FileExtraFormats],
     FileUseBrain: s.FileUseBrain,
+    FileDiarize: s.FileDiarize,
     MeetingSystemAudio: s.MeetingSystemAudio,
     StartHintDismissed: s.StartHintDismissed,
     MicrophoneId: s.MicrophoneId,
