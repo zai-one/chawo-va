@@ -42,6 +42,14 @@ const api = {
       return () => ipcRenderer.removeListener('speech:state', h);
     },
   },
+  dict: {
+    state: () => ipcRenderer.invoke('dict:state'),
+    setRow: (id: number, from: string, to: string) => ipcRenderer.invoke('dict:setRow', id, from, to),
+    add: () => ipcRenderer.invoke('dict:add'),
+    remove: (id: number) => ipcRenderer.invoke('dict:remove', id),
+    suggest: () => ipcRenderer.invoke('dict:suggest'),
+    addSuggestion: (heard: string, written: string) => ipcRenderer.invoke('dict:addSuggestion', heard, written),
+  },
 };
 
 contextBridge.exposeInMainWorld('chawo', api);

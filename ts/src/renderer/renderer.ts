@@ -1,4 +1,4 @@
-// Sidebar navigation plus the «Расшифровка файла» and «Распознавание» pages. Other pages get real content as the
+// Sidebar navigation plus the «Расшифровка файла», «Распознавание» and «Словарь» pages. Other pages get real content as the
 // WPF SettingsWindow is ported. Plain DOM, no framework; paths are set via textContent only.
 
 interface FileItem { id: number; path: string; state: 'Queued' | 'Running' | 'Done' | 'Failed' | 'Stopped'; note: string; outputPath?: string }
@@ -51,7 +51,31 @@ interface SpeechApi {
   remove(kind: string): Promise<SpeechState>;
   onState(fn: (s: SpeechState) => void): () => void;
 }
-const bridge = (window as unknown as { chawo: { file: FileApi; speech: SpeechApi } }).chawo;
+interface DictRow { id: number; from: string; to: string }
+interface DictSuggestionRow { id: number; heard: string; written: string; source: string }
+interface DictState {
+  ru: boolean;
+  intro: string;
+  heardHeader: string;
+  writtenHeader: string;
+  addLabel: string;
+  deleteLabel: string;
+  suggestLabel: string;
+  addSuggestionLabel: string;
+  suggestHint: string;
+  hintKind: 'idle' | 'noFolder' | 'none' | 'found';
+  rows: DictRow[];
+  suggestions: DictSuggestionRow[];
+}
+interface DictApi {
+  state(): Promise<DictState>;
+  setRow(id: number, from: string, to: string): Promise<DictState>;
+  add(): Promise<{ id: number; state: DictState }>;
+  remove(id: number): Promise<DictState>;
+  suggest(): Promise<DictState>;
+  addSuggestion(heard: string, written: string): Promise<DictState>;
+}
+const bridge = (window as unknown as { chawo: { file: FileApi; speech: SpeechApi; dict: DictApi } }).chawo;
 
 const titlesEn: Record<string, string> = {
   dictation: 'Dictation',
@@ -76,6 +100,7 @@ const page = document.getElementById('page') as HTMLElement;
 let current = 'dictation';
 let fileState: FileState | null = null;
 let speechState: SpeechState | null = null;
+let dictState: DictState | null = null;
 let ru = true;
 const L = (r: string, e: string) => (ru ? r : e);
 
@@ -125,12 +150,69 @@ const applySpeech = (s: SpeechState) => {
 
 const title = (name: string) => (ru ? titles[name] : titlesEn[name]) ?? '';
 
+const applyDict = (s: DictState, focusId?: number) => {
+  dictState = s;
+  if (s.ru !== ru) setLanguage(s.ru);
+  else if (current === 'dictionary') renderDictionary(focusId);
+};
+
 function setLanguage(r: boolean): void {
   ru = r;
   document.documentElement.lang = r ? 'ru' : 'en';
   for (const b of Array.from(document.querySelectorAll<HTMLButtonElement>('.nav button'))) b.textContent = title(b.dataset.page ?? '');
   if (current === 'speech') renderSpeech();
+  else if (current === 'dictionary') renderDictionary();
   else if (current !== 'file') show(current);
+}
+
+function renderDictionary(focusId?: number): void {
+  const s = dictState;
+  page.replaceChildren(el('h1', { textContent: title('dictionary') }));
+  if (!s) return;
+  page.append(el('p', { className: 'muted', textContent: s.intro }));
+
+  const table = el('div', { className: 'dict' },
+    el('div', { className: 'dict-row head muted' },
+      el('span', { textContent: s.heardHeader }),
+      el('span', { textContent: s.writtenHeader }),
+      el('span'),
+    ),
+  );
+  let focusEl: HTMLInputElement | null = null;
+  for (const r of s.rows) {
+    const heard = el('input', { type: 'text', value: r.from, spellcheck: false });
+    const written = el('input', { type: 'text', value: r.to, spellcheck: false });
+    heard.setAttribute('aria-label', s.heardHeader);
+    written.setAttribute('aria-label', s.writtenHeader);
+    // Saved on every edit like WPF; the page is not redrawn so the caret stays put.
+    const send = () => void bridge.dict.setRow(r.id, heard.value, written.value).then((st) => { dictState = st; });
+    heard.addEventListener('input', send);
+    written.addEventListener('input', send);
+    const del = button(s.deleteLabel, () => void bridge.dict.remove(r.id).then((st) => applyDict(st)));
+    table.append(el('div', { className: 'dict-row' }, heard, written, del));
+    if (r.id === focusId) focusEl = heard;
+  }
+  page.append(table);
+  page.append(el('div', { className: 'row' },
+    button(s.addLabel, () => void bridge.dict.add().then((res) => applyDict(res.state, res.id))),
+  ));
+
+  page.append(el('div', { className: 'row' },
+    button(s.suggestLabel, () => void bridge.dict.suggest().then((st) => applyDict(st))),
+  ));
+  page.append(el('p', { className: 'muted hint', textContent: s.suggestHint }));
+  if (s.suggestions.length > 0) {
+    const list = el('div', { className: 'dict suggest' });
+    for (const g of s.suggestions) {
+      list.append(el('div', { className: 'dict-row' },
+        el('span', { className: 'cell', textContent: g.heard }),
+        el('span', { className: 'cell muted', textContent: g.written + (g.source ? `  (${g.source})` : '') }),
+        button(s.addSuggestionLabel, () => void bridge.dict.addSuggestion(g.heard, g.written).then((st) => applyDict(st))),
+      ));
+    }
+    page.append(list);
+  }
+  if (focusEl) focusEl.focus();
 }
 
 function renderSpeech(): void {
@@ -273,6 +355,11 @@ function show(name: string): void {
   if (name === 'speech') {
     renderSpeech();
     void bridge.speech.state().then(applySpeech);
+    return;
+  }
+  if (name === 'dictionary') {
+    renderDictionary();
+    void bridge.dict.state().then((st) => applyDict(st));
     return;
   }
   page.replaceChildren(

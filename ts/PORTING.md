@@ -31,10 +31,12 @@ Re-align folder names and tooling with taptain-desktop once its layout is readab
 | App/Recorder.cs | renderer getUserMedia → AudioWorklet → main | ⏳ |
 | App/KeyboardHook.cs, TextInserter.cs, SelectionReader.cs, Native.cs | native helper / globalShortcut + clipboard | ⏳ needs design (hold-to-talk hotkey) |
 | App/HermesServer.cs, HermesFirewall.cs, RemoteSpeech.cs | src/main/network/ | ⏳ |
-| App/Sales*.cs | src/main/sales/ | ⏳ |
+| App/SalesRag.cs | src/main/sales/salesRag.ts | 🟡 SuggestDictionary + helpers ported + tests; FindSnippet waits for the sales card |
+| App/Sales*.cs (catalog, card, rest) | src/main/sales/ | ⏳ |
 | App/Updater.cs, Autostart.cs, KeepAwake.cs | src/main/system/ | ⏳ |
-| SettingsWindow, OverlayWindow, SalesCardWindow, Download/Update windows, BrainServerPanel | src/renderer/ pages | 🟡 «Расшифровка файла» and «Распознавание» pages work (DownloadWindow folded into the page as a progress card); sidebar has all 7 WPF sections, the rest are placeholders |
+| SettingsWindow, OverlayWindow, SalesCardWindow, Download/Update windows, BrainServerPanel | src/renderer/ pages | 🟡 «Расшифровка файла», «Распознавание» and «Словарь» pages work (DownloadWindow folded into the page as a progress card); sidebar has all 7 WPF sections, the rest are placeholders |
 | SettingsWindow speech page, App.SpeechStatusText / DownloadSpeechAsync / DeleteSpeechModelAsync | src/main/speech/speechPage.ts (SpeechController), src/main/speechIpc.ts | ✅ ported + tests (GPU warmup and live session line wait for dictation) |
+| SettingsWindow dictionary page (FillDictionaryRows / PersistDictionary / SuggestDictionary_Click / AddSuggestion_Click) | src/main/dictionary/dictionaryPage.ts (DictionaryController), src/main/dictionaryIpc.ts | ✅ ported + tests |
 | App.RunFileQueueAsync / RunQueue / RunOneFile / TranscribeLocal | src/main/file/fileRunner.ts, localTranscriber.ts, src/main/fileIpc.ts | ✅ local path ported (remote host + Brain pending) |
 | App/Strings.cs | src/core/strings.ts (ru/en `t()`) | ✅ ported |
 
@@ -133,3 +135,21 @@ Re-align folder names and tooling with taptain-desktop once its layout is readab
   83 tests green. Next: «Словарь» page (rules editor over wordReplace + settings), then microphone
   capture (getUserMedia → AudioWorklet → main) and the hold-to-talk hotkey design.
 
+- 2026-10-13 tick 8: «Словарь» page. `salesRag.ts` ports SalesRag.SuggestDictionary with
+  ExtractLatinBrands / ExtractCyrillic / NearEnough / TranslitHint / Fold / Letters / SharedLetters /
+  ReadFiles (.txt/.md/.markdown, recursive, ≤ 200 files, ≤ 512000 bytes each, BOM dropped, ≤ 40
+  suggestions; brands or Russian words already in the dictionary are skipped, case-insensitive).
+  `DictionaryController` (no Electron imports): rows with stable ids loaded from
+  `dictionaryRows(settings)` (blank field → DEFAULT_RULES), saved on every edit/delete through
+  `saveDictionary` + `Settings.save` only when the formatted rules differ from what is in force
+  (WPF PersistDictionary compare); an empty list stores `#`; an empty new row is not saved. Rows are
+  not reloaded after our own save (ids and the caret stay put); a rules value changed elsewhere
+  reloads them, and a changed materials folder clears the suggestions like WPF. «Подсказать из
+  материалов» never writes; «В словарь» appends that row, saves, and drops it from the list. Hints
+  are the WPF texts (no folder / nothing found / «Предложено N…» / idle). IPC `dict:*`, preload
+  `chawo.dict`, renderer grid with dark inputs; «Добавить» focuses the new heard field. Smoke on
+  the box under xvfb: suggest → «В словарь» → «Добавить» → typing all land in settings.json.
+  Note (faithful to WPF): the loose 2-shared-letters rule takes the first Russian word on the line,
+  so «Наш бренд таптайн Taptain» suggests «наш → Taptain»; worth tightening in both apps later.
+  102 tests green (83 before). Next: microphone capture (getUserMedia → AudioWorklet → main) and
+  the hold-to-talk hotkey design, or the Brain modules.

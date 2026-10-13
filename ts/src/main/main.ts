@@ -5,6 +5,7 @@ import { app, BrowserWindow, Menu, Tray, nativeImage, nativeTheme, session } fro
 import { join } from 'node:path';
 import { registerFileIpc } from './fileIpc';
 import { registerSpeechIpc } from './speechIpc';
+import { registerDictionaryIpc } from './dictionaryIpc';
 import { chromiumDecode, disposeChromiumDecoder } from './chromiumDecoder';
 import { setPlatformDecoder } from './file';
 import * as Settings from './settings';
@@ -100,6 +101,7 @@ if (!app.requestSingleInstanceLock()) {
     setPlatformDecoder(chromiumDecode);
     const files = registerFileIpc(() => win, { get: () => settings });
     registerSpeechIpc(() => win, { get: () => settings }, { busy: files.busy });
+    registerDictionaryIpc({ get: () => settings });
     win = createWindow();
     tray = createTray();
   });
