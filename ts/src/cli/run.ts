@@ -8,6 +8,7 @@ import { progressLine } from '../core/fileParallel';
 import type { FileParallelismKind } from '../core/fileParallel';
 import type { CtcScript, SpeechDeviceKind, SpeechModelKind } from '../core/speechModels';
 import { clock, toSrt, toTxt, type TranscriptSegment } from '../core/transcriptFormat';
+import { writeExtras } from '../main/file/transcriptExport';
 import { helpText, langFromArgv, parseArgs, type CliOptions } from './args';
 import { FILE_TIMEOUT_MS, failureText, logLine, runPostScript, scriptCommand, type PostScriptResult, type PostScriptRun } from '../core/postScript';
 
@@ -94,7 +95,7 @@ export interface CliDeps {
   exists(path: string): boolean;
   collectFromFolder(folder: string): string[];
   mkdirp(dir: string): void;
-  writeFile(path: string, text: string): void;
+  writeFile(path: string, data: string | Buffer): void;
   readFile(path: string): string;
   /** Brain for `brief` (Local / Server). Tests inject a fake ask. */
   briefBrain(): BriefBrain;
@@ -419,6 +420,18 @@ async function transcribe(o: CliOptions, defaults: CliDefaults, d: CliDeps): Pro
           if ((formats as readonly string[]).includes('srt')) {
             d.writeFile(txt.replace(/\.txt$/i, '.srt'), toSrt(segments));
             notes.push('.srt');
+          }
+          // .vtt/.json/.md/.docx: the same writers as «Ещё сохранять рядом» on the page; built from
+          // the segments, so «Свой скрипт» changes only the .txt there too.
+          const extras = formats.filter((f): f is 'vtt' | 'json' | 'md' | 'docx' => f === 'vtt' || f === 'json' || f === 'md' || f === 'docx');
+          if (extras.length > 0) {
+            const res = writeExtras(txt, src, segments, samples.length / RATE, extras, timestamps, (p, data) => d.writeFile(p, data));
+            notes.push(...res.written);
+            for (const f of res.failed) {
+              fail(prefix + t(`Ошибка: ${f}`, `Error: ${f}`));
+              d.log(`cli ${src} export failed: ${f}`);
+            }
+            if (res.failed.length > 0) failed++;
           }
         }
         const wall = (d.now() - t0) / 1000;
