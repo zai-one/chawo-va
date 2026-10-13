@@ -369,6 +369,45 @@ Re-align folder names and tooling with taptain-desktop once its layout is readab
   unit-tested with a fake spawn only (needs a Windows run). Next: the Windows native helper (hold
   key, TextInserter, SelectionReader, caret placement, job object), the «Продажи» card, then
   Updater/Autostart.
+- 2026-10-13 tick (branch `ts/feat-vad`, IDEAS.md №2): Silero VAD. `src/core/vad.ts` (no Electron):
+  Silero v5 window plumbing — 16 kHz, 512 new samples + 64 of context (576 in), state [2,B,128],
+  `input`/`state`/`sr` → `output`/`stateN` (`sileroScorer` wraps any ORT-like session); the scorer is
+  injected, so unit tests use a deterministic fake and never need weights. `speechProbabilities`
+  scores long audio as up to 16 contiguous «lanes» in one batch (1 per minute; each lane starts with
+  a fresh state) — 300 s in ~0.6 s on the box CPU, ~5 s per hour. `probsToSegments` = silero-vad
+  `get_speech_timestamps` (0.5/0.35, 250 ms min speech, 100 ms min silence, 30 ms pad); `segments`,
+  `trimSpeech` (100 ms kept, original audio when nothing is found), `pauseMidpoints`/`gapMidpoints`
+  (midpoints of ≥0.3 s gaps, a drop-in for `silences()` in `chunkBounds`), the `Vad` class (Silero
+  with a scorer, energy without), `energyProbabilities` (pure JS: window loudness vs the take's own
+  10th-percentile floor + 12 dB, kept in −50…−25 dBFS) and `SilenceWatch` (streaming energy
+  trailing-silence detector for auto-stop). `src/main/vad/vadModel.ts`: the 2 MB file at
+  `%LOCALAPPDATA%\ChawoVoiceAssistant\models\silero-vad\silero_vad.onnx` (or CHAWO_VAD_MODEL /
+  CHAWO_MODEL_DIR), downloaded only on a user action from the pinned official URL
+  (snakers4/silero-vad v5.1.2) with a SHA-256 check (.part removed on failure); `VadRuntime` loads
+  one CPU session lazily and shares it, a failed load is remembered per file+mtime and gives the
+  energy Vad — never a broken take. Wire-up: `Recognizer.splitRanges/pieceRanges(samples, rate,
+  pauses?)` — given pauses replace `silences()`, without them the split is byte-for-byte the old one;
+  `filePauses` feeds it for long files in the local and Client file paths («Ищу паузы в речи…») and
+  in Hermes (>25 s); no model, VAD off, an error or no speech at all → undefined → energy split.
+  Dictation: `stopTake` trims the take after `normalizeQuietTake` (silence/short-take checks and
+  KeepLastRecording still see the full take; the Client role posts the trimmed one; cancel during the
+  trim drops the take); without the model the take is untouched. New settings `VadEnabled` (default
+  true) and `VadAutoStopMs` (default 0 = off, clamped 0…60000, settings.json only until the toggle
+  mode exists): >0 → `SilenceWatch` on every appended chunk stops the take after that much silence
+  following speech. UI: one checkbox «Обрезать тишину (VAD)» on «Распознавание» with a status line
+  and «Скачать (2 МБ)» while the file is missing; a speech-model download the user starts brings the
+  VAD file along when VAD is on. Tests: vad (22 + 1 real-model case behind CHAWO_VAD_TEST_MODEL),
+  vadModel (9), dictationSession VAD (7), speechPage VAD (5), settings (1), hermes pauses (2),
+  fileRemote VAD split (1). 356 green + 2 skipped (309 on ts-port). Checks on the box with real
+  weights: ru30 Silero 14 segments vs energy 14; a synthetic noise file (bench_3min) → Silero 0
+  segments, energy 27; long300 (clean) energy vs VAD split → both 510/510 words; the first 120 s of it
+  with −30 dBFS hiss → energy finds 0 pauses and hard-cuts at 24/48/72/96 s losing a word, VAD cuts at
+  22.35/44.10/67.14/90.53/112.32 s with 204/204 words. Electron under xvfb (`scripts/smoke-vad.cjs`):
+  the checkbox and «Скачать (2 МБ)» on «Распознавание», a real download landed with the right SHA-256,
+  the line switched to «Silero VAD на диске…», unticking saved `VadEnabled: false`;
+  `smoke-dictation.cjs` with a 2 s silence + 5 s speech + 3 s silence fake mic → log «vad trim 7.94s →
+  2.85–7.20s», text on the clipboard. Gaps: auto-stop has no UI (waits for the toggle hotkey mode);
+  live drafts are not trimmed; dictation >25 s still splits inside the recognizer by energy.
 - 2026-10-13 tick (branch `ts/feat-history`, IDEAS.md №3): «История» — the dictation history page.
   `src/main/history/historyStore.ts`: one JSON line per finished take in
   `%LOCALAPPDATA%\ChawoVoiceAssistant\history.jsonl` (mode 0600, text only, no audio):

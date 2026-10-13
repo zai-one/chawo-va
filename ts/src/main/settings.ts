@@ -74,6 +74,10 @@ export interface SettingsData {
   BrainCustomUrl: string;
   BrainInstruction: string;
   SimpleSyntax: boolean;
+  /** Silero VAD: trim silence around a take and cut long files at real pauses (needs the 2 MB model). */
+  VadEnabled: boolean;
+  /** Stop a take after this many ms of silence following speech; 0 = off (settings.json only for now). */
+  VadAutoStopMs: number;
   WordReplacementRules: string;
   CleanupEndpointUrl: string;
   /** Plain API key in memory only; never written as plaintext. */
@@ -125,6 +129,8 @@ export function defaults(): SettingsData {
     BrainCustomUrl: '',
     BrainInstruction: '',
     SimpleSyntax: false,
+    VadEnabled: true,
+    VadAutoStopMs: 0,
     WordReplacementRules: '',
     CleanupEndpointUrl: '',
     CleanupApiKey: '',
@@ -363,6 +369,8 @@ export function fromJsonObject(raw: Record<string, unknown>): { settings: Settin
   d.BrainCustomUrl = asString(raw.BrainCustomUrl, d.BrainCustomUrl);
   d.BrainInstruction = asString(raw.BrainInstruction, d.BrainInstruction);
   d.SimpleSyntax = asBool(raw.SimpleSyntax, d.SimpleSyntax);
+  d.VadEnabled = asBool(raw.VadEnabled, d.VadEnabled);
+  d.VadAutoStopMs = Math.min(60_000, Math.max(0, asInt(raw.VadAutoStopMs, d.VadAutoStopMs)));
   d.WordReplacementRules = asString(raw.WordReplacementRules, d.WordReplacementRules);
   d.CleanupEndpointUrl = asString(raw.CleanupEndpointUrl, d.CleanupEndpointUrl);
   d.CleanupModel = asString(raw.CleanupModel, d.CleanupModel);
@@ -440,6 +448,8 @@ export function toJsonObject(s: SettingsData): Record<string, unknown> {
     BrainCustomUrl: s.BrainCustomUrl,
     BrainInstruction: s.BrainInstruction,
     SimpleSyntax: s.SimpleSyntax,
+    VadEnabled: s.VadEnabled,
+    VadAutoStopMs: s.VadAutoStopMs,
     WordReplacementRules: s.WordReplacementRules,
     CleanupEndpointUrl: s.CleanupEndpointUrl,
     CleanupModel: s.CleanupModel,

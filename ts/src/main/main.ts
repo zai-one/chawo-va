@@ -17,6 +17,7 @@ import * as KeepAwake from './network/keepAwake';
 import { OverlayWindow } from './overlay/overlayWindow';
 import { chromiumDecode, disposeChromiumDecoder } from './chromiumDecoder';
 import { setPlatformDecoder } from './file';
+import { filePauses, getVadRuntime } from './vad/vadModel';
 import * as Settings from './settings';
 import * as Log from './log';
 import { helperExePath, NativeHelper } from './native/nativeHelper';
@@ -158,6 +159,7 @@ if (!app.requestSingleInstanceLock()) {
       current: () => dictation.session.current(),
       load: () => dictation.session.ensureLoaded(),
       modelName: () => settings.SpeechModel,
+      pauses: (x) => filePauses(settings, x, 16000),
     });
     const network = registerNetworkIpc(() => win, { get: () => settings }, {
       transcribe: hermesTranscribe,
@@ -187,6 +189,7 @@ if (!app.requestSingleInstanceLock()) {
     disposeChromiumDecoder();
     nativeHelper?.dispose();
     void releaseDictation?.();
+    void getVadRuntime().release();
     destroyOverlay?.();
     destroySalesCard?.();
     tray?.destroy();

@@ -46,6 +46,7 @@ interface SpeechState {
   threadsHint: string;
   status: string;
   download: { kind: string; percent: number | null; text: string; running: boolean; failed: boolean } | null;
+  vad: { enabled: boolean; onDisk: boolean; downloading: boolean; canDownload: boolean; note: string } | null;
 }
 interface SpeechApi {
   state(): Promise<SpeechState>;
@@ -56,6 +57,8 @@ interface SpeechApi {
   cancel(): Promise<SpeechState>;
   dismiss(): Promise<SpeechState>;
   remove(kind: string): Promise<SpeechState>;
+  setVad(on: boolean): Promise<SpeechState>;
+  downloadVad(): Promise<SpeechState>;
   onState(fn: (s: SpeechState) => void): () => void;
 }
 interface DictRow { id: number; from: string; to: string }
@@ -1265,6 +1268,16 @@ function renderSpeech(): void {
     for (let n = 1; n <= s.cores; n++) th.append(el('option', { value: String(n), textContent: String(n), selected: s.cpuThreads === n }));
     th.addEventListener('change', () => void bridge.speech.setThreads(Number(th.value)).then(applySpeech));
     page.append(th, el('p', { className: 'muted hint', textContent: s.threadsHint }));
+  }
+
+  if (s.vad) {
+    const v = s.vad;
+    const cb = el('input', { type: 'checkbox', checked: v.enabled });
+    cb.addEventListener('change', () => void bridge.speech.setVad(cb.checked).then(applySpeech));
+    page.append(el('label', { className: 'block' }, cb, L(' Обрезать тишину (VAD)', ' Trim silence (VAD)')));
+    const hint = el('p', { className: 'muted hint', textContent: v.note });
+    if (v.canDownload) hint.append(' ', button(L('Скачать (2 МБ)', 'Download (2 MB)'), () => void bridge.speech.downloadVad().then(applySpeech), 'link'));
+    page.append(hint);
   }
 
   page.append(el('p', { className: 'muted line', textContent: s.status }));
