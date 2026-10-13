@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { EXIT_FAILED, EXIT_INTERRUPTED, EXIT_NO_MODEL, EXIT_OK, EXIT_USAGE, runCli, type CliDefaults, type CliDeps, type EngineConfig } from '../src/cli/run';
 import { outputPath } from '../src/main/file/fileTranscript';
 import type { TranscriptSegment } from '../src/core/transcriptFormat';
+import { HistoryStore, type HistoryEntry, type HistoryKeep } from '../src/main/history/historyStore';
 
 interface Harness {
   deps: CliDeps;
@@ -325,11 +326,11 @@ describe('readDefaults (settings.json read-only)', () => {
     const app = join(dir, 'ChawoVoiceAssistant');
     mkdirSync(app, { recursive: true });
     const file = join(app, 'settings.json');
-    const body = JSON.stringify({ SpeechModel: 'MultilingualLargeCtc', SpeechDevice: 'Cpu', FileParallelism: 'Two', CtcScript: 'English', FileTimestamps: false, Language: 'English', KeepAwakeWhileListening: true, PostScript: ' python fix.py ', PostScriptFiles: true }, null, 1);
+    const body = JSON.stringify({ SpeechModel: 'MultilingualLargeCtc', SpeechDevice: 'Cpu', FileParallelism: 'Two', CtcScript: 'English', FileTimestamps: false, Language: 'English', KeepAwakeWhileListening: true, PostScript: ' python fix.py ', PostScriptFiles: true, HistoryKeep: 'Week' }, null, 1);
     writeFileSync(file, body);
     const before = statSync(file).mtimeMs;
     const { readDefaults } = await import('../src/cli');
-    expect(readDefaults()).toEqual({ model: 'multilingual_large_ctc', device: 'cpu', threads: 2, script: 'english', timestamps: false, language: 'English', postScript: 'python fix.py' });
+    expect(readDefaults()).toEqual({ model: 'multilingual_large_ctc', device: 'cpu', threads: 2, script: 'english', timestamps: false, language: 'English', postScript: 'python fix.py', historyKeep: 'Week' });
     expect(readFileSync(file, 'utf8')).toBe(body);
     expect(statSync(file).mtimeMs).toBe(before);
   });
@@ -475,3 +476,137 @@ describe('runCli transcribe + «Свой скрипт»', () => {
     expect(h.err.join('')).toContain('script: exit code 4, .txt without it');
   });
 });
+
+describe('cli history', () => {
+  const dirs: string[] = [];
+  afterEach(() => {
+    for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true });
+  });
+  const DAY = 86400000;
+  // 2026-10-13 15:00 local
+  const NOW = new Date(2026, 9, 13, 15, 0, 0).getTime();
+
+  function seeded(entries: Array<Partial<HistoryEntry> & { final: string; ago: number }>, keep: HistoryKeep = 'Forever') {
+    const dir = mkdtempSync(join(tmpdir(), 'chawo-hist-'));
+    dirs.push(dir);
+    const path = join(dir, 'history.jsonl');
+    const store = new HistoryStore(path, () => NOW);
+    for (const e of entries) {
+      store.add({ raw: e.raw ?? e.final, final: e.final, command: e.command ?? null, brain: e.brain ?? false, brainFailed: e.brainFailed ?? false, seconds: e.seconds ?? 2, ts: NOW - e.ago }, 'Forever');
+    }
+    const h = harness({ defaults: { historyKeep: keep } });
+    h.deps.historyPath = () => path;
+    h.deps.clock = () => NOW;
+    return { h, path, before: readFileSync(path, 'utf8') };
+  }
+
+  it('newest first, same tags as the page; read-only', async () => {
+    const { h, path, before } = seeded([
+      { final: 'Старая фраза про счёт.', ago: 3 * DAY },
+      { final: 'Hello, world.', raw: 'привет мир', command: 'переведи на английский', brain: true, ago: DAY, seconds: 3.25 },
+      { final: 'Свежая фраза.', ago: 60000, brainFailed: true, brain: true },
+    ]);
+    expect(await run(h, 'history')).toBe(EXIT_OK);
+    const out = h.out.join('');
+    expect(out.indexOf('Свежая')).toBeLessThan(out.indexOf('Hello'));
+    expect(out.indexOf('Hello')).toBeLessThan(out.indexOf('Старая'));
+    expect(out).toContain('— today 14:59 · 2.0 s · Brain failed\nСвежая фраза.\n');
+    expect(out).toContain('— yesterday 15:00 · 3.3 s · Brain · «переведи на английский»\nHello, world.\n');
+    expect(out).toContain('— 10.10 15:00 · 2.0 s\nСтарая фраза про счёт.\n');
+    expect(out).not.toContain('Recognized');
+    expect(h.err.join('')).toContain('3 phrases.');
+    expect(readFileSync(path, 'utf8')).toBe(before);
+  });
+
+  it('search: every word, ё = е, over final/raw/command; count line', async () => {
+    const { h } = seeded([
+      { final: 'Выставить счёт Иванову.', ago: 3 * DAY },
+      { final: 'Счет оплачен.', ago: 2 * DAY },
+      { final: 'Hello.', raw: 'счет иванову отправлен', ago: DAY },
+      { final: 'Другое.', ago: 1000 },
+    ]);
+    expect(await run(h, 'history', 'СЧЕТ', 'иванову')).toBe(EXIT_OK);
+    const out = h.out.join('');
+    expect(out).toContain('Выставить счёт Иванову.');
+    expect(out).toContain('Hello.');
+    expect(out).not.toContain('Счет оплачен');
+    expect(out).not.toContain('Другое');
+    expect(h.err.join('')).toContain('Found 2 of 4.');
+  });
+
+  it('--raw shows the text before the Brain only when it differs', async () => {
+    const { h } = seeded([
+      { final: 'Hello.', raw: 'привет', brain: true, ago: 2000 },
+      { final: 'Same.', raw: 'Same.', ago: 1000 },
+    ]);
+    expect(await run(h, 'history', '--raw')).toBe(EXIT_OK);
+    const out = h.out.join('');
+    expect(out).toContain('Hello.\n  Recognized: привет\n');
+    expect(out.match(/Recognized/g)?.length).toBe(1);
+  });
+
+  it('-n limits, says how many; -n all shows all; -q drops the line', async () => {
+    const many = Array.from({ length: 25 }, (_, i) => ({ final: `Фраза ${i}.`, ago: (25 - i) * 60000 }));
+    const { h, path } = seeded(many);
+    expect(await run(h, 'history')).toBe(EXIT_OK);
+    expect(h.out.join('').match(/^— /gm)?.length).toBe(20);
+    expect(h.out.join('')).toContain('Фраза 24.');
+    expect(h.out.join('')).not.toContain('Фраза 4.');
+    expect(h.err.join('')).toContain('Showing the last 20 of 25 (-n all for every one).');
+    const a = harness({ defaults: { historyKeep: 'Forever' } });
+    a.deps.historyPath = () => path;
+    a.deps.clock = () => NOW;
+    expect(await run(a, 'history', '-n', 'all', '-q')).toBe(EXIT_OK);
+    expect(a.out.join('').match(/^— /gm)?.length).toBe(25);
+    expect(a.err.join('')).toBe('');
+    const s = harness({ defaults: { historyKeep: 'Forever' } });
+    s.deps.historyPath = () => path;
+    s.deps.clock = () => NOW;
+    expect(await run(s, 'history', 'фраза', '-n', '3')).toBe(EXIT_OK);
+    expect(s.err.join('')).toContain('Found 25 of 25, showing 3 (-n all for every one).');
+  });
+
+  it('--json: one JSON line per entry with ISO ts', async () => {
+    const { h } = seeded([{ final: 'Привет.', raw: 'привет', command: 'исправь', brain: true, ago: 1000, seconds: 1.5 }]);
+    expect(await run(h, 'history', '--json')).toBe(EXIT_OK);
+    const lines = h.out.join('').trim().split('\n');
+    expect(lines).toHaveLength(1);
+    const o = JSON.parse(lines[0]!);
+    expect(o).toMatchObject({ ts: new Date(NOW - 1000).toISOString(), seconds: 1.5, final: 'Привет.', raw: 'привет', command: 'исправь', brain: true, brainFailed: false });
+    expect(typeof o.id).toBe('string');
+  });
+
+  it('«Хранить» period hides older entries without deleting them; Off says so', async () => {
+    const { h, path, before } = seeded([
+      { final: 'Неделю назад.', ago: 8 * DAY },
+      { final: 'Сегодня.', ago: 1000 },
+    ], 'Week');
+    expect(await run(h, 'history')).toBe(EXIT_OK);
+    expect(h.out.join('')).toContain('Сегодня.');
+    expect(h.out.join('')).not.toContain('Неделю назад');
+    expect(readFileSync(path, 'utf8')).toBe(before);
+    const off = harness({ defaults: { historyKeep: 'Off' } });
+    off.deps.historyPath = () => path;
+    expect(await run(off, 'history')).toBe(EXIT_OK);
+    expect(off.out.join('')).toBe('');
+    expect(off.err.join('')).toContain('History is off');
+  });
+
+  it('no file / nothing found / Russian messages', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'chawo-hist-'));
+    dirs.push(dir);
+    const h = harness({ defaults: { historyKeep: 'Month' } });
+    h.deps.historyPath = () => join(dir, 'history.jsonl');
+    expect(await run(h, 'history')).toBe(EXIT_OK);
+    expect(h.err.join('')).toContain('Empty so far');
+    const { h: r } = seeded([{ final: 'Привет.', ago: 1000 }]);
+    expect(await run(r, 'history', 'нет-такого', '--lang', 'ru')).toBe(EXIT_OK);
+    expect(r.out.join('')).toBe('');
+    expect(r.err.join('')).toContain('Ничего не нашлось (всего фраз: 1).');
+    const { h: ru } = seeded([{ final: 'Привет.', ago: 60000, seconds: 2.5 }]);
+    expect(await run(ru, 'history', '--lang', 'ru')).toBe(EXIT_OK);
+    expect(ru.out.join('')).toContain('— сегодня 14:59 · 2,5 с\nПривет.\n');
+    expect(ru.err.join('')).toContain('Всего фраз: 1.');
+  });
+});
+

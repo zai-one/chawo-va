@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// chawo-va CLI entry: `chawo-va transcribe <files…>`. Plain Node (no Electron window, no
+// chawo-va CLI entry: `chawo-va transcribe <files…>` (and brief / translate / history). Plain Node (no Electron window, no
 // Chromium decoder). Settings are read, never written. See src/cli/run.ts.
 
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
@@ -12,7 +12,7 @@ import { scriptCommand } from './core/postScript';
 import { runCli, EXIT_INTERRUPTED, type CliDefaults, type CliDeps, type Engine, type EngineConfig } from './cli/run';
 import * as Log from './main/log';
 import { findComplete, looksComplete } from './main/models/speechModelStore';
-import { settingsPath } from './main/paths';
+import { historyFilePath, settingsPath } from './main/paths';
 import { defaults as settingsDefaults, fromJsonObject, toCtcScript, toFileParallelism, toSpeechDeviceKind, toSpeechModelKind } from './main/settings';
 import { collectFromFolder, load16k, outputPath } from './main/file/fileTranscript';
 import * as MeetingBrief from './main/brain/meetingBrief';
@@ -53,6 +53,7 @@ export function readDefaults(): CliDefaults {
     timestamps: s.FileTimestamps,
     language: s.Language,
     postScript: s.PostScriptFiles ? scriptCommand(s.PostScript) : null,
+    historyKeep: s.HistoryKeep,
   };
 }
 
@@ -127,6 +128,8 @@ export function realDeps(signal: AbortSignal): CliDeps {
         ask: FileBrain.createAsk(s, target === 'None' ? 'Local' : target),
       };
     },
+    historyPath: historyFilePath,
+    clock: () => Date.now(),
     log: (line) => Log.write(line),
     now: () => Date.now(),
     signal,
