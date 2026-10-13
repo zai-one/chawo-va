@@ -369,3 +369,37 @@ Re-align folder names and tooling with taptain-desktop once its layout is readab
   unit-tested with a fake spawn only (needs a Windows run). Next: the Windows native helper (hold
   key, TextInserter, SelectionReader, caret placement, job object), the «Продажи» card, then
   Updater/Autostart.
+- 2026-10-13 tick (branch `ts/feat-app-modes`, IDEAS.md №4): per-app modes. `src/core/appRules.ts` (no
+  Electron): `AppRule {Match, Edit: Default|Off|Custom, Instruction, SimpleSyntax: Default|On|Off}`,
+  `parseAppRules` (junk dropped, unknown → Default, ≤50 rules), `exeKey`, `ruleMatches` (program name
+  exact with/without .exe, or a ≥2-char piece of the window title, case-insensitive, ё = е; tokens split
+  on , ;), `findRule` (first active from the top), `applyRule` (returns a copy with BrainEveryTake /
+  BrainInstruction / SimpleSyntax overridden; Off keeps «Чаво, …» commands working).
+  `src/main/foreground/foregroundApp.ts`: `detectForeground` — Windows: one hidden PowerShell call with
+  GetForegroundWindow + GetWindowThreadProcessId (fallback until the native helper's `fg` from
+  `ts/feat-win-native` is merged; wire it then), Linux: `xprop -root _NET_ACTIVE_WINDOW` → `xprop -id`
+  pid/WM_CLASS/_NET_WM_NAME (C-escaped UTF-8 decoded) → `/proc/<pid>/exe`, macOS: osascript frontmost
+  process; our own window (electron / Chawo exe) → null; any failure → null; 2.5 s timeout. Settings:
+  `AppRules` (default []). Session: `foreground` is asked at key press only while `AppRules` is not
+  empty (an empty row counts, so the page can offer «Добавить для …»), awaited after recognition (≤3 s,
+  no added latency in practice), the rule's copy of the settings drives the Brain and simple syntax;
+  log line `app mode N for <exe>` (exe only, never the title); `onApp` → main keeps the last program
+  in memory and pushes the «Мозг» state. Page: «Для отдельных программ» at the bottom of «Мозг» —
+  one card per rule (match field, rewrite select hidden while the Brain is off, chat-style select,
+  instruction box only for «Переписывать по своей инструкции», ↑ to raise, «Удалить»), the line
+  «Последняя программа при диктовке: … Сработало правило N.», «Добавить правило» and «Добавить для
+  <exe>». IPC `brain:addRule/updateRule/removeRule/raiseRule` (patch fields validated in main).
+  Tests: `test/appRules.test.ts` (23: core, settings round trip, xprop/PowerShell/osascript parsing with
+  a fake exec, session with a fake focus — no rules → not asked, Custom → own instruction, Off → no
+  rewrite but commands work, chat-style both ways, failing detection → globals, page add/edit/raise/
+  remove/save counts, last-program lines RU/EN, cap). 332 green + 1 skipped (309 on ts-port).
+  Electron smoke on a real X11 session (`scripts/smoke-app-rules.cjs`: Xvfb :77 + xfwm4, an xmessage
+  window «Telegram — чат» focused with xdotool, fake mic from ru30.wav, real v3 model, fake
+  OpenAI-compatible server, global rewrite OFF, rule «xmessage → своя инструкция»): take 1 → the server
+  got system «APPMODE: пиши как в чате.», clipboard «по правилу: Русский язык. Русский язык», log
+  `app mode 1 for xmessage: edit=Custom simple=On`, page «Последняя программа при диктовке: xmessage.
+  Сработало правило 1.»; take 2 with the Chawo window focused → no server call, text as recognized,
+  page «…в фокусе было окно Chawo…»; «Добавить правило» → second rule in settings.json.
+  Gaps: Windows path is unit-tested with a fake exec only (needs a run on zai-redmibook; PowerShell
+  start costs ~0.3–1 s per take but runs while the key is held); Wayland-native windows are not
+  visible to xprop (XWayland ones are); switch Windows to the helper's `fg` after PR #1 merges.

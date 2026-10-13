@@ -14,6 +14,8 @@ import { lastTakePath } from './paths';
 import { DictationController, type MicDevice } from './dictation/dictationPage';
 import { DictationSession } from './dictation/dictationSession';
 import type { OverlayWindow } from './overlay/overlayWindow';
+import type { ForegroundApp } from '../core/appRules';
+import { detectForeground } from './foreground/foregroundApp';
 
 /** One chunk is ~640 samples; anything far bigger is not from our worklet. */
 const MAX_CHUNK = 16000;
@@ -27,7 +29,12 @@ export interface DictationIpc {
 export function registerDictationIpc(
   getWindow: () => BrowserWindow | null,
   settings: { get: () => SettingsData },
-  opts: { changed?: () => void; overlay?: OverlayWindow } = {},
+  opts: {
+    changed?: () => void;
+    overlay?: OverlayWindow;
+    /** Per-app modes: the program seen at the last take and the rule that fired. */
+    onApp?: (app: ForegroundApp | null, ruleIndex: number | null) => void;
+  } = {},
 ): DictationIpc {
   const send = (channel: string, payload: unknown) => {
     const w = getWindow();
@@ -72,6 +79,8 @@ export function registerDictationIpc(
     },
     micName: () => ctl.micName(),
     overlay: opts.overlay,
+    foreground: () => detectForeground(),
+    onApp: opts.onApp,
   });
   const ctl: DictationController = new DictationController({
     settings: settings.get,

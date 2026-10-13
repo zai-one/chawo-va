@@ -7,6 +7,7 @@ import { registerFileIpc } from './fileIpc';
 import { registerSpeechIpc } from './speechIpc';
 import { registerDictionaryIpc } from './dictionaryIpc';
 import { registerBrainIpc } from './brainIpc';
+import type { LastApp } from './brain/brainPage';
 import * as LocalBrain from './brain/localBrain';
 import { registerDictationIpc } from './dictationIpc';
 import { registerNetworkIpc } from './networkIpc';
@@ -113,7 +114,15 @@ if (!app.requestSingleInstanceLock()) {
     // The floating pill: created lazily on the first take with «Показывать плашку» on.
     const overlay = new OverlayWindow({ get: () => settings, save: Settings.save });
     destroyOverlay = () => overlay.destroy();
-    const dictation = registerDictationIpc(() => win, { get: () => settings }, { overlay });
+    // Per-app modes: the «Мозг» page shows which program the last take saw (memory only, never saved).
+    let lastApp: LastApp | null = null;
+    const dictation = registerDictationIpc(() => win, { get: () => settings }, {
+      overlay,
+      onApp: (app, ruleIndex) => {
+        lastApp = { app, ruleIndex };
+        if (win && !win.isDestroyed()) win.webContents.send('brain:state', brain.state());
+      },
+    });
     releaseDictation = () => dictation.session.release();
     // Hermes (local HTTP transcription host) reuses the dictation recognizer; opens it from disk if
     // needed, never downloads. Listens only while this PC is the host.
@@ -134,7 +143,7 @@ if (!app.requestSingleInstanceLock()) {
       beforeDelete: () => dictation.session.release(),
     });
     registerDictionaryIpc({ get: () => settings });
-    registerBrainIpc(() => win, { get: () => settings });
+    const brain = registerBrainIpc(() => win, { get: () => settings }, { lastApp: () => lastApp });
     win = createWindow();
     tray = createTray();
     void network.start();

@@ -2,6 +2,7 @@
 // Shape and load/save rules match src/App/Settings.cs (JsonStringEnumConverter PascalCase).
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { parseAppRules, type AppRule } from '../core/appRules';
 import { DEFAULT_RULES, formatRules, parseRules, type ReplacePair } from '../core/wordReplace';
 import type { CtcScript, SpeechDeviceKind, SpeechModelKind } from '../core/speechModels';
 import type { FileParallelismKind } from '../core/fileParallel';
@@ -70,6 +71,8 @@ export interface SettingsData {
   BrainInstruction: string;
   SimpleSyntax: boolean;
   WordReplacementRules: string;
+  /** Per-app modes: overrides of the take editing for a focused program (first match wins). */
+  AppRules: AppRule[];
   CleanupEndpointUrl: string;
   /** Plain API key in memory only; never written as plaintext. */
   CleanupApiKey: string;
@@ -119,6 +122,7 @@ export function defaults(): SettingsData {
     BrainInstruction: '',
     SimpleSyntax: false,
     WordReplacementRules: '',
+    AppRules: [],
     CleanupEndpointUrl: '',
     CleanupApiKey: '',
     CleanupModel: '',
@@ -346,6 +350,7 @@ export function fromJsonObject(raw: Record<string, unknown>): { settings: Settin
   d.BrainInstruction = asString(raw.BrainInstruction, d.BrainInstruction);
   d.SimpleSyntax = asBool(raw.SimpleSyntax, d.SimpleSyntax);
   d.WordReplacementRules = asString(raw.WordReplacementRules, d.WordReplacementRules);
+  d.AppRules = parseAppRules(raw.AppRules);
   d.CleanupEndpointUrl = asString(raw.CleanupEndpointUrl, d.CleanupEndpointUrl);
   d.CleanupModel = asString(raw.CleanupModel, d.CleanupModel);
   d.ProviderModels = parseStringMap(raw.ProviderModels);
@@ -421,6 +426,7 @@ export function toJsonObject(s: SettingsData): Record<string, unknown> {
     BrainInstruction: s.BrainInstruction,
     SimpleSyntax: s.SimpleSyntax,
     WordReplacementRules: s.WordReplacementRules,
+    AppRules: s.AppRules,
     CleanupEndpointUrl: s.CleanupEndpointUrl,
     CleanupModel: s.CleanupModel,
     ProviderModels: s.ProviderModels,

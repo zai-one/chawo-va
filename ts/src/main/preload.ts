@@ -96,6 +96,10 @@ const api = {
     cancelDownload: () => ipcRenderer.invoke('brain:cancelDownload'),
     dismissDownload: () => ipcRenderer.invoke('brain:dismissDownload'),
     close: () => ipcRenderer.invoke('brain:close'),
+    addRule: (match = '') => ipcRenderer.invoke('brain:addRule', match),
+    updateRule: (i: number, patch: Record<string, string>) => ipcRenderer.invoke('brain:updateRule', i, patch),
+    removeRule: (i: number) => ipcRenderer.invoke('brain:removeRule', i),
+    raiseRule: (i: number) => ipcRenderer.invoke('brain:raiseRule', i),
     onState: (fn: (s: unknown) => void) => {
       const h = (_e: unknown, s: unknown) => fn(s);
       ipcRenderer.on('brain:state', h);
