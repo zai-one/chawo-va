@@ -10,7 +10,7 @@ interface Harness {
   deps: CliDeps;
   out: string[];
   err: string[];
-  files: Map<string, string>;
+  files: Map<string, string | Buffer>;
   opened: EngineConfig[];
   disposed: number;
   logs: string[];
@@ -29,6 +29,8 @@ function harness(opts: {
   model?: string | null;
   defaults?: Partial<CliDefaults>;
   loadFails?: Record<string, string>;
+  /** writeFile throws for paths ending like this. */
+  writeFails?: string;
   engineFails?: string;
   isTTY?: boolean;
   onTranscribe?: (h: Harness) => void;
@@ -91,10 +93,13 @@ function harness(opts: {
     exists: (p) => existing.has(p) || h.files.has(p) || Boolean(opts.fileText?.[p]),
     collectFromFolder: (p) => opts.dirs?.[p] ?? [],
     mkdirp: () => undefined,
-    writeFile: (p, text) => h.files.set(p, text),
+    writeFile: (p, data) => {
+      if (opts.writeFails && p.endsWith(opts.writeFails)) throw new Error('EACCES: permission denied');
+      h.files.set(p, data);
+    },
     readFile: (p) => {
       if (opts.fileText?.[p] !== undefined) return opts.fileText[p]!;
-      if (h.files.has(p)) return h.files.get(p)!;
+      if (h.files.has(p)) return String(h.files.get(p)!);
       throw new Error('no such file: ' + p);
     },
     briefBrain: () => ({
@@ -162,6 +167,40 @@ describe('runCli', () => {
     expect(h.files.get('/a.txt')).toBe('Привет.\nКак дела?');
     expect(h.files.has('/a.srt')).toBe(true);
     expect(h.err.join('')).toContain('(00:01:05 · .srt ·');
+  });
+
+  it('vtt, json, md, docx beside the .txt, same writers as the page', async () => {
+    const h = harness({ existing: ['/rec/talk.wav'] });
+    expect(await run(h, 'transcribe', '/rec/talk.wav', '-f', 'txt,vtt,json,md,docx')).toBe(EXIT_OK);
+    expect([...h.files.keys()].sort()).toEqual(['/rec/talk.docx', '/rec/talk.json', '/rec/talk.md', '/rec/talk.txt', '/rec/talk.vtt']);
+    const vtt = String(h.files.get('/rec/talk.vtt'));
+    expect(vtt.startsWith('WEBVTT\n\n1\n00:00:00.000 --> 00:00:02.500\nПривет.')).toBe(true);
+    expect(vtt).toContain('2\n00:01:01.000 --> 00:01:04.000\nКак дела?');
+    const json = JSON.parse(String(h.files.get('/rec/talk.json'))) as { format: string; source: string; duration: number; segments: unknown[] };
+    expect(json).toMatchObject({ format: 'chawo-transcript', source: 'talk.wav', duration: 65 });
+    expect(json.segments).toHaveLength(2);
+    const md = String(h.files.get('/rec/talk.md'));
+    expect(md).toContain('# talk');
+    expect(md).toContain('00:01:01');
+    const docx = h.files.get('/rec/talk.docx');
+    expect(Buffer.isBuffer(docx)).toBe(true);
+    expect((docx as Buffer).subarray(0, 2).toString('latin1')).toBe('PK');
+    expect((docx as Buffer).includes(Buffer.from('word/document.xml'))).toBe(true);
+    expect(h.err.join('')).toContain('Done: /rec/talk.txt (00:01:05 · .vtt · .json · .md · .docx ·');
+  });
+
+  it('without txt only the asked formats; --out applies to them too', async () => {
+    const h = harness({ existing: ['/rec/talk.wav'] });
+    expect(await run(h, 'transcribe', '/rec/talk.wav', '-f', 'vtt', '-o', '/out')).toBe(EXIT_OK);
+    expect([...h.files.keys()]).toEqual(['/out/talk.vtt']);
+  });
+
+  it('one format failing to write: others written, error line, exit 1', async () => {
+    const h = harness({ existing: ['/a.wav'], writeFails: '.docx' });
+    expect(await run(h, 'transcribe', '/a.wav', '-f', 'txt,docx,vtt')).toBe(EXIT_FAILED);
+    expect([...h.files.keys()].sort()).toEqual(['/a.txt', '/a.vtt']);
+    expect(h.err.join('')).toContain('Error: docx: EACCES: permission denied');
+    expect(h.logs.some((l) => l.includes('export failed: docx'))).toBe(true);
   });
 
   it('folders expand, duplicates drop, numbered prefixes, model opened once', async () => {
@@ -410,6 +449,14 @@ describe('runCli transcribe + «Свой скрипт»', () => {
     expect(h.files.get('/rec/talk.srt')).toContain('Привет.');
     expect(h.err.join('')).toContain('Done: /rec/talk.txt (00:01:05 · script ·');
     expect(h.logs.some((l) => /^post script \(file\): ok/.test(l))).toBe(true);
+  });
+
+  it('the script changes only the .txt; vtt/json keep the recognized text', async () => {
+    const h = harness({ existing: ['/rec/talk.wav'] });
+    expect(await run(h, 'transcribe', '/rec/talk.wav', '-f', 'txt,vtt,json', '--no-timestamps', '--post-script', upper)).toBe(EXIT_OK);
+    expect(h.files.get('/rec/talk.txt')).toBe('ПРИВЕТ.\nКАК ДЕЛА?');
+    expect(String(h.files.get('/rec/talk.vtt'))).toContain('Привет.');
+    expect(String(h.files.get('/rec/talk.json'))).toContain('Как дела?');
   });
 
   it('settings script applies to --stdout; --no-post-script skips it', async () => {

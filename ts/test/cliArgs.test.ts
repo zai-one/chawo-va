@@ -40,6 +40,13 @@ describe('cli args', () => {
     expect(err(['transcribe', 'a', '-f', ','])).toContain('empty');
   });
 
+  it('formats: vtt, json, md, docx like «Ещё сохранять рядом»; --stdout names what to drop', () => {
+    expect(ok(['transcribe', 'a', '-f', 'txt,srt,vtt,json,md,docx']).formats).toEqual(['txt', 'srt', 'vtt', 'json', 'md', 'docx']);
+    expect(ok(['transcribe', 'a', '-f', '.DOCX,Md']).formats).toEqual(['docx', 'md']);
+    expect(err(['transcribe', 'a', '-f', 'pdf'])).toContain('txt, srt, vtt, json, md, docx');
+    expect(err(['transcribe', 'a', '--stdout', '-f', 'txt,vtt,json'])).toContain('drop --format vtt,json');
+  });
+
   it('valued options in both spellings', () => {
     const o = ok(['transcribe', 'a', '-o', 'out', '--model=ctc', '--device', 'CPU', '-j', '2', '--script', 'en', '--model-dir', '/m', '--lang', 'ru']);
     expect(o).toMatchObject({ outDir: 'out', model: 'multilingual_large_ctc', device: 'cpu', threads: 2, script: 'english', modelDir: '/m', lang: 'Russian' });

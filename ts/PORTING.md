@@ -859,3 +859,19 @@ Re-align folder names and tooling with taptain-desktop once its layout is readab
   (…): ok N -> M chars, ms». Тёмная тема. Gaps: Windows (cmd.exe, taskkill) на боксе не гонял — только
   Linux sh; удалённый Hermes-клиент проходит тот же путь сессии, отдельно не проверял.
 
+- 2026-10-13 tick: PR #17 (`ts/feat-postscript`) слит в `ts-port` (ветка уже от свежего ts-port; npm ci, 759 тестов,
+  build зелёные). Дальше CLI-паритет, ветка `ts/feat-cli-formats`: экспорт VTT/JSON/MD/DOCX из командной
+  строки. `args.ts` FORMATS = txt, srt, vtt, json, md, docx (точки/регистр/дубли как раньше, справка ru/en);
+  `--stdout` с не-txt форматами называет, что убрать. `run.ts`: после .txt/.srt — `writeExtras` из
+  `main/file/transcriptExport.ts` (тот же код, что у страницы: заголовок = имя файла, длительность,
+  таймкоды из `--timestamps`/settings для md/docx); заметка строки «· .vtt · .json · .md · .docx», сбой
+  формата → «Error: docx: …», лог `export failed`, остальные пишутся, код выхода 1. `CliDeps.writeFile`
+  принимает Buffer (docx). Без `-f` по-прежнему только txt (галки страницы CLI не читает — так в справке).
+  Тесты: cliArgs (+1: шесть форматов, `.DOCX,Md`, ошибка со списком, `--stdout` + vtt,json), cli (+4: все
+  форматы и их содержимое — VTT-таймкоды, JSON chawo-transcript, `# talk` в md, docx = ZIP с
+  word/document.xml; только vtt + `--out`; сбой docx → остальные есть, exit 1; скрипт меняет только .txt).
+  764 зелёные (759 до), `tsc` чистый. Live CLI (настоящая v3_e2e_rnnt на CPU, `--model-dir`, ru30.wav):
+  `-f txt,srt,vtt,json,md,docx` → шесть файлов за 1.6 с, «Done: … (00:00:30 · .srt · .vtt · .json · .md ·
+  .docx · 1.6 s)», VTT `00:00:00.000 --> 00:00:22.285`, JSON `chawo-transcript ru30.wav 30` 2 сегмента, md
+  `# ru30` + `**[00:00:00]**`, docx открывается zipfile, текст в document.xml; `-f vtt,json -o o -q` → только
+  они в o/; `--stdout -f vtt` → exit 2 «drop --format vtt». GUI не менялся (галки страницы уже были).

@@ -107,7 +107,7 @@ export function realDeps(signal: AbortSignal): CliDeps {
     exists: (p) => existsSync(p),
     collectFromFolder,
     mkdirp: (dir) => mkdirSync(dir, { recursive: true }),
-    writeFile: (p, text) => writeFileSync(p, text, 'utf8'),
+    writeFile: (p, data) => (typeof data === 'string' ? writeFileSync(p, data, 'utf8') : writeFileSync(p, data)),
     readFile: (p) => readFileSync(p, 'utf8'),
     briefBrain: () => {
       const s = readSettings();

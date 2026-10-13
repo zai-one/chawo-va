@@ -58,6 +58,7 @@ GPL-проекты — только как источник идей, код н�
 
 ### 6. ⭐ DO NEXT — Экспорт VTT/JSON/DOCX/MD + редактор транскрипта (S→M)
 - ✅ Экспорт сделан 2026-10-13 (ветка `ts/feat-export-formats`): .vtt/.json/.md/.docx рядом с .txt, одна строка галок «Ещё сохранять рядом». Редактор транскрипта — отдельной задачей (batch 2, п.10).
+- ✅ CLI-паритет 2026-10-13 (ветка `ts/feat-cli-formats`): `chawo-va transcribe … -f txt,srt,vtt,json,md,docx` — те же писатели, что у галок «Ещё сохранять рядом»; «Свой скрипт» меняет только .txt, сбой одного формата не мешает остальным (код выхода 1).
 - Источник: [vibe](https://github.com/thewh1teagle/vibe), [Buzz](https://github.com/chidiwilliams/buzz).
 - Зачем: сейчас txt/srt/timestamps; VTT нужен для веба, JSON — для интеграций, DOCX — для офисных пользователей.
 - Реализация: расширить `src/core/transcriptFormat.ts` форматтерами `toVtt`, `toJson` (сегменты+слова), `toMarkdown`; DOCX через `docx` npm (лениво). Выбор форматов — тот же селектор, что сейчас для txt/srt.

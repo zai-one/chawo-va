@@ -4,7 +4,7 @@
 import type { FileParallelismKind } from '../core/fileParallel';
 import type { CtcScript, SpeechDeviceKind, SpeechModelKind } from '../core/speechModels';
 
-export const FORMATS = ['txt', 'srt'] as const;
+export const FORMATS = ['txt', 'srt', 'vtt', 'json', 'md', 'docx'] as const;
 export type OutputFormat = (typeof FORMATS)[number];
 
 export interface CliOptions {
@@ -205,7 +205,7 @@ export function parseArgs(argv: readonly string[]): ParseResult {
   if (o.postScript != null && o.noPostScript) return { ok: false, error: '--post-script and --no-post-script cannot be used together' };
   if (o.to != null && o.command !== 'translate') return { ok: false, error: '--to is for translate' };
   if (o.stdout && o.outDir) return { ok: false, error: '--stdout and --out cannot be used together' };
-  if (o.stdout && o.formats.some((f) => f !== 'txt')) return { ok: false, error: '--stdout prints text only; drop --format srt' };
+  if (o.stdout && o.formats.some((f) => f !== 'txt')) return { ok: false, error: `--stdout prints text only; drop --format ${o.formats.filter((f) => f !== 'txt').join(',')}` };
   return { ok: true, options: o };
 }
 
@@ -219,7 +219,8 @@ export function helpText(t: (ru: string, en: string) => string): string {
   chawo-va translate <тексты.txt…> [--to язык] [параметры]
 
 Параметры:
-  -f, --format txt,srt   какие файлы писать (по умолчанию txt)
+  -f, --format txt,srt,vtt,json,md,docx
+                         какие файлы писать (по умолчанию txt), можно несколько через запятую
   -o, --out <папка>      куда писать (по умолчанию рядом с исходным файлом)
   -t, --timestamps       [чч:мм:сс] в начале строк txt; --no-timestamps — без них
       --stdout           печатать текст в stdout вместо файлов
@@ -269,7 +270,8 @@ Usage:
   chawo-va translate <text.txt…> [--to language] [options]
 
 Options:
-  -f, --format txt,srt   which files to write (default txt)
+  -f, --format txt,srt,vtt,json,md,docx
+                         which files to write (default txt), several comma-separated
   -o, --out <dir>        where to write (default: beside the source file)
   -t, --timestamps       [hh:mm:ss] at the start of txt lines; --no-timestamps to drop them
       --stdout           print the text to stdout instead of writing files
