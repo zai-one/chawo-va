@@ -50,6 +50,32 @@ const api = {
     suggest: () => ipcRenderer.invoke('dict:suggest'),
     addSuggestion: (heard: string, written: string) => ipcRenderer.invoke('dict:addSuggestion', heard, written),
   },
+  dictation: {
+    state: () => ipcRenderer.invoke('dictation:state'),
+    setMode: (v: string) => ipcRenderer.invoke('dictation:mode', v),
+    setHotkey: (vk: number) => ipcRenderer.invoke('dictation:hotkey', vk),
+    setInsertMode: (v: string) => ipcRenderer.invoke('dictation:insert', v),
+    setOverlay: (v: boolean) => ipcRenderer.invoke('dictation:overlay', v),
+    setMic: (id: string) => ipcRenderer.invoke('dictation:mic', id),
+    setDevices: (list: { id: string; label: string }[], defaultName: string) => ipcRenderer.invoke('dictation:devices', list, defaultName),
+    dismissStartCard: () => ipcRenderer.invoke('dictation:dismissStart'),
+    startTake: () => ipcRenderer.invoke('dictation:start'),
+    /** 16 kHz mono float chunk from the capture worklet; fire-and-forget, ordered before stopTake. */
+    appendPcm: (chunk: Float32Array) => ipcRenderer.send('dictation:pcm', chunk),
+    stopTake: () => ipcRenderer.invoke('dictation:stop'),
+    cancelTake: () => ipcRenderer.invoke('dictation:cancel'),
+    micFailed: (name: string, message: string) => ipcRenderer.invoke('dictation:micFailed', name, message),
+    onState: (fn: (s: unknown) => void) => {
+      const h = (_e: unknown, s: unknown) => fn(s);
+      ipcRenderer.on('dictation:state', h);
+      return () => ipcRenderer.removeListener('dictation:state', h);
+    },
+    onLevel: (fn: (v: number) => void) => {
+      const h = (_e: unknown, v: number) => fn(v);
+      ipcRenderer.on('dictation:level', h);
+      return () => ipcRenderer.removeListener('dictation:level', h);
+    },
+  },
   brain: {
     state: (rebind = false) => ipcRenderer.invoke('brain:state', rebind),
     setSource: (v: string) => ipcRenderer.invoke('brain:source', v),

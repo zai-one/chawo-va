@@ -28,15 +28,18 @@ Re-align folder names and tooling with taptain-desktop once its layout is readab
 | App/ModelDownloader.cs | src/main/models/modelDownloader.ts, tarGz.ts | ✅ ported + tests (no network); real v3 download verified on the box |
 | App/FileTranscript.cs, FileQueue.cs, FfmpegTool.cs | src/main/file/ (+ zip.ts) | ✅ ported + tests (system ffmpeg mp3 decode) |
 | App/BrainProviders.cs, SpeechCleanup.cs, Brain.cs, FileBrain.cs, LocalBrain.cs | src/main/brain/ | ✅ providers/cleanup/Brain/FileBrain + tests; LocalBrain helpers ✅, process/download 🟡 |
-| App/Recorder.cs | renderer getUserMedia → AudioWorklet → main | ⏳ |
-| App/KeyboardHook.cs, TextInserter.cs, SelectionReader.cs, Native.cs | native helper / globalShortcut + clipboard | ⏳ needs design (hold-to-talk hotkey) |
+| App/Recorder.cs | src/core/takeBuffer.ts (accumulator, adaptive VU meter, 5-min cap, take checks) + src/renderer/mic-processor.js (AudioWorklet, 16 kHz mono, 40 ms chunks) | ✅ ported + tests; waveIn/WASAPI replaced by getUserMedia |
+| App/KeyboardHook.cs | native helper (see «Hold-to-talk hotkey» below); in-window hold button meanwhile | ⏳ designed, not built |
+| App/TextInserter.cs, SelectionReader.cs, Native.cs | native helper + clipboard | ⏳ (takes are copied to the clipboard and shown on the page for now) |
 | App/HermesServer.cs, HermesFirewall.cs, RemoteSpeech.cs | src/main/network/ | ⏳ |
 | App/SalesRag.cs | src/main/sales/salesRag.ts | 🟡 SuggestDictionary + helpers ported + tests; FindSnippet waits for the sales card |
 | App/Sales*.cs (catalog, card, rest) | src/main/sales/ | ⏳ |
 | App/Updater.cs, Autostart.cs, KeepAwake.cs | src/main/system/ | ⏳ |
-| SettingsWindow, OverlayWindow, SalesCardWindow, Download/Update windows, BrainServerPanel | src/renderer/ pages | 🟡 «Расшифровка файла», «Распознавание» and «Словарь» pages work (DownloadWindow folded into the page as a progress card); «Мозг» page works too; sidebar has all 7 WPF sections, the rest are placeholders |
-| SettingsWindow speech page, App.SpeechStatusText / DownloadSpeechAsync / DeleteSpeechModelAsync | src/main/speech/speechPage.ts (SpeechController), src/main/speechIpc.ts | ✅ ported + tests (GPU warmup and live session line wait for dictation) |
+| SettingsWindow, OverlayWindow, SalesCardWindow, Download/Update windows, BrainServerPanel | src/renderer/ pages | 🟡 «Диктовка», «Расшифровка файла», «Распознавание», «Словарь» and «Мозг» pages work (DownloadWindow folded into the page as a progress card); «Продажи» and «Сеть» are placeholders; OverlayWindow ⏳ |
+| SettingsWindow speech page, App.SpeechStatusText / DownloadSpeechAsync / DeleteSpeechModelAsync | src/main/speech/speechPage.ts (SpeechController), src/main/speechIpc.ts | ✅ ported + tests (live session line comes from DictationSession; GPU warmup ⏳) |
 | SettingsWindow dictionary page (FillDictionaryRows / PersistDictionary / SuggestDictionary_Click / AddSuggestion_Click) | src/main/dictionary/dictionaryPage.ts (DictionaryController), src/main/dictionaryIpc.ts | ✅ ported + tests |
+| SettingsWindow dictation page (Localize dictation block, FillStartCard, Mode/Hotkey/Insert/Overlay/Mic handlers, SetPhase), App.SetPhase | src/main/dictation/dictationPage.ts (DictationController), src/main/dictationIpc.ts | ✅ ported + tests (language box, copy-to-clipboard options, autostart, updates, unpin not on this page yet) |
+| App.HandlePressAsync / HandleReleaseAsync / RequestStop / ReloadSpeechAsync / SpeechStatusText (local path) | src/main/dictation/dictationSession.ts (DictationSession) | ✅ local take + dictionary + clipboard; drafts, Brain, simple syntax, sales card, remote host ⏳ |
 | SettingsWindow brain page (Localize brain part / UpdateBrainTexts / FillBrainModelRows), BrainServerPanel, App.SelectBrainAsync | src/main/brain/brainPage.ts (BrainController), src/main/brainIpc.ts | ✅ ported + tests; local download/engine start 🟡 |
 | App.RunFileQueueAsync / RunQueue / RunOneFile / TranscribeLocal | src/main/file/fileRunner.ts, localTranscriber.ts, src/main/fileIpc.ts | ✅ local path + Brain hook (cloud FileBrain; local process 🟡) |
 | App/Strings.cs | src/core/strings.ts (ru/en `t()`) | ✅ ported |
@@ -57,6 +60,26 @@ Re-align folder names and tooling with taptain-desktop once its layout is readab
   injectable `PlatformDecoder` (`src/main/chromiumDecoder.ts`: hidden sandboxed renderer with
   `decodeAudioData` at 16 kHz, covers MP3/AAC/M4A/FLAC/Vorbis/Opus-WebM/float WAV, files ≤ 400 MB), then ffmpeg. ffmpeg decodes straight to s16le on
   stdout (no temp WAV). The pinned BtbN zip download is offered only on Windows; Linux uses PATH.
+
+## Hold-to-talk hotkey (design, tick 11)
+
+- WPF holds the dictation key with a low-level keyboard hook (`KeyboardHook.cs`, WH_KEYBOARD_LL):
+  it sees key-down and key-up of bare modifiers (Right Ctrl, Right Alt, Right Shift, Left Ctrl+Win),
+  swallows them, and arms Escape as cancel while a take runs.
+- Electron `globalShortcut` cannot do this: it registers accelerators (a modifier plus a key), fires
+  once on press with no release event, and cannot bind a bare modifier like Right Ctrl. Faking hold
+  with auto-repeat or timers would give stuck or chopped takes, so it is not used.
+- Plan: a small native helper process per OS that reports `down`/`up`/`escape` for the chosen key on
+  stdin/stdout JSON lines, started by main only while the app runs (no network, no admin).
+  Windows first: a tiny C/C# (NativeAOT) or Rust exe with WH_KEYBOARD_LL, same key table as
+  `HOTKEY_CHOICES` (0xA3, 0x10000 = Left Ctrl+Win, 0xA5, 0xA1, 0x14, 0x91, 0x2D). The same helper
+  later hosts TextInserter (SendInput / Ctrl+V with clipboard restore) and SelectionReader (UI
+  Automation). macOS: CGEventTap (needs the Accessibility permission). Linux: X11 XRecord or
+  evdev/libinput for Wayland (input group), still TBD. No robotjs / iohook dependency.
+- Main maps helper `down` → `DictationSession.startTake()` and asks the renderer to open the mic
+  (the renderer owns getUserMedia even when the window is hidden), `up` → stop, `escape` → cancel.
+- Until then the «Диктовка» page has an in-window hold button (mouse, touch, Space/Enter) that
+  drives the same session, so capture → recognition can be tested end to end.
 
 ## Log
 
@@ -184,3 +207,32 @@ Re-align folder names and tooling with taptain-desktop once its layout is readab
   139 tests green (128 before). Next: microphone capture (getUserMedia → AudioWorklet → main) and
   the hold-to-talk hotkey design, or LocalBrain download + llama-server start.
 
+- 2026-10-13 tick 11: «Диктовка» page, microphone capture and an in-window hold-to-talk take.
+  `src/core/takeBuffer.ts` ports the Recorder.cs accumulator (16 kHz, 10 s storage blocks,
+  snapshot / stop / clear, takePeak, consume-on-read level with the adaptive meter 15 / 0.2 / 0.4 dB,
+  TakeTooLong once at 5 minutes) plus App's take checks (MinTakeSamples 0.25 s, SilenceFloor,
+  HasSpeechDynamics, quiet-take gain to 0.5 capped at 200). Capture: renderer getUserMedia (raw: no
+  echo cancel / noise suppression / AGC) → AudioContext at 16 kHz (Chromium resamples; the worklet
+  box-filter decimates if a 16 kHz context is refused) → `mic-processor.js` AudioWorklet → 640-sample
+  chunks over `ipcRenderer.send` (ordered before the stop). The mic opens per take and closes after,
+  so the OS indicator is off between takes. CSP and the file://-only request filter are unchanged
+  (the worklet is a bundled file loaded under script-src 'self'). `DictationController` (no Electron
+  imports): mode with the WPF sales hint, the seven WPF hotkeys + HotkeyTitle («клавиша XX» for
+  others), Type/Paste, overlay checkbox, microphone list with a «По умолчанию Windows — name» row,
+  «С чего начать» card with page links and «Больше не показывать» (StartHintDismissed), App.SetPhase
+  texts, Stop (and Escape) enabled while listening/recognizing, no-model hint linking to
+  «Распознавание». Chromium device ids differ from WASAPI ids and settings.json is shared with WPF,
+  so a mic picked here is stored as `web:<deviceId>`; a WPF id is left alone (default device used
+  here); a vanished `web:` id is cleared like WPF, but only on a non-empty device list.
+  `DictationSession`: opens the recognizer on page show or first take (never downloads), keeps it
+  until speech settings change (SpeechController.changed), closes it before a model delete; on stop:
+  silence / short / not-made-out messages as in WPF, KeepLastRecording WAV, gain, owned cancelable
+  recognition, dictionary, final text shown on the page and copied to the clipboard (IPC layer). The
+  «Распознавание» status now shows the live session line («Загружена v3_e2e_rnnt, считает на …»).
+  End-to-end on the box under xvfb with Chromium's fake mic fed from a Russian speech WAV: real mouse
+  hold 8 s → meter moves → «Русский язык. Русский язык — это один из восточнославянских языков,
+  национальный» on the page and on the clipboard (`scripts/smoke-dictation.cjs`). No-model press
+  shows the hint and does not record. 186 tests green (139 before). Gaps: global hold key (design
+  above), TextInserter / SelectionReader, OverlayWindow with live drafts, Brain / simple syntax /
+  sales card on a take, remote host, GPU warmup. Next: the native hold-to-talk helper (Windows) with
+  TextInserter + SelectionReader and the OverlayWindow, or LocalBrain download + llama-server start.

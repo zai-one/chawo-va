@@ -11,7 +11,14 @@ import { SPEECH_KINDS, SpeechController } from './speech/speechPage';
 export function registerSpeechIpc(
   getWindow: () => BrowserWindow | null,
   settings: { get: () => SettingsData },
-  opts: { busy?: () => boolean; changed?: () => void } = {},
+  opts: {
+    busy?: () => boolean;
+    changed?: () => void;
+    /** Dictation recognizer line for the status («Загружена …, считает на …»). */
+    session?: () => string | null;
+    /** Close open sessions before model files are deleted (Windows keeps open files locked). */
+    beforeDelete?: () => Promise<void>;
+  } = {},
 ): SpeechController {
   let pushTimer: NodeJS.Timeout | null = null;
   const push = () => {
@@ -28,6 +35,7 @@ export function registerSpeechIpc(
     push,
     busy: opts.busy,
     changed: opts.changed,
+    session: opts.session,
   });
   const kindOf = (k: unknown): SpeechModelKind | null =>
     typeof k === 'string' && (SPEECH_KINDS as readonly string[]).includes(k) ? (k as SpeechModelKind) : null;
@@ -75,6 +83,7 @@ export function registerSpeechIpc(
     };
     const r = w ? await dialog.showMessageBox(w, box) : await dialog.showMessageBox(box);
     if (r.response !== 0) return ctl.state();
+    if (!opts.busy?.()) await opts.beforeDelete?.();
     const err = ctl.delete(kind);
     if (err) {
       const msg = { type: 'warning' as const, title, message: err };

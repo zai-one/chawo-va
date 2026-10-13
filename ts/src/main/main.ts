@@ -7,6 +7,7 @@ import { registerFileIpc } from './fileIpc';
 import { registerSpeechIpc } from './speechIpc';
 import { registerDictionaryIpc } from './dictionaryIpc';
 import { registerBrainIpc } from './brainIpc';
+import { registerDictationIpc } from './dictationIpc';
 import { chromiumDecode, disposeChromiumDecoder } from './chromiumDecoder';
 import { setPlatformDecoder } from './file';
 import * as Settings from './settings';
@@ -18,6 +19,7 @@ const BG = '#14161a';
 let win: BrowserWindow | null = null;
 let tray: Tray | null = null;
 let settings: Settings.SettingsData = Settings.defaults();
+let releaseDictation: (() => Promise<void>) | null = null;
 
 function iconPath(set: 'app' | 'tray-dark' | 'tray-light', size: number): string {
   return join(__dirname, '..', 'assets', 'iconset', set, `icon_${size}.png`);
@@ -101,7 +103,14 @@ if (!app.requestSingleInstanceLock()) {
     // MP3/M4A/FLAC/… decode in a hidden sandboxed renderer; ffmpeg stays an optional fallback.
     setPlatformDecoder(chromiumDecode);
     const files = registerFileIpc(() => win, { get: () => settings });
-    registerSpeechIpc(() => win, { get: () => settings }, { busy: files.busy });
+    const dictation = registerDictationIpc(() => win, { get: () => settings });
+    releaseDictation = () => dictation.session.release();
+    registerSpeechIpc(() => win, { get: () => settings }, {
+      busy: () => files.busy() || dictation.session.isBusy,
+      changed: () => dictation.session.speechChanged(),
+      session: () => dictation.session.sessionLine(),
+      beforeDelete: () => dictation.session.release(),
+    });
     registerDictionaryIpc({ get: () => settings });
     registerBrainIpc(() => win, { get: () => settings });
     win = createWindow();
@@ -113,6 +122,7 @@ if (!app.requestSingleInstanceLock()) {
   app.on('before-quit', () => {
     quitting = true;
     disposeChromiumDecoder();
+    void releaseDictation?.();
     tray?.destroy();
   });
 }

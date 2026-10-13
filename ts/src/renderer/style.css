@@ -58,3 +58,21 @@ textarea { background: var(--panel); color: var(--text); border: 1px solid var(-
 .form .inline { display: flex; gap: 8px; }
 label.check { display: block; margin: 14px 0 0; }
 .hint.indent { margin-left: 22px; }
+.card-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.card.start .step { margin: 6px 0 0; }
+button.inline-link { color: var(--accent); padding: 0 2px; }
+button.inline-link:hover { color: var(--text); text-decoration: underline; }
+.card.phase { display: flex; align-items: center; gap: 12px; }
+.card.phase .phase-line { flex: 1; min-width: 0; }
+.card.phase button { min-width: 96px; font-weight: 600; }
+button:disabled { opacity: .45; cursor: default; }
+.hold-row { display: flex; align-items: center; gap: 16px; margin: 4px 0 0; }
+button.hold { min-width: 280px; padding: 16px 20px; border-radius: 10px; font-size: 15px; font-weight: 600; user-select: none; touch-action: none; -webkit-user-select: none; }
+button.hold.pressed { background: var(--accent); border-color: var(--accent); color: #14161a; }
+button.hold.busy { border-color: var(--accent); color: var(--accent); }
+.meter { flex: 1; max-width: 280px; height: 44px; display: flex; align-items: center; gap: 3px; }
+.meter > span { flex: 1; height: 8%; background: var(--accent); border-radius: 2px; opacity: .85; transition: height 60ms linear; }
+.card.result .last-text { white-space: pre-wrap; overflow-wrap: anywhere; margin-top: 4px; user-select: text; }
+.form.wide { grid-template-columns: 160px minmax(0, 1fr); }
+select.wide { min-width: 360px; max-width: 100%; }
+.status.line { word-break: normal; }
