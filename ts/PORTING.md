@@ -390,7 +390,7 @@ Re-align folder names and tooling with taptain-desktop once its layout is readab
   Downloads/Chawo), «Остановить» гасит и скачивание; статус очереди снова главный, когда она
   заговорит. Renderer: fieldset «По ссылке» (поле сохраняет текст/фокус/курсор при перерисовке,
   Enter = запуск), строка о сети, строка yt-dlp, «Скачать yt-dlp»/«Обновить yt-dlp». Новых настроек нет.
-  Тесты: mediaUrl (24), urlImport (4), ytDlpTool (8: fake fetch + /bin/sh fake yt-dlp — sha, mismatch
+  Тесты: mediaUrl (21), urlImport (4), ytDlpTool (8: fake fetch + /bin/sh fake yt-dlp — sha, mismatch
   сохраняет старую сборку, аргументы после `--`, прогресс, ERROR, abort/таймаут). 342 теста зелёные
   (309 до). Smoke под xvfb (`scripts/smoke-url.cjs`): кнопка скачала настоящий yt-dlp 2026.08.19 c
   GitHub (sha ок) за 4 с; `file:///etc/passwd` → «нужна ссылка http(s)»; MP3 с 127.0.0.1 (generic
