@@ -779,3 +779,17 @@ Re-align folder names and tooling with taptain-desktop once its layout is readab
   (перезагрузка спряталась за речью), RSS 600 МБ. Gaps: Silero VAD (2 МБ) не выгружается — не стоит; настоящий llama-server на
   боксе не гонял (проверен фейковым сервером в тестах).
 
+- 2026-10-13 tick (branch `ts/feat-meeting-brief`, IDEAS.md batch 2 п.6): карточка «Кратко и задачи» после
+  встречи/файла от Мозга. `src/main/brain/meetingBrief.ts`: defaultInstruction / effectiveInstruction /
+  assemblePrompt (обёртка + защита от injection), formatBrief, splitTranscript, runBriefAsync (чанки +
+  merge, инжектируемый ask), outputPath → `.brief.txt` (с `.brain.txt` снимает `.brain`). Настройки
+  `MeetingBriefEnabled` (выкл.) и `MeetingBriefInstruction` (пусто = встроенная: кратко + задачи с
+  владельцами/сроками на языке расшифровки). FileRunner: опция `brief` + hook `runBrief` после Brain;
+  сбой brief не валит расшифровку. UI на «Расшифровке файла»: fieldset «Кратко и задачи» — галка
+  «писать .brief.txt», textarea инструкции, «Составить по последней расшифровке», карточка с текстом;
+  для облака — confirm как у WPF FileBrain. CLI: `chawo-va brief <txt…>` (`--instruction`, `--stdout`,
+  `-o`), тот же core. Тесты: meetingBrief (8), cliArgs (+1), cli brief (4), pathsSettings (+1), fileRunner brief (1);
+  700 зелёные (685 до), `tsc` чистый. Smoke: `scripts/smoke-brief.cjs` — help упоминает brief;
+  live `runCli(['brief', meet.txt])` с фейковым ask → .brief.txt «Кратко/Задачи» с Анной и Борисом.
+  Gaps: живой LocalBrain на боксе не гонял (как у fileBrain); GUI под xvfb не снимал (карточка на
+  странице файла, паттерн как у «Встреча»).

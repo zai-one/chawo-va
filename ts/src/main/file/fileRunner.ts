@@ -13,6 +13,7 @@ import { t } from '../../core/strings';
 import { FileQueue, type FileQueueItem } from './fileQueue';
 import { MAX_BYTES, outputPath } from './fileTranscript';
 import { outputPath as brainOutputPath } from '../brain/fileBrain';
+import { outputPath as briefOutputPath } from '../brain/meetingBrief';
 import type { FileExtraFormat } from '../settings';
 import { writeExtras } from './transcriptExport';
 import * as Log from '../log';
@@ -26,6 +27,8 @@ export interface FileRunOptions {
   useBrain: boolean;
   /** When true, run local speaker diarization after transcription (via runDiarize when ready). */
   diarize: boolean;
+  /** When true, write name.brief.txt («Кратко и задачи») via runBrief when provided. */
+  brief: boolean;
 }
 
 /** Turns 16 kHz samples into segments. status() shows a progress line for the current file. */
@@ -51,6 +54,17 @@ export type FileBrainHook = (
  * Optional local speaker diarization after transcription.
  * Return spans to assign; return null when models are missing (queue continues, status noted).
  */
+
+/**
+ * Optional «Кратко и задачи» after the raw .txt (and optional .brain.txt).
+ * Return `text` to write name.brief.txt; failures should be soft (note only) so transcription still counts as Done.
+ */
+export type FileBriefHook = (
+  segments: TranscriptSegment[],
+  opts: FileRunOptions & { rawTxtPath: string },
+  status: (line: string) => void,
+  signal: AbortSignal,
+) => Promise<{ note: string; text?: string }>;
 export type FileDiarizeHook = (
   pcm: Float32Array,
   status: (line: string) => void,
@@ -69,6 +83,8 @@ export interface FileRunnerDeps {
   now?: () => number;
   /** When useBrain is true, call this after writing the raw .txt. */
   runBrain?: FileBrainHook;
+  /** When brief is true, call this after Brain (or after the raw .txt). */
+  runBrief?: FileBriefHook;
   /** When diarize is true, call this after local transcription and before writing .txt/.srt. */
   runDiarize?: FileDiarizeHook;
   /**
@@ -298,6 +314,21 @@ export class FileRunner {
         if (isAbort(e, signal)) throw e;
         const msg = message(e);
         Log.write(`file brain ${item.path}: ${msg}`);
+        notes.push(msg);
+      }
+    }
+
+    if (opts.brief && this.d.runBrief) {
+      try {
+        const brief = await this.d.runBrief(segments, { ...opts, rawTxtPath: out }, (line) => this.say(prefix + line), signal);
+        if (brief.text != null && brief.text.length > 0) {
+          writeFileSync(briefOutputPath(out), brief.text, 'utf8');
+        }
+        if (brief.note) notes.push(brief.note);
+      } catch (e) {
+        if (isAbort(e, signal)) throw e;
+        const msg = message(e);
+        Log.write(`file brief ${item.path}: ${msg}`);
         notes.push(msg);
       }
     }

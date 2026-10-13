@@ -64,6 +64,10 @@ export interface SettingsData {
   FileDiarize: boolean;
   /** «Запись встречи»: also record the computer sound (Zoom/Teams/Telegram), not just the mic. */
   MeetingSystemAudio: boolean;
+  /** After file/meeting transcription, also write name.brief.txt («Кратко и задачи»). Off by default. */
+  MeetingBriefEnabled: boolean;
+  /** User-editable format instruction for the brief card; empty = built-in default. */
+  MeetingBriefInstruction: string;
   StartHintDismissed: boolean;
   MicrophoneId: string;
   BrainDevice: BrainDeviceKind;
@@ -130,6 +134,8 @@ export function defaults(): SettingsData {
     FileUseBrain: false,
     FileDiarize: false,
     MeetingSystemAudio: true,
+    MeetingBriefEnabled: false,
+    MeetingBriefInstruction: '',
     StartHintDismissed: false,
     MicrophoneId: '',
     BrainDevice: 'Cpu',
@@ -377,6 +383,8 @@ export function fromJsonObject(raw: Record<string, unknown>): { settings: Settin
   d.FileUseBrain = asBool(raw.FileUseBrain, d.FileUseBrain);
   d.FileDiarize = asBool(raw.FileDiarize, d.FileDiarize);
   d.MeetingSystemAudio = asBool(raw.MeetingSystemAudio, d.MeetingSystemAudio);
+  d.MeetingBriefEnabled = asBool(raw.MeetingBriefEnabled, d.MeetingBriefEnabled);
+  d.MeetingBriefInstruction = asString(raw.MeetingBriefInstruction, d.MeetingBriefInstruction);
   d.StartHintDismissed = asBool(raw.StartHintDismissed, d.StartHintDismissed);
   d.MicrophoneId = asString(raw.MicrophoneId, d.MicrophoneId);
   d.BrainDevice = asEnum(raw.BrainDevice, ['Cpu', 'Gpu'] as const, d.BrainDevice);
@@ -463,6 +471,8 @@ export function toJsonObject(s: SettingsData): Record<string, unknown> {
     FileUseBrain: s.FileUseBrain,
     FileDiarize: s.FileDiarize,
     MeetingSystemAudio: s.MeetingSystemAudio,
+    MeetingBriefEnabled: s.MeetingBriefEnabled,
+    MeetingBriefInstruction: s.MeetingBriefInstruction,
     StartHintDismissed: s.StartHintDismissed,
     MicrophoneId: s.MicrophoneId,
     BrainDevice: s.BrainDevice,

@@ -103,3 +103,6 @@ select.wide { min-width: 360px; max-width: 100%; }
 .call-row { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
 label.stack { display: flex; flex-direction: column; gap: 3px; font-size: 12px; }
 .hint.warn { color: var(--accent); }
+
+.meeting-brief textarea { width: 100%; min-height: 72px; resize: vertical; font: inherit; background: var(--bg); color: var(--fg); border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; }
+.meeting-brief .brief-card pre { margin: 0; font: inherit; white-space: pre-wrap; }

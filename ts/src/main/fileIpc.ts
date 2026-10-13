@@ -6,7 +6,10 @@ import { dirname, join } from 'node:path';
 import { FileQueue, FileRunner, Ffmpeg, UrlImport, YtDlp, OPEN_FILTERS, load16k, localPrepare, remoteFatal, remotePrepare } from './file';
 import { getDiarizeRuntime } from './diarize';
 import * as FileBrain from './brain/fileBrain';
+import * as MeetingBrief from './brain/meetingBrief';
 import { BrainException } from './brain/speechCleanup';
+import { readFileSync, writeFileSync, existsSync } from 'node:fs';
+import { toTxt } from '../core/transcriptFormat';
 import * as Settings from './settings';
 import { asExtraFormats, type FileExtraFormat, type SettingsData, type SettingsFileParallelism } from './settings';
 import { isRussian, t } from '../core/strings';
@@ -19,6 +22,8 @@ export interface FileOptionsDto {
   extra: FileExtraFormat[];
   parallelism: SettingsFileParallelism;
   diarize: boolean;
+  /** «Кратко и задачи» after transcription (MeetingBriefEnabled). */
+  brief: boolean;
 }
 
 export interface FileStateDto {
@@ -31,6 +36,20 @@ export interface FileStateDto {
   url: { line: string; canDownload: boolean; installed: boolean; managed: boolean; busy: boolean; folder: string };
   diarization: { onDisk: boolean; ready: boolean; downloading: boolean; line: string; canDownload: boolean };
   lastOutput: string | null;
+  /** «Кратко и задачи» card on the File page. */
+  brief: {
+    enabled: boolean;
+    instruction: string;
+    /** Built-in default shown when the saved instruction is empty. */
+    defaultInstruction: string;
+    /** Where the Brain would run (empty when unavailable). */
+    where: string;
+    available: boolean;
+    /** Last brief text shown in the card (from auto-run or «Составить»). */
+    text: string;
+    path: string | null;
+    busy: boolean;
+  };
   /** UI language picked in main (Auto follows the OS locale), so the page matches status lines. */
   ru: boolean;
 }
@@ -45,6 +64,12 @@ export function registerFileIpc(getWindow: () => BrowserWindow | null, settings:
   let diarStatus = '';
   let ffmpegAbort: AbortController | null = null;
   let diarAbort: AbortController | null = null;
+  let lastBriefText = '';
+  let lastBriefPath: string | null = null;
+  let briefBusy = false;
+  let briefAbort: AbortController | null = null;
+  /** Cloud confirm for this queue run: null = not asked yet, true/false = answer. */
+  let briefCloudOk: boolean | null = null;
 
   const state = (): FileStateDto => {
     const s = settings.get();
@@ -53,8 +78,8 @@ export function registerFileIpc(getWindow: () => BrowserWindow | null, settings:
     return {
       items: queue.snapshot(),
       status: ffmpegStatus || diarStatus || runner.status,
-      busy: runner.busy || ffmpegBusy || urlImport.busy || diarBusy,
-      options: { timestamps: s.FileTimestamps, srt: s.FileSrt, extra: [...s.FileExtraFormats], parallelism: s.FileParallelism, diarize: s.FileDiarize },
+      busy: runner.busy || ffmpegBusy || urlImport.busy || diarBusy || briefBusy,
+      options: { timestamps: s.FileTimestamps, srt: s.FileSrt, extra: [...s.FileExtraFormats], parallelism: s.FileParallelism, diarize: s.FileDiarize, brief: s.MeetingBriefEnabled },
       ffmpeg: { line: Ffmpeg.statusLine(), canDownload: Ffmpeg.canDownload(), installed: Ffmpeg.isInstalled() },
       url: {
         line: YtDlp.statusLine(),
@@ -72,6 +97,16 @@ export function registerFileIpc(getWindow: () => BrowserWindow | null, settings:
         canDownload: !diar.onDisk && !diar.isDownloading,
       },
       lastOutput: queue.lastOutput,
+      brief: {
+        enabled: s.MeetingBriefEnabled,
+        instruction: s.MeetingBriefInstruction,
+        defaultInstruction: MeetingBrief.defaultInstruction(),
+        where: MeetingBrief.target(s) === 'None' ? '' : MeetingBrief.describe(s),
+        available: MeetingBrief.target(s) !== 'None',
+        text: lastBriefText,
+        path: lastBriefPath,
+        busy: briefBusy,
+      },
       ru: ruLang,
     };
   };
@@ -98,7 +133,7 @@ export function registerFileIpc(getWindow: () => BrowserWindow | null, settings:
     prefetch: () => !client(),
     options: () => {
       const s = settings.get();
-      return { timestamps: s.FileTimestamps, srt: s.FileSrt, extra: [...s.FileExtraFormats], useBrain: s.FileUseBrain, diarize: s.FileDiarize };
+      return { timestamps: s.FileTimestamps, srt: s.FileSrt, extra: [...s.FileExtraFormats], useBrain: s.FileUseBrain, diarize: s.FileDiarize, brief: s.MeetingBriefEnabled };
     },
     status: () => {
       // The queue speaks again: its line replaces the last download/ffmpeg line.
@@ -129,6 +164,46 @@ export function registerFileIpc(getWindow: () => BrowserWindow | null, settings:
       } catch (e) {
         const msg = e instanceof BrainException || e instanceof Error ? e.message : String(e);
         return { note: msg };
+      }
+    },
+    runBrief: async (segments, opts, status, signal) => {
+      const s = settings.get();
+      let kind = MeetingBrief.target(s);
+      if (kind === 'None') {
+        return { note: t('краткое: мозг не настроен', 'brief: the Brain is not set up') };
+      }
+      if (kind === 'Cloud') {
+        const cloud = MeetingBrief.cloudName(s);
+        if (cloud) {
+          if (briefCloudOk === null) {
+            const w = getWindow();
+            const question = t(`Текст уйдёт в ${cloud}. Составить «Кратко и задачи»?`, `The text will be sent to ${cloud}. Build the brief and tasks?`);
+            const box = { type: 'question' as const, buttons: [t('Да', 'Yes'), t('Нет', 'No')], defaultId: 0, cancelId: 1, title: t('Кратко и задачи', 'Brief and tasks'), message: question };
+            const r = w ? await dialog.showMessageBox(w, box) : await dialog.showMessageBox(box);
+            briefCloudOk = r.response === 0;
+          }
+          if (!briefCloudOk) return { note: t('краткое пропущено', 'brief skipped') };
+        }
+      }
+      try {
+        const transcript = toTxt(segments, opts.timestamps);
+        const result = await MeetingBrief.runBriefAsync({
+          settings: s,
+          targetKind: kind,
+          transcript,
+          instruction: s.MeetingBriefInstruction,
+          status,
+          signal,
+        });
+        lastBriefText = result.text;
+        lastBriefPath = MeetingBrief.outputPath(opts.rawTxtPath);
+        const note = result.warning
+          ? t(`краткое · ${result.warning}`, `brief · ${result.warning}`)
+          : t('краткое и задачи', 'brief and tasks');
+        return { note, text: result.text };
+      } catch (e) {
+        const msg = e instanceof BrainException || e instanceof Error ? e.message : String(e);
+        return { note: t(`краткое: ${msg}`, `brief: ${msg}`) };
       }
     },
     runDiarize: async (pcm, status, signal) => {
@@ -219,6 +294,7 @@ export function registerFileIpc(getWindow: () => BrowserWindow | null, settings:
   ipcMain.handle('file:run', () => {
     if (ffmpegBusy) return state();
     ffmpegStatus = '';
+    briefCloudOk = null;
     void runner.run().catch((e) => Log.write(`file run: ${e instanceof Error ? e.message : String(e)}`));
     return state();
   });
@@ -229,6 +305,7 @@ export function registerFileIpc(getWindow: () => BrowserWindow | null, settings:
     ffmpegAbort?.abort();
     ytdlpAbort?.abort();
     diarAbort?.abort();
+    briefAbort?.abort();
     return state();
   });
 
@@ -244,6 +321,7 @@ export function registerFileIpc(getWindow: () => BrowserWindow | null, settings:
     if (typeof o?.timestamps === 'boolean') s.FileTimestamps = o.timestamps;
     if (typeof o?.srt === 'boolean') s.FileSrt = o.srt;
     if (typeof o?.diarize === 'boolean') s.FileDiarize = o.diarize;
+    if (typeof o?.brief === 'boolean') s.MeetingBriefEnabled = o.brief;
     if (Array.isArray(o?.extra)) s.FileExtraFormats = asExtraFormats(o.extra);
     if (typeof o?.parallelism === 'string' && PARALLELISM.includes(o.parallelism)) s.FileParallelism = o.parallelism;
     Settings.save(s);
@@ -292,13 +370,92 @@ export function registerFileIpc(getWindow: () => BrowserWindow | null, settings:
     return state();
   });
 
+
+  ipcMain.handle('file:briefInstruction', (_e, text: unknown) => {
+    const s = settings.get();
+    if (typeof text === 'string') {
+      s.MeetingBriefInstruction = text;
+      Settings.save(s);
+    }
+    return state();
+  });
+
+  ipcMain.handle('file:runBrief', async (_e, path: unknown) => {
+    if (briefBusy || runner.busy) return state();
+    const s = settings.get();
+    const kind = MeetingBrief.target(s);
+    if (kind === 'None') {
+      ffmpegStatus = t('Мозг не настроен — откройте «Мозг».', 'The Brain is not set up — open Brain.');
+      return state();
+    }
+    const src =
+      typeof path === 'string' && path.length > 0
+        ? path
+        : queue.lastOutput;
+    if (!src || !existsSync(src)) {
+      ffmpegStatus = t('Нет готовой расшифровки. Сначала расшифруйте файл или встречу.', 'No finished transcript. Transcribe a file or a meeting first.');
+      return state();
+    }
+    if (kind === 'Cloud') {
+      const cloud = MeetingBrief.cloudName(s);
+      if (cloud) {
+        const w = getWindow();
+        const question = t(`Текст уйдёт в ${cloud}. Составить «Кратко и задачи»?`, `The text will be sent to ${cloud}. Build the brief and tasks?`);
+        const box = { type: 'question' as const, buttons: [t('Да', 'Yes'), t('Нет', 'No')], defaultId: 0, cancelId: 1, title: t('Кратко и задачи', 'Brief and tasks'), message: question };
+        const r = w ? await dialog.showMessageBox(w, box) : await dialog.showMessageBox(box);
+        if (r.response !== 0) {
+          ffmpegStatus = t('Краткое пропущено.', 'Brief skipped.');
+          return state();
+        }
+      }
+    }
+    briefBusy = true;
+    briefAbort = new AbortController();
+    ffmpegStatus = t('Мозг: «Кратко и задачи»…', 'Brain: brief and tasks…');
+    push();
+    try {
+      const transcript = readFileSync(src, 'utf8');
+      const result = await MeetingBrief.runBriefAsync({
+        settings: s,
+        targetKind: kind,
+        transcript,
+        instruction: s.MeetingBriefInstruction,
+        status: (line) => {
+          ffmpegStatus = line;
+          push();
+        },
+        signal: briefAbort.signal,
+      });
+      const out = MeetingBrief.outputPath(src);
+      writeFileSync(out, result.text, 'utf8');
+      lastBriefText = result.text;
+      lastBriefPath = out;
+      ffmpegStatus = result.warning
+        ? t(`Краткое готово с замечанием: ${result.warning}`, `Brief ready with a note: ${result.warning}`)
+        : t(`Краткое и задачи: ${out}`, `Brief and tasks: ${out}`);
+    } catch (e) {
+      if ((e as Error)?.name === 'AbortError') ffmpegStatus = t('Краткое отменено.', 'Brief cancelled.');
+      else {
+        const msg = e instanceof BrainException || e instanceof Error ? e.message : String(e);
+        ffmpegStatus = t(`Краткое не получилось: ${msg}`, `Brief failed: ${msg}`);
+        Log.write(`file runBrief: ${msg}`);
+      }
+    } finally {
+      briefBusy = false;
+      briefAbort = null;
+      push();
+    }
+    return state();
+  });
+
   return {
-    busy: () => runner.busy || urlImport.busy || diarBusy,
+    busy: () => runner.busy || urlImport.busy || diarBusy || briefBusy,
     /** A finished meeting recording: queue it and start (or join) the run. */
     enqueue: (path: string) => {
       queue.add([path], false);
       if (!runner.busy && !ffmpegBusy) {
         ffmpegStatus = '';
+        briefCloudOk = null;
         void runner.run().catch((e) => Log.write(`file run: ${e instanceof Error ? e.message : String(e)}`));
       }
     },
