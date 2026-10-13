@@ -1,23 +1,31 @@
 // One dictation take on the main side: start → 16 kHz chunks from the renderer → stop → local
-// recognition → dictionary → final text. Port of App.HandlePressAsync / HandleReleaseAsync /
-// RequestStop / ReloadSpeechAsync / SpeechStatusText minus the parts that are not ported yet
-// (remote host, live drafts on the pill, Brain, simple syntax, sales card, inserting into other apps).
-// No Electron imports: the clipboard and the WAV writer come in as hooks, and tests pass a fake
-// recognizer. The recognizer is opened on demand (page shown or first take) and kept until the speech
-// settings change. Nothing is downloaded from here.
+// recognition → dictionary → Brain (every take or a «Чаво, …» command) → simple syntax → final text.
+// Port of App.HandlePressAsync / HandleReleaseAsync / RunBrainAsync / RequestStop / PartialTickAsync /
+// ReloadSpeechAsync / SpeechStatusText minus the parts that are not ported yet (remote host, Brain on
+// a selection, memory check before a cold local Brain, sales card, inserting into other apps).
+// No Electron imports: the clipboard, the WAV writer, the pill and the Brain come in as hooks, and
+// tests pass a fake recognizer and a fake OpenAI-compatible fetch. The recognizer is opened on demand
+// (page shown or first take) and kept until the speech settings change. Nothing is downloaded from here.
 
 import type { CtcScript, SpeechDeviceKind, SpeechModelKind } from '../../core/speechModels';
 import { Recognizer } from '../../core/recognizer';
+import { applySimpleSyntax } from '../../core/simpleSyntax';
 import { t } from '../../core/strings';
 import {
   MIN_TAKE_SAMPLES,
   SAMPLE_RATE,
+  SILENCE_FLOOR,
   TakeBuffer,
+  hasSpeechDynamics,
   isSilentTake,
   normalizeQuietTake,
 } from '../../core/takeBuffer';
 import { applyRules } from '../../core/wordReplace';
+import { parseCommand, serverConfigured, transformAsync } from '../brain/brain';
+import * as LocalBrain from '../brain/localBrain';
+import { BrainException, type FetchLike } from '../brain/speechCleanup';
 import * as Log from '../log';
+import type { OverlaySink } from '../overlay/overlayModel';
 import { findComplete } from '../models';
 import {
   effectiveWordReplacementRules,
@@ -52,7 +60,25 @@ export interface SessionHooks {
   find?: (kind: SpeechModelKind) => string | null;
   open?: (dir: string, kind: SpeechModelKind, device: SpeechDeviceKind, threads: number, script: CtcScript) => Promise<RecognizerLike>;
   platform?: NodeJS.Platform;
+  /** The floating pill (OverlayWindow). Used only while settings.ShowOverlay is on. */
+  overlay?: OverlaySink;
+  /** App.BrainUsable: Local with the model on disk, or Server with url/model/key filled in. */
+  brainUsable?: (s: SettingsData) => boolean;
+  /** Brain.TransformAsync; defaults to the real one with `fetch`. */
+  transform?: (s: SettingsData, body: string, command: string | null, status: (line: string) => void, signal: AbortSignal) => Promise<string>;
+  /** fetch for the default transform (tests pass a fake OpenAI-compatible server). */
+  fetch?: FetchLike;
+  /** Live-draft pass interval while listening (WPF 1000 ms); 0 turns drafts off. */
+  partialMs?: number;
 }
+
+export function defaultBrainUsable(s: SettingsData): boolean {
+  if (s.Brain === 'Local') return LocalBrain.getRuntime().isReady(s);
+  if (s.Brain === 'Server') return serverConfigured(s);
+  return false;
+}
+
+const isAbort = (e: unknown) => e instanceof Error && (e.name === 'AbortError' || e.name === 'TimeoutError');
 
 export interface StartResult {
   ok: boolean;
@@ -78,9 +104,19 @@ export class DictationSession {
   private abandon = false;
   private status = '';
   private lastText = '';
+  private takeAbort: AbortController | null = null;
+  private partialTimer: NodeJS.Timeout | null = null;
+  private partialEpoch = 0;
+  private partialBusy = false;
+  private partialTask: Promise<void> | null = null;
+  private readonly brainUsable: (s: SettingsData) => boolean;
+  private readonly transform: NonNullable<SessionHooks['transform']>;
 
   constructor(hooks: SessionHooks) {
     this.h = { find: findComplete, open: openRecognizer, platform: process.platform, ...hooks };
+    this.brainUsable = hooks.brainUsable ?? defaultBrainUsable;
+    this.transform = hooks.transform
+      ?? ((s, body, command, status, signal) => transformAsync(s, body, command, status, signal, false, hooks.fetch ?? globalThis.fetch));
     this.buf.onTakeTooLong = () => {
       Log.write('take too long, stopping');
       void this.stopTake().then(() => {
@@ -92,6 +128,17 @@ export class DictationSession {
 
   private push(): void {
     this.h.push?.();
+  }
+
+  /** The pill when the user wants it (App: `_settings.ShowOverlay ? _overlay : null`). */
+  private get overlay(): OverlaySink | null {
+    return this.h.settings().ShowOverlay ? this.h.overlay ?? null : null;
+  }
+
+  /** App.Hint: short feedback on the pill when it is on; the page always shows it as the status. */
+  private hint(text: string): void {
+    this.status = text;
+    this.overlay?.showHint(text);
   }
 
   private get client(): boolean {
@@ -128,14 +175,14 @@ export class DictationSession {
   startTake(): StartResult {
     if (this.isBusy) return { ok: false };
     if (this.client) {
-      this.status = t('Этот ПК — клиент. Отправка звука на хост в эту версию ещё не перенесена: диктуйте в WPF-приложении или переключите его на хост.',
-        'This PC is a client. Sending audio to the host is not ported to this version yet: dictate in the WPF app or switch it to host.');
+      this.hint(t('Этот ПК — клиент. Отправка звука на хост в эту версию ещё не перенесена: диктуйте в WPF-приложении или переключите его на хост.',
+        'This PC is a client. Sending audio to the host is not ported to this version yet: dictate in the WPF app or switch it to host.'));
       this.push();
       return { ok: false };
     }
     const kind = toSpeechModelKind(this.h.settings().SpeechModel);
     if (this.h.find(kind) === null) {
-      this.status = flatText(noModelText());
+      this.hint(flatText(noModelText()));
       this.push();
       return { ok: false };
     }
@@ -143,6 +190,8 @@ export class DictationSession {
     this.abandon = false;
     this.status = '';
     this.buf.start();
+    this.overlay?.showListening();
+    if (this.h.settings().ShowOverlay) this.startPartials();
     this.push();
     return { ok: true };
   }
@@ -155,6 +204,8 @@ export class DictationSession {
   micFailed(name: string, message: string): void {
     Log.write(`mic failed: ${name}: ${message}`);
     this.buf.clear();
+    this.stopPartials();
+    this.overlay?.hideNow();
     this.status = micErrorText(name, message, this.h.platform);
     this.push();
   }
@@ -163,11 +214,15 @@ export class DictationSession {
   cancelTake(): void {
     if (!this.isBusy) return;
     this.abandon = true;
+    this.partialEpoch++;
+    this.stopPartials();
     this.rec?.cancelOwned();
+    this.takeAbort?.abort();
     if (this.buf.isRecording) {
       this.buf.clear();
       Log.write('take cancelled');
     }
+    this.overlay?.hideNow();
     this.status = '';
     this.push();
   }
@@ -176,18 +231,32 @@ export class DictationSession {
   async stopTake(): Promise<string | null> {
     if (!this.buf.isRecording || this.busy) return null;
     this.busy = true;
+    this.partialEpoch++;
+    this.stopPartials();
+    // A draft pass still running would hold the recognizer: stop it, the final pass matters.
+    if (this.partialBusy) this.rec?.cancelOwned();
+    const partialTask = this.partialTask;
+    const abort = new AbortController();
+    this.takeAbort = abort;
+    if (this.abandon) abort.abort();
+    const overlay = this.overlay;
     const samples = this.buf.stop();
     const peak = this.buf.takePeak;
     this.push();
     let result: string | null = null;
     try {
+      if (partialTask) await partialTask;
       if (this.abandon) {
+        overlay?.hideNow();
         Log.write('take cancelled');
         return null;
       }
+      overlay?.showRecognizing();
       const silent = isSilentTake(samples, peak);
       Log.write(`take ${(samples.length / SAMPLE_RATE).toFixed(1)}s peak ${(20 * Math.log10(Math.max(peak, 1e-9))).toFixed(0)} dBFS silent=${silent}`);
       let text = '';
+      let brainFailure: string | null = null;
+      let brainCommand = false;
       if (!silent && samples.length > MIN_TAKE_SAMPLES) {
         const s = this.h.settings();
         if (s.KeepLastRecording) {
@@ -199,8 +268,12 @@ export class DictationSession {
         }
         normalizeQuietTake(samples, peak);
         const rec = await this.ensureLoaded();
-        if (this.abandon) return null;
+        if (this.abandon) {
+          overlay?.hideNow();
+          return null;
+        }
         if (!rec) {
+          overlay?.hideNow();
           this.status = this.loadError
             ? t(`Модель не загрузилась: ${this.loadError}`, `The model did not load: ${this.loadError}`)
             : flatText(noModelText());
@@ -208,47 +281,182 @@ export class DictationSession {
         }
         text = await rec.transcribeCancelable(samples, SAMPLE_RATE, () => !this.abandon);
         if (this.abandon) {
+          overlay?.hideNow();
           Log.write('recognize cancelled');
           return null;
         }
-        // Dictionary on the finished recognition only, before the Brain sees the phrase.
+        // Dictionary on the finished recognition only, before the Brain sees the phrase. Not the live draft.
         if (text.length > 0) {
           const replaced = applyRules(text, effectiveWordReplacementRules(this.h.settings()));
-          if (replaced !== text) Log.write(`word replace: ${text.length} -> ${replaced.length} chars`);
+          if (replaced !== text) Log.write(`word replace before brain: ${text.length} -> ${replaced.length} chars`);
           text = replaced;
         }
+        // Brain on a selection waits for SelectionReader (Windows); a take is plain dictation here.
+        const now = this.h.settings();
+        if (text.length > 0 && this.brainUsable(now)) {
+          const cmd = parseCommand(text);
+          if (cmd || now.BrainEveryTake) {
+            const body = cmd?.body ?? text;
+            if (cmd) Log.write(`brain command, ${body.length} chars`);
+            brainCommand = cmd !== null;
+            const { answer, failure } = await this.runBrain(now, body, cmd?.command ?? null, overlay, abort.signal);
+            if (this.abandon) {
+              overlay?.hideNow();
+              return null;
+            }
+            brainFailure = failure;
+            text = answer ?? body; // on failure the dictation goes in as recognized, without the command
+          }
+        }
+      }
+
+      // Simple syntax is for dictation only: a Brain answer to a command goes in as is.
+      const simpleOn = this.h.settings().SimpleSyntax;
+      if (text.length > 0 && simpleOn && !brainCommand) {
+        const simple = applySimpleSyntax(text);
+        Log.write(`simple syntax: ${simple === text ? 'unchanged' : 'applied'}, ${text.length} chars`);
+        text = simple;
+      } else if (text.length > 0) {
+        Log.write(`insert as is: simple=${simpleOn} selection=false command=${brainCommand}`);
+      }
+
+      if (this.abandon) {
+        overlay?.hideNow();
+        Log.write('take cancelled before insert');
+        return null;
       }
       if (text.length > 0) {
+        overlay?.hideNow();
         this.lastText = text;
         result = text;
+        let copied = true;
         try {
           this.h.copy?.(text);
-          this.status = t('Готово. Фраза в буфере обмена: вставьте её Ctrl+V. Вставка прямо в другие программы появится позже.',
-            'Done. The phrase is on the clipboard: paste it with Ctrl+V. Inserting straight into other apps comes later.');
         } catch (e) {
+          copied = false;
           Log.write(`clipboard: ${e instanceof Error ? e.message : String(e)}`);
-          this.status = t('Готово. В буфер обмена скопировать не получилось.', 'Done. Could not copy to the clipboard.');
+        }
+        if (brainFailure !== null) {
+          this.hint(copied
+            ? t(`Мозг не справился: ${brainFailure}. В буфере обмена текст без правки.`, `The Brain failed: ${brainFailure}. The clipboard has the text as recognized.`)
+            : t(`Мозг не справился: ${brainFailure}. В буфер обмена скопировать не получилось.`, `The Brain failed: ${brainFailure}. Could not copy to the clipboard.`));
+        } else {
+          this.status = copied
+            ? t('Готово. Фраза в буфере обмена: вставьте её Ctrl+V. Вставка прямо в другие программы появится позже.',
+              'Done. The phrase is on the clipboard: paste it with Ctrl+V. Inserting straight into other apps comes later.')
+            : t('Готово. В буфер обмена скопировать не получилось.', 'Done. Could not copy to the clipboard.');
         }
       } else if (samples.length <= MIN_TAKE_SAMPLES) {
         // WPF just hides the pill on an accidental tap; the page says what happened.
+        overlay?.hideNow();
         this.status = t('Слишком коротко. Держите кнопку, пока говорите.', 'Too short. Keep holding the button while you speak.');
       } else {
         const mic = this.h.micName?.() ?? '';
-        this.status = silent
+        this.hint(silent
           ? t('Тишина на входе. Проверьте микрофон и его громкость: ' + mic, 'Silence on input. Check the microphone and its level: ' + mic)
-          : t('Не разобрал. Попробуйте ещё раз ближе к микрофону.', 'Could not make it out. Try again closer to the microphone.');
+          : t('Не разобрал. Попробуйте ещё раз ближе к микрофону.', 'Could not make it out. Try again closer to the microphone.'));
       }
     } catch (e) {
       Log.write(`take failed: ${e instanceof Error ? e.stack ?? e.message : String(e)}`);
+      overlay?.hideNow();
       this.status = t(`Не удалось распознать: ${e instanceof Error ? e.message : String(e)}`, `Recognition failed: ${e instanceof Error ? e.message : String(e)}`);
       result = null;
     } finally {
       this.busy = false;
       this.abandon = false;
+      if (this.takeAbort === abort) this.takeAbort = null;
       this.disposeRetired();
       this.push();
     }
     return result;
+  }
+
+  /**
+   * App.RunBrainAsync: the Brain on a text with the pill showing progress. Returns the answer, or null and
+   * a human reason. An empty answer counts as a failure: the dictation must never silently vanish.
+   * Cancelled by the user: null and null.
+   */
+  private async runBrain(
+    s: SettingsData,
+    body: string,
+    command: string | null,
+    overlay: OverlaySink | null,
+    signal: AbortSignal,
+  ): Promise<{ answer: string | null; failure: string | null }> {
+    try {
+      const answer = await this.transform(s, body, command, (line) => {
+        overlay?.showStatus(line);
+        this.status = line;
+        this.push();
+      }, signal);
+      return answer.trim().length > 0
+        ? { answer, failure: null }
+        : { answer: null, failure: t('нейросеть вернула пустой ответ', 'the model returned an empty answer') };
+    } catch (e) {
+      if (this.abandon && (isAbort(e) || signal.aborted)) return { answer: null, failure: null };
+      Log.write(`brain failed: ${e instanceof Error ? `${e.name}: ${e.message}` : String(e)}`);
+      return {
+        answer: null,
+        failure: e instanceof BrainException ? e.message
+          : s.Brain === 'Server' ? t('сервер не ответил', 'the server did not answer')
+          : t('нейронка не ответила', 'the Brain did not answer'),
+      };
+    } finally {
+      this.status = '';
+    }
+  }
+
+  // ── live drafts on the pill (StartPartials / PartialTickAsync) ──
+
+  private startPartials(): void {
+    this.stopPartials();
+    const ms = this.h.partialMs ?? 1000;
+    if (ms <= 0) return;
+    this.partialTimer = setInterval(() => void this.partialTick(), ms);
+    this.partialTimer.unref?.();
+  }
+
+  private stopPartials(): void {
+    if (!this.partialTimer) return;
+    clearInterval(this.partialTimer);
+    this.partialTimer = null;
+  }
+
+  /**
+   * One pass over the audio recorded so far. Skipped when the previous pass is still running, so the
+   * final pass is not queued behind a pile of drafts. The result is only shown, never copied.
+   */
+  async partialTick(): Promise<void> {
+    if (!this.buf.isRecording) return;
+    if (!this.h.settings().ShowOverlay) return; // Sales (needs drafts without the pill) is not ported
+    const rec = this.rec;
+    if (!rec || this.partialBusy) return;
+    this.partialBusy = true;
+    const epoch = this.partialEpoch;
+    const wanted = () => epoch === this.partialEpoch && !this.abandon;
+    const run = (async (): Promise<string> => {
+      const samples = this.buf.snapshot();
+      if (samples.length < (SAMPLE_RATE * 6) / 10) return '';
+      if (!hasSpeechDynamics(samples)) return '';
+      let peak = 0;
+      for (let i = 0; i < samples.length; i++) peak = Math.max(peak, Math.abs(samples[i]));
+      if (peak < SILENCE_FLOOR) return '';
+      normalizeQuietTake(samples, peak);
+      if (!wanted()) return '';
+      return rec.transcribeCancelable(samples, SAMPLE_RATE, wanted);
+    })();
+    const task = run.then(() => undefined, () => undefined);
+    this.partialTask = task;
+    try {
+      const text = await run;
+      if (wanted() && this.buf.isRecording && text.length > 0) this.overlay?.showPartial(text);
+      if (text.length > 0) Log.write(`partial ${text.length} chars`);
+    } catch (e) {
+      if (!isAbort(e)) Log.write(`partial: ${e instanceof Error ? `${e.name}: ${e.message}` : String(e)}`);
+    } finally {
+      if (this.partialTask === task) this.partialTask = null;
+      this.partialBusy = false;
+    }
   }
 
   private key(s: SettingsData, dir: string): string {

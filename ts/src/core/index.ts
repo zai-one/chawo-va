@@ -14,3 +14,4 @@ export * from './fileJob';
 export * from './oggOpus';
 export * from './strings';
 export * from './takeBuffer';
+export * from './simpleSyntax';

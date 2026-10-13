@@ -13,6 +13,7 @@ import type { SettingsData } from './settings';
 import { lastTakePath } from './paths';
 import { DictationController, type MicDevice } from './dictation/dictationPage';
 import { DictationSession } from './dictation/dictationSession';
+import type { OverlayWindow } from './overlay/overlayWindow';
 
 /** One chunk is ~640 samples; anything far bigger is not from our worklet. */
 const MAX_CHUNK = 16000;
@@ -26,7 +27,7 @@ export interface DictationIpc {
 export function registerDictationIpc(
   getWindow: () => BrowserWindow | null,
   settings: { get: () => SettingsData },
-  opts: { changed?: () => void } = {},
+  opts: { changed?: () => void; overlay?: OverlayWindow } = {},
 ): DictationIpc {
   const send = (channel: string, payload: unknown) => {
     const w = getWindow();
@@ -46,7 +47,14 @@ export function registerDictationIpc(
   let levelTimer: NodeJS.Timeout | null = null;
   const syncLevelTimer = () => {
     const listening = session.phase === 'Listening';
-    if (listening && !levelTimer) levelTimer = setInterval(() => send('dictation:level', session.level()), LEVEL_MS);
+    if (listening && !levelTimer) {
+      levelTimer = setInterval(() => {
+        // Recorder.Level is "since the last read": read once, share with the page meter and the pill.
+        const v = session.level();
+        send('dictation:level', v);
+        opts.overlay?.level(v);
+      }, LEVEL_MS);
+    }
     else if (!listening && levelTimer) {
       clearInterval(levelTimer);
       levelTimer = null;
@@ -63,6 +71,7 @@ export function registerDictationIpc(
       writeFileSync(path, wavBytes(samples, rate));
     },
     micName: () => ctl.micName(),
+    overlay: opts.overlay,
   });
   const ctl: DictationController = new DictationController({
     settings: settings.get,
@@ -94,6 +103,7 @@ export function registerDictationIpc(
   });
   ipcMain.handle('dictation:overlay', (_e, v: unknown) => {
     if (typeof v === 'boolean') ctl.setShowOverlay(v);
+    if (!settings.get().ShowOverlay) opts.overlay?.hideNow();
     return state();
   });
   ipcMain.handle('dictation:mic', (_e, v: unknown) => {

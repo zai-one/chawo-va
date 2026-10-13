@@ -6,6 +6,7 @@ import * as LocalBrain from './localBrain';
 import {
   BrainException,
   cleanAsync,
+  type FetchLike,
   effectiveCleanupPrompt,
   tryGetCompletionsUrl,
 } from './speechCleanup';
@@ -140,7 +141,7 @@ export function checkLength(answer: string, body: string): void {
 
 /**
  * Runs the text through the chosen Brain. command == null means "edit every take" mode.
- * Throws BrainException on failure.
+ * Throws BrainException on failure. fetchImpl is for tests (fake OpenAI-compatible server).
  */
 export async function transformAsync(
   s: SettingsData,
@@ -149,6 +150,7 @@ export async function transformAsync(
   status: (line: string) => void,
   signal: AbortSignal,
   selection = false,
+  fetchImpl: FetchLike = globalThis.fetch,
 ): Promise<string> {
   let prompt: string;
   const instruction = s.BrainInstruction.trim();
@@ -177,7 +179,7 @@ export async function transformAsync(
       chat_template_kwargs: { enable_thinking: false },
     };
     const local = stripThink(
-      await cleanAsync(body, runtime.endpointUrl, runtime.apiKey, 'local', prompt, signal, extra, 120_000),
+      await cleanAsync(body, runtime.endpointUrl, runtime.apiKey, 'local', prompt, signal, extra, 120_000, fetchImpl),
     );
     if (local.length === 0) throw new BrainException(t('нейросеть вернула пустой ответ', 'the model returned an empty answer'));
     checkLength(local, body);
@@ -188,7 +190,7 @@ export async function transformAsync(
   }
 
   status(action);
-  const answer = await cleanAsync(body, s.CleanupEndpointUrl, s.CleanupApiKey, s.CleanupModel, prompt, signal);
+  const answer = await cleanAsync(body, s.CleanupEndpointUrl, s.CleanupApiKey, s.CleanupModel, prompt, signal, null, undefined, fetchImpl);
   checkLength(answer, body);
   if (command == null && looksLikeRefusal(answer, body)) {
     throw new BrainException(t('нейросеть ответила не по делу', 'the model answered off the point'));

@@ -12,6 +12,7 @@ Re-align folder names and tooling with taptain-desktop once its layout is readab
 |---|---|---|
 | Core/TranscriptFormat.cs | src/core/transcriptFormat.ts | ✅ ported + tests |
 | App/WordReplace.cs | src/core/wordReplace.ts | ✅ ported + tests |
+| App/SimpleSyntax.cs | src/core/simpleSyntax.ts (`applySimpleSyntax`) | ✅ ported + tests |
 | Core/SpeechModels.cs | src/core/speechModels.ts | ✅ ported |
 | Core/CtcScriptDecoder.cs | src/core/ctcScriptDecoder.ts | ✅ ported + tests |
 | Core/Tokenizer.cs | src/core/tokenizer.ts | ✅ ported + tests (synthetic protobuf) |
@@ -35,11 +36,12 @@ Re-align folder names and tooling with taptain-desktop once its layout is readab
 | App/SalesRag.cs | src/main/sales/salesRag.ts | 🟡 SuggestDictionary + helpers ported + tests; FindSnippet waits for the sales card |
 | App/Sales*.cs (catalog, card, rest) | src/main/sales/ | ⏳ |
 | App/Updater.cs, Autostart.cs, KeepAwake.cs | src/main/system/ | ⏳ |
-| SettingsWindow, OverlayWindow, SalesCardWindow, Download/Update windows, BrainServerPanel | src/renderer/ pages | 🟡 «Диктовка», «Расшифровка файла», «Распознавание», «Словарь» and «Мозг» pages work (DownloadWindow folded into the page as a progress card); «Продажи» and «Сеть» are placeholders; OverlayWindow ⏳ |
+| SettingsWindow, SalesCardWindow, Download/Update windows, BrainServerPanel | src/renderer/ pages | 🟡 «Диктовка», «Расшифровка файла», «Распознавание», «Словарь» and «Мозг» pages work (DownloadWindow folded into the page as a progress card); «Продажи» and «Сеть» are placeholders |
+| App/OverlayWindow.xaml(.cs) | src/main/overlay/overlayModel.ts (state, Tail, hint/caption timers, placement), overlayWindow.ts (frameless transparent always-on-top, never focused, drag → OverlayX/Y), overlayPreload.ts, src/renderer/overlay.html/.css/.ts (13 bars, ripple, live line) | ✅ listening / recognizing / status / hint / live draft + tests; caret placement (Win32) and Unpin button ⏳ |
 | SettingsWindow speech page, App.SpeechStatusText / DownloadSpeechAsync / DeleteSpeechModelAsync | src/main/speech/speechPage.ts (SpeechController), src/main/speechIpc.ts | ✅ ported + tests (live session line comes from DictationSession; GPU warmup ⏳) |
 | SettingsWindow dictionary page (FillDictionaryRows / PersistDictionary / SuggestDictionary_Click / AddSuggestion_Click) | src/main/dictionary/dictionaryPage.ts (DictionaryController), src/main/dictionaryIpc.ts | ✅ ported + tests |
 | SettingsWindow dictation page (Localize dictation block, FillStartCard, Mode/Hotkey/Insert/Overlay/Mic handlers, SetPhase), App.SetPhase | src/main/dictation/dictationPage.ts (DictationController), src/main/dictationIpc.ts | ✅ ported + tests (language box, copy-to-clipboard options, autostart, updates, unpin not on this page yet) |
-| App.HandlePressAsync / HandleReleaseAsync / RequestStop / ReloadSpeechAsync / SpeechStatusText (local path) | src/main/dictation/dictationSession.ts (DictationSession) | ✅ local take + dictionary + clipboard; drafts, Brain, simple syntax, sales card, remote host ⏳ |
+| App.HandlePressAsync / HandleReleaseAsync / RunBrainAsync / RequestStop / StartPartials / PartialTickAsync / ReloadSpeechAsync / SpeechStatusText (local path) | src/main/dictation/dictationSession.ts (DictationSession) | ✅ local take → dictionary → Brain (every take / «Чаво, …») → simple syntax → clipboard, live drafts on the pill, cancel aborts the Brain + tests; Brain on a selection, ConfirmBrainMemory, sales card, remote host ⏳ |
 | SettingsWindow brain page (Localize brain part / UpdateBrainTexts / FillBrainModelRows), BrainServerPanel, App.SelectBrainAsync | src/main/brain/brainPage.ts (BrainController), src/main/brainIpc.ts | ✅ ported + tests; local download/engine start 🟡 |
 | App.RunFileQueueAsync / RunQueue / RunOneFile / TranscribeLocal | src/main/file/fileRunner.ts, localTranscriber.ts, src/main/fileIpc.ts | ✅ local path + Brain hook (cloud FileBrain; local process 🟡) |
 | App/Strings.cs | src/core/strings.ts (ru/en `t()`) | ✅ ported |
@@ -236,3 +238,36 @@ Re-align folder names and tooling with taptain-desktop once its layout is readab
   above), TextInserter / SelectionReader, OverlayWindow with live drafts, Brain / simple syntax /
   sales card on a take, remote host, GPU warmup. Next: the native hold-to-talk helper (Windows) with
   TextInserter + SelectionReader and the OverlayWindow, or LocalBrain download + llama-server start.
+
+- 2026-10-13 tick 12: a dictation take now follows the WPF path end to end: recognize → dictionary →
+  Brain → simple syntax → page + clipboard, with the floating pill. `src/core/simpleSyntax.ts` ports
+  SimpleSyntax.Apply (single sentence: drop the closing period, lowercase a leading capital unless the
+  first word is all caps; inner sentence end, newline or empty → untouched). `DictationSession` runs
+  App.RunBrainAsync when App.BrainUsable (Local: model on disk via the LocalBrain runtime; Server:
+  url + model + key unless custom) and the take has a «Чаво, …» command (parseCommand) or
+  BrainEveryTake is on; reuses `brain.transformAsync` (now takes an injectable fetch) so prompts,
+  refusal/length checks and the action labels («Причёсываю…», «Перевожу…») are the ported ones. The
+  action label is the page status and a status on the pill while the Brain works. Failure: the
+  dictation goes in as recognized without the command and the reason is shown («Мозг не справился:
+  … В буфере обмена текст без правки.», clipboard instead of WPF's insert wording); an empty answer is
+  a failure; network error / timeout / 401 texts come from SpeechCleanup. Stop/Escape during the
+  Brain aborts the request (AbortController per take) and drops the take silently. Simple syntax
+  skips Brain command answers like WPF. Local Brain with a model on disk fails gracefully with
+  «локальный сервер мозга ещё не запускается в этой сборке» until the llama-server start is ported;
+  ConfirmBrainMemory is skipped for the same reason. Brain on a selection waits for SelectionReader.
+  OverlayWindow: `OverlayModel` (pure, tests) + `OverlayWindow` (Electron): frameless transparent
+  always-on-top, focusable:false + showInactive so it never steals focus, skipTaskbar, dark pill
+  #F2171717 / #42FEE9CE border, 13 gradient bars driven by the same level read as the page meter,
+  ripple while recognizing, live draft (last 280 chars) under the bars, hints hide after 2.2 s,
+  statuses stay; size reported by the renderer; bottom centre of the screen under the mouse (the
+  Win32 caret lookup is not portable), dragged position saved to OverlayX/Y like WPF. Honors
+  ShowOverlay (unchecking hides it). Live drafts: a pass over the audio so far every 1 s while the
+  pill is on (≥ 0.6 s, speech dynamics, silence floor, gain), skipped while one runs, cancelled and
+  awaited before the final pass. End-to-end on the box under xvfb (`scripts/smoke-brain-take.cjs`:
+  fake OpenAI-compatible server on 127.0.0.1, fake mic from a Russian WAV, real mouse hold): pill
+  shows bars + «Русский язык. Русский язык — это один из восточных» while holding, «Причёсываю…»
+  during the Brain, page status «Причёсываю…», server got the recognized phrase, clipboard has the
+  Brain answer, pill hidden after. 218 tests green (186 before).
+  Next: LocalBrain download + llama-server start (so «На этом компьютере» works on takes and files),
+  then the Windows native helper (hold key, TextInserter, SelectionReader → Brain on a selection,
+  caret placement for the pill); remote host / Hermes; «Продажи» card.

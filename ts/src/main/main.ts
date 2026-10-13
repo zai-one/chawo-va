@@ -8,6 +8,7 @@ import { registerSpeechIpc } from './speechIpc';
 import { registerDictionaryIpc } from './dictionaryIpc';
 import { registerBrainIpc } from './brainIpc';
 import { registerDictationIpc } from './dictationIpc';
+import { OverlayWindow } from './overlay/overlayWindow';
 import { chromiumDecode, disposeChromiumDecoder } from './chromiumDecoder';
 import { setPlatformDecoder } from './file';
 import * as Settings from './settings';
@@ -20,6 +21,7 @@ let win: BrowserWindow | null = null;
 let tray: Tray | null = null;
 let settings: Settings.SettingsData = Settings.defaults();
 let releaseDictation: (() => Promise<void>) | null = null;
+let destroyOverlay: (() => void) | null = null;
 
 function iconPath(set: 'app' | 'tray-dark' | 'tray-light', size: number): string {
   return join(__dirname, '..', 'assets', 'iconset', set, `icon_${size}.png`);
@@ -103,7 +105,10 @@ if (!app.requestSingleInstanceLock()) {
     // MP3/M4A/FLAC/… decode in a hidden sandboxed renderer; ffmpeg stays an optional fallback.
     setPlatformDecoder(chromiumDecode);
     const files = registerFileIpc(() => win, { get: () => settings });
-    const dictation = registerDictationIpc(() => win, { get: () => settings });
+    // The floating pill: created lazily on the first take with «Показывать плашку» on.
+    const overlay = new OverlayWindow({ get: () => settings, save: Settings.save });
+    destroyOverlay = () => overlay.destroy();
+    const dictation = registerDictationIpc(() => win, { get: () => settings }, { overlay });
     releaseDictation = () => dictation.session.release();
     registerSpeechIpc(() => win, { get: () => settings }, {
       busy: () => files.busy() || dictation.session.isBusy,
@@ -123,6 +128,7 @@ if (!app.requestSingleInstanceLock()) {
     quitting = true;
     disposeChromiumDecoder();
     void releaseDictation?.();
+    destroyOverlay?.();
     tray?.destroy();
   });
 }
