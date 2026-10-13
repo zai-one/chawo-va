@@ -226,7 +226,10 @@ interface DictationApi {
   micFailed(name: string, message: string): Promise<DictationState>;
   onState(fn: (s: DictationState) => void): () => void;
   onLevel(fn: (v: number) => void): () => void;
+  onHot(fn: (ev: HotEvent) => void): () => void;
 }
+/** The global hold key: the main side already started the take; this side only runs the mic. */
+type HotEvent = { kind: 'start'; micId: string } | { kind: 'stop' } | { kind: 'end' };
 interface NetworkState {
   ru: boolean;
   heading: string;
@@ -739,6 +742,44 @@ async function holdUp(): Promise<void> {
   void refreshMicDevices();
 }
 
+// ── the global hold key (Windows helper) ──
+// The key is seen by the main process; the take is already started there. The mic lives here, so the
+// main side asks us to open it, to stop it (then recognize), or to drop it (Escape). Window focus does
+// not matter: the window may be hidden in the tray.
+let hotJob: Promise<MicCapture | null> | null = null;
+
+async function hotOpen(micId: string): Promise<MicCapture | null> {
+  const cap = new MicCapture();
+  try {
+    await cap.start(micId, (c) => bridge.dictation.appendPcm(c));
+  } catch (e) {
+    await cap.stop().catch(() => undefined);
+    const err = e as DOMException;
+    applyDictation(await bridge.dictation.micFailed(err?.name ?? 'Error', err?.message ?? String(e)));
+    return null;
+  }
+  activeCapture = cap;
+  return cap;
+}
+
+async function hotClose(recognize: boolean): Promise<void> {
+  const job = hotJob;
+  hotJob = null;
+  const cap = job ? await job : null;
+  if (cap && activeCapture === cap) {
+    activeCapture = null;
+    await cap.stop();
+  } else if (cap) await cap.stop().catch(() => undefined);
+  if (recognize && cap) applyDictation(await bridge.dictation.stopTake());
+}
+
+bridge.dictation.onHot((ev) => {
+  if (ev.kind === 'start') {
+    if (hotJob) return;
+    hotJob = hotOpen(ev.micId);
+  } else void hotClose(ev.kind === 'stop');
+});
+
 function cancelTake(): void {
   holdPressed = false;
   void bridge.dictation.cancelTake().then(applyDictation);
@@ -839,7 +880,8 @@ function renderDictation(): void {
       (v) => void bridge.dictation.setHotkey(Number(v)).then(applyDictation)));
   form.append(el('span', { textContent: L('Как вставлять текст', 'How to insert text') }),
     selectOf(s.insertChoices, s.insertMode, (v) => void bridge.dictation.setInsertMode(v).then(applyDictation)));
-  page.append(form, el('p', { className: 'muted hint', textContent: s.keyNote }));
+  page.append(form);
+  if (s.keyNote) page.append(el('p', { className: 'muted hint', textContent: s.keyNote }));
 
   page.append(el('label', { className: 'block', textContent: L('Микрофон', 'Microphone') }));
   const mic = selectOf(s.micChoices, s.micId, (v) => void bridge.dictation.setMic(v).then(applyDictation));

@@ -404,3 +404,41 @@ Re-align folder names and tooling with taptain-desktop once its layout is readab
   номеру не найден · скрипт стадии: нет данных», a take then adds the hit under it; × hides; back to
   Dictation mode hides the card. Gaps: the card sits on the primary display only (like WPF); no
   real CRM or telephony (boundary only, as in WPF). Next: approved batch 2 / top-8 ideas.
+
+- 2026-10-13 tick 15 (branch `ts/feat-win-native`): the Windows native helper — global hold key +
+  inserting the phrase into the focused app. Electron has no low-level keyboard hook and no key-up for
+  global shortcuts, so `native/win/ChawoNative.exe` (C#, .NET Framework 4.8 — built into Windows
+  10/11, 21 KB, no runtime to install, builds on Linux with the .NET SDK via `npm run build:native`;
+  the exe is not committed) ports KeyboardHook (hook thread with its own message loop, injected keys
+  ignored, Right/Left Ctrl split by LLKHF_EXTENDED, Left Ctrl + Win = 0x10000 with the real
+  GetAsyncKeyState check, Escape swallowed only while armed) and TextInserter (Paste: snapshot of
+  every HGLOBAL clipboard format → phrase with the three no-history/no-cloud formats → Ctrl+V →
+  800 ms → previous clipboard back if nobody copied meanwhile; Type: KEYEVENTF_UNICODE in batches of
+  8 with 8 ms pauses, \n → Enter; SendInput refused → Blocked; CopySelection = Ctrl+C + read +
+  restore; foreground process name for per-app modes later). One worker thread owns a message-only
+  window as clipboard owner and pumps messages while waiting (other apps SendMessage the owner), and
+  serialises clipboard work like the WPF ClipboardGate. Difference from WPF: no WinRT clipboard-history
+  API in .NET Framework, so «keep the phrase in Win+V» with restore waits 1.2 s when history is on
+  (registry) and leaves the phrase current when it is off. Protocol: stdin/stdout lines, text in
+  base64 (`src/main/native/helperProtocol.ts`); the helper exits on stdin EOF. `nativeHelper.ts`:
+  spawn, ready timeout, request ids + timeouts, hotkey/arm re-sent after a restart, crash while the
+  key is held → treated as release, ≤3 restarts a minute then «failed». Wiring: `dictationIpc`
+  hotDown → `session.startTake('hotkey')` → the window opens the mic (`dictation:hot` start), hotUp →
+  the window stops the mic and calls stop (3 s fallback: recognize what arrived), Escape → cancel +
+  drop the mic; Escape is armed while the take listens/recognizes; a hotkey change goes to the
+  helper. `DictationSession`: hotkey takes go through the inserter (InsertMode, CopyPhraseToClipboard,
+  RestoreClipboardAfterCopy) with the WPF hints (admin window, Brain failure «Вставлен текст без
+  правки»), helper gone → clipboard + hint, Type+Blocked also copies (so «текст лежит в буфере» is
+  true); the in-window button still copies. Page: WPF intro/step 2 when the key works, one note line
+  when it is starting/failed/missing/not Windows; the main window keeps `backgroundThrottling: false`
+  so a take from the tray records. Tests: helperProtocol (3), nativeHelper against a fake helper
+  script (13), dictationHotkey with a mocked ipcMain (7), session hotkey takes (8), page states (2);
+  342 green (309 before). Real run: `scripts/smoke-native-wine.cjs` — the real ChawoNative.exe under
+  Wine 10 + wine-mono on Xvfb through the same NativeHelper client: ready in ~0.3 s with the hook
+  installed, Type of «Привет, мир 👋\nвторая строка» into a focused WinForms text box, Paste appended
+  with the previous clipboard («OLD clipboard») back afterwards, foreground = InsertTarget,
+  copySelection read the select-all text and restored the clipboard, keep-phrase mode left the phrase
+  current with history off — all PASS. UI shot of «Диктовка» renders. Gaps: the hold key press itself
+  is not exercised for real (the hook ignores injected keys; needs a Windows keyboard), clipboard
+  history wait is the registry approximation, SelectionReader (UI Automation first) + Brain on a
+  selection, caret-placed pill and the llama-server job object are the next native pieces.

@@ -84,6 +84,12 @@ const api = {
       ipcRenderer.on('dictation:level', h);
       return () => ipcRenderer.removeListener('dictation:level', h);
     },
+    /** Global hold key (Windows helper): open the mic, stop and recognize, or drop the capture. */
+    onHot: (fn: (ev: unknown) => void) => {
+      const h = (_e: unknown, ev: unknown) => fn(ev);
+      ipcRenderer.on('dictation:hot', h);
+      return () => ipcRenderer.removeListener('dictation:hot', h);
+    },
   },
   brain: {
     state: (rebind = false) => ipcRenderer.invoke('brain:state', rebind),

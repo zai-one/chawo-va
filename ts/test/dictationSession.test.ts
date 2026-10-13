@@ -460,3 +460,98 @@ describe('DictationSession in «Продажи» mode', () => {
     expect(sales).toEqual(['TP-1', 'TP-2']);
   });
 });
+
+describe('DictationSession: global hold key takes go into the focused app', () => {
+  class FakeInserter {
+    calls: { text: string; mode: string; keep: boolean; restore: boolean }[] = [];
+    reply: 'Done' | 'Blocked' | Error = 'Done';
+    async insert(text: string, mode: 'Type' | 'Paste', clip: { keep: boolean; restore: boolean }) {
+      this.calls.push({ text, mode, ...clip });
+      if (this.reply instanceof Error) throw this.reply;
+      return this.reply;
+    }
+  }
+
+  async function take(sess: DictationSession, source: 'window' | 'hotkey') {
+    expect(sess.startTake(source).ok).toBe(true);
+    feed(sess, speech(1));
+    return sess.stopTake();
+  }
+
+  it('a hotkey take is inserted with the insert mode and phrase-clipboard settings, not copied', async () => {
+    const ins = new FakeInserter();
+    const { sess, copied } = make({ inserter: () => ins }, (x) => { x.InsertMode = 'Type'; x.CopyPhraseToClipboard = true; x.RestoreClipboardAfterCopy = false; });
+    expect(await take(sess, 'hotkey')).toBe('привет мир');
+    expect(ins.calls).toEqual([{ text: 'привет мир', mode: 'Type', keep: true, restore: false }]);
+    expect(copied).toEqual([]);
+    expect(sess.view().status).toBe('Готово. Фраза вставлена.');
+    expect(sess.view().lastText).toBe('привет мир');
+  });
+
+  it('the in-window button still copies even when the helper is there', async () => {
+    const ins = new FakeInserter();
+    const { sess, copied } = make({ inserter: () => ins });
+    await take(sess, 'window');
+    expect(ins.calls).toEqual([]);
+    expect(copied).toEqual(['привет мир']);
+  });
+
+  it('no helper running: a hotkey take falls back to the clipboard', async () => {
+    const { sess, copied } = make({ inserter: () => null });
+    await take(sess, 'hotkey');
+    expect(copied).toEqual(['привет мир']);
+    expect(sess.view().status).toMatch(/^Готово\. Фраза в буфере обмена/);
+  });
+
+  it('an elevated target: the WPF admin hint; Type mode also puts the phrase on the clipboard', async () => {
+    const ins = new FakeInserter();
+    ins.reply = 'Blocked';
+    const { s, sess, copied } = make({ inserter: () => ins });
+    await take(sess, 'hotkey'); // Paste: the helper already left the phrase on the clipboard
+    expect(sess.view().status).toBe('Это окно запущено от администратора, вставить туда нельзя. Текст лежит в буфере обмена.');
+    expect(copied).toEqual([]);
+    s.InsertMode = 'Type';
+    await take(sess, 'hotkey');
+    expect(copied).toEqual(['привет мир']);
+  });
+
+  it('the helper died mid-insert: the phrase goes to the clipboard with a hint', async () => {
+    const ins = new FakeInserter();
+    ins.reply = new Error('native helper exited');
+    const { sess, copied } = make({ inserter: () => ins });
+    await take(sess, 'hotkey');
+    expect(copied).toEqual(['привет мир']);
+    expect(sess.view().status).toBe('Вставить не получилось. Фраза в буфере обмена: вставьте её Ctrl+V.');
+  });
+
+  it('a Brain failure on a hotkey take: inserted as recognized with the WPF hint', async () => {
+    const ins = new FakeInserter();
+    const { sess } = make({
+      inserter: () => ins,
+      brainUsable: () => true,
+      transform: async () => { throw new Error('boom'); },
+    }, (x) => { x.Brain = 'Server'; x.BrainEveryTake = true; });
+    await take(sess, 'hotkey');
+    expect(ins.calls[0].text).toBe('привет мир');
+    expect(sess.view().status).toBe('Мозг не справился: сервер не ответил. Вставлен текст без правки.');
+  });
+
+  it('Escape during a hotkey take: nothing is inserted', async () => {
+    const ins = new FakeInserter();
+    const { sess, copied } = make({ inserter: () => ins });
+    sess.startTake('hotkey');
+    feed(sess, speech(1));
+    sess.cancelTake();
+    expect(await sess.stopTake()).toBeNull();
+    expect(ins.calls).toEqual([]);
+    expect(copied).toEqual([]);
+  });
+
+  it('a tap of the key: "keep holding the key"', async () => {
+    const { sess } = make({ inserter: () => new FakeInserter() });
+    sess.startTake('hotkey');
+    feed(sess, speech(0.1));
+    await sess.stopTake();
+    expect(sess.view().status).toBe('Слишком коротко. Держите клавишу, пока говорите.');
+  });
+});

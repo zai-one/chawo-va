@@ -14,7 +14,8 @@
     "build": "tsc -p tsconfig.json && node scripts/copy-static.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
-    "start": "npm run build && electron ."
+    "start": "npm run build && electron .",
+    "build:native": "dotnet build native/win/ChawoNative.csproj -c Release -o native/win/bin/out"
   },
   "devDependencies": {
     "@types/node": "^20.17.0",
