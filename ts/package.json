@@ -7,6 +7,9 @@
   "private": true,
   "type": "commonjs",
   "main": "dist/main/main.js",
+  "bin": {
+    "chawo-va": "dist/cli.js"
+  },
   "engines": {
     "node": ">=20"
   },
@@ -14,7 +17,9 @@
     "build": "tsc -p tsconfig.json && node scripts/copy-static.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
-    "start": "npm run build && electron ."
+    "start": "npm run build && electron .",
+    "cli": "node dist/cli.js",
+    "build:native": "dotnet build native/win/ChawoNative.csproj -c Release -o native/win/bin/out"
   },
   "devDependencies": {
     "@types/node": "^20.17.0",
@@ -24,6 +29,7 @@
   },
   "dependencies": {
     "onnxruntime-node": "^1.30.0",
-    "opus-decoder": "^0.7.12"
+    "opus-decoder": "^0.7.12",
+    "sherpa-onnx-node": "^1.13.8"
   }
 }

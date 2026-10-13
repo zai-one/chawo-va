@@ -78,3 +78,28 @@ select.wide { min-width: 360px; max-width: 100%; }
 .status.line { word-break: normal; }
 #file-url { flex: 1 1 auto; width: auto; }
 #file-url + button { flex: none; }
+.meeting .rec { margin: 0; font-variant-numeric: tabular-nums; }
+.meeting .rec .dot { color: var(--accent); }
+.meeting .lv { font-family: ui-monospace, monospace; letter-spacing: -1px; color: var(--accent); }
+.app-rule .card-head input { flex: 1; min-width: 0; }
+.app-rule .row { margin: 8px 0 0; }
+.app-rule textarea { margin-top: 8px; width: 100%; }
+.app-rule.hit { border-color: var(--accent); }
+.app-rule.inactive { opacity: 0.8; }
+.hist-search { flex: 1; min-width: 200px; max-width: 360px; }
+.hist { display: flex; flex-direction: column; gap: 8px; margin: 4px 0 8px; }
+.hist .empty { padding: 32px 16px; text-align: center; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); }
+.hist-item { border: 1px solid var(--line); border-radius: 8px; background: var(--panel); padding: 8px 12px 4px; }
+.hist-head { display: flex; gap: 10px; font-size: 12px; align-items: center; }
+.hist-tag { border: 1px solid var(--line); border-radius: 4px; padding: 0 6px; }
+.hist-tag.failed { border-color: #ff8a7a; color: #ff8a7a; }
+.hist-text { white-space: pre-wrap; overflow-wrap: anywhere; margin: 4px 0 2px; user-select: text; }
+.hist-raw { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; user-select: text; }
+.hist-acts { margin: 4px 0 0; gap: 4px; }
+.formats { display: inline-flex; gap: 14px; flex-wrap: wrap; }
+/* «Продажи»: catalog rows (code, name, line, similar code, delete), the folder row and the call stand-in. */
+.dict.sales .dict-row { grid-template-columns: 110px minmax(0, 1fr) minmax(0, 1fr) 110px 90px; }
+.folder-row { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 8px; align-items: center; }
+.call-row { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+label.stack { display: flex; flex-direction: column; gap: 3px; font-size: 12px; }
+.hint.warn { color: var(--accent); }

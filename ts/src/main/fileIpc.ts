@@ -4,17 +4,21 @@
 import { BrowserWindow, Notification, app, dialog, ipcMain, shell } from 'electron';
 import { dirname, join } from 'node:path';
 import { FileQueue, FileRunner, Ffmpeg, UrlImport, YtDlp, OPEN_FILTERS, load16k, localPrepare, remoteFatal, remotePrepare } from './file';
+import { getDiarizeRuntime } from './diarize';
 import * as FileBrain from './brain/fileBrain';
 import { BrainException } from './brain/speechCleanup';
 import * as Settings from './settings';
-import type { SettingsData, SettingsFileParallelism } from './settings';
+import { asExtraFormats, type FileExtraFormat, type SettingsData, type SettingsFileParallelism } from './settings';
 import { isRussian, t } from '../core/strings';
 import * as Log from './log';
 
 export interface FileOptionsDto {
   timestamps: boolean;
   srt: boolean;
+  /** vtt / json / md / docx */
+  extra: FileExtraFormat[];
   parallelism: SettingsFileParallelism;
+  diarize: boolean;
 }
 
 export interface FileStateDto {
@@ -25,6 +29,7 @@ export interface FileStateDto {
   ffmpeg: { line: string; canDownload: boolean; installed: boolean };
   /** «По ссылке»: yt-dlp state, where the audio is saved, whether a link is downloading. */
   url: { line: string; canDownload: boolean; installed: boolean; managed: boolean; busy: boolean; folder: string };
+  diarization: { onDisk: boolean; ready: boolean; downloading: boolean; line: string; canDownload: boolean };
   lastOutput: string | null;
   /** UI language picked in main (Auto follows the OS locale), so the page matches status lines. */
   ru: boolean;
@@ -32,18 +37,24 @@ export interface FileStateDto {
 
 const PARALLELISM: readonly SettingsFileParallelism[] = ['Auto', 'Gentle1', 'Two', 'Four', 'Max'];
 
-export function registerFileIpc(getWindow: () => BrowserWindow | null, settings: { get: () => SettingsData }): { busy: () => boolean } {
+export function registerFileIpc(getWindow: () => BrowserWindow | null, settings: { get: () => SettingsData }): { busy: () => boolean; enqueue: (path: string) => void } {
   const queue = new FileQueue();
   let ffmpegBusy = false;
   let ffmpegStatus = '';
+  let diarBusy = false;
+  let diarStatus = '';
+  let ffmpegAbort: AbortController | null = null;
+  let diarAbort: AbortController | null = null;
 
   const state = (): FileStateDto => {
     const s = settings.get();
+    const diar = getDiarizeRuntime();
+    const ruLang = isRussian();
     return {
       items: queue.snapshot(),
-      status: ffmpegStatus || runner.status,
-      busy: runner.busy || ffmpegBusy || urlImport.busy,
-      options: { timestamps: s.FileTimestamps, srt: s.FileSrt, parallelism: s.FileParallelism },
+      status: ffmpegStatus || diarStatus || runner.status,
+      busy: runner.busy || ffmpegBusy || urlImport.busy || diarBusy,
+      options: { timestamps: s.FileTimestamps, srt: s.FileSrt, extra: [...s.FileExtraFormats], parallelism: s.FileParallelism, diarize: s.FileDiarize },
       ffmpeg: { line: Ffmpeg.statusLine(), canDownload: Ffmpeg.canDownload(), installed: Ffmpeg.isInstalled() },
       url: {
         line: YtDlp.statusLine(),
@@ -53,8 +64,15 @@ export function registerFileIpc(getWindow: () => BrowserWindow | null, settings:
         busy: urlImport.busy || ytdlpBusy,
         folder: urlFolder(),
       },
+      diarization: {
+        onDisk: diar.onDisk,
+        ready: diar.ready,
+        downloading: diar.isDownloading,
+        line: ruLang ? diar.statusRu() : diar.statusEn(),
+        canDownload: !diar.onDisk && !diar.isDownloading,
+      },
       lastOutput: queue.lastOutput,
-      ru: isRussian(),
+      ru: ruLang,
     };
   };
 
@@ -80,7 +98,7 @@ export function registerFileIpc(getWindow: () => BrowserWindow | null, settings:
     prefetch: () => !client(),
     options: () => {
       const s = settings.get();
-      return { timestamps: s.FileTimestamps, srt: s.FileSrt, useBrain: s.FileUseBrain };
+      return { timestamps: s.FileTimestamps, srt: s.FileSrt, extra: [...s.FileExtraFormats], useBrain: s.FileUseBrain, diarize: s.FileDiarize };
     },
     status: () => {
       // The queue speaks again: its line replaces the last download/ffmpeg line.
@@ -112,6 +130,12 @@ export function registerFileIpc(getWindow: () => BrowserWindow | null, settings:
         const msg = e instanceof BrainException || e instanceof Error ? e.message : String(e);
         return { note: msg };
       }
+    },
+    runDiarize: async (pcm, status, signal) => {
+      const diar = getDiarizeRuntime();
+      if (!diar.ready) return null;
+      status(t('Разделяю спикеров…', 'Separating speakers…'));
+      return diar.run(pcm, signal);
     },
   });
   queue.onChanged(push);
@@ -204,6 +228,7 @@ export function registerFileIpc(getWindow: () => BrowserWindow | null, settings:
     urlImport.stop();
     ffmpegAbort?.abort();
     ytdlpAbort?.abort();
+    diarAbort?.abort();
     return state();
   });
 
@@ -218,12 +243,13 @@ export function registerFileIpc(getWindow: () => BrowserWindow | null, settings:
     const s = settings.get();
     if (typeof o?.timestamps === 'boolean') s.FileTimestamps = o.timestamps;
     if (typeof o?.srt === 'boolean') s.FileSrt = o.srt;
+    if (typeof o?.diarize === 'boolean') s.FileDiarize = o.diarize;
+    if (Array.isArray(o?.extra)) s.FileExtraFormats = asExtraFormats(o.extra);
     if (typeof o?.parallelism === 'string' && PARALLELISM.includes(o.parallelism)) s.FileParallelism = o.parallelism;
     Settings.save(s);
     return state();
   });
 
-  let ffmpegAbort: AbortController | null = null;
   ipcMain.handle('file:ffmpegDownload', () => {
     if (runner.busy || ffmpegBusy || urlImport.busy || ytdlpBusy || !Ffmpeg.canDownload()) return state();
     ffmpegBusy = true;
@@ -242,5 +268,39 @@ export function registerFileIpc(getWindow: () => BrowserWindow | null, settings:
       });
     return state();
   });
-  return { busy: () => runner.busy || urlImport.busy };
+  ipcMain.handle('file:diarizeDownload', () => {
+    const diar = getDiarizeRuntime();
+    if (runner.busy || ffmpegBusy || urlImport.busy || ytdlpBusy || diarBusy || diar.onDisk) return state();
+    diarBusy = true;
+    diarAbort = new AbortController();
+    diarStatus = t('Скачиваю модели спикеров…', 'Downloading speaker models…');
+    void diar
+      .download(diarAbort.signal, () => {
+        diarStatus = isRussian() ? diar.statusRu() : diar.statusEn();
+        push();
+      })
+      .then(() => (diarStatus = t('Модели спикеров готовы.', 'Speaker models are ready.')))
+      .catch((e) => {
+        if ((e as Error)?.name === 'AbortError') diarStatus = t('Скачивание спикеров отменено.', 'Speaker download cancelled.');
+        else diarStatus = t(`Модели спикеров не скачались: ${(e as Error).message}`, `Speaker models failed: ${(e as Error).message}`);
+      })
+      .finally(() => {
+        diarBusy = false;
+        diarAbort = null;
+        push();
+      });
+    return state();
+  });
+
+  return {
+    busy: () => runner.busy || urlImport.busy || diarBusy,
+    /** A finished meeting recording: queue it and start (or join) the run. */
+    enqueue: (path: string) => {
+      queue.add([path], false);
+      if (!runner.busy && !ffmpegBusy) {
+        ffmpegStatus = '';
+        void runner.run().catch((e) => Log.write(`file run: ${e instanceof Error ? e.message : String(e)}`));
+      }
+    },
+  };
 }

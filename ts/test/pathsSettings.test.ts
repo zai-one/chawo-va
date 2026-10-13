@@ -93,10 +93,23 @@ describe('settings', () => {
     expect(loaded.SalesCatalog).toEqual(s.SalesCatalog);
     expect(loaded.OverlayX).toBe(10);
     expect(loaded.CheckUpdates).toBe(false);
+    expect(loaded.FileDiarize).toBe(false);
     expect(loaded.KeepAwakeWhileListening).toBe(false);
     const disk = JSON.parse(readFileSync(settingsPath(), 'utf8')) as Record<string, unknown>;
     expect(disk.CleanupApiKey).toBeUndefined();
     expect(disk.CleanupApiKeyProtected).toBeUndefined();
+  });
+
+  it('VAD settings: on by default, auto-stop off, round-trip and clamped', () => {
+    const d = defaults();
+    expect(d.VadEnabled).toBe(true);
+    expect(d.VadAutoStopMs).toBe(0);
+    const obj = toJsonObject({ ...d, VadEnabled: false, VadAutoStopMs: 1500 });
+    expect(obj).toMatchObject({ VadEnabled: false, VadAutoStopMs: 1500 });
+    expect(fromJsonObject(obj).settings).toMatchObject({ VadEnabled: false, VadAutoStopMs: 1500 });
+    expect(fromJsonObject({ VadAutoStopMs: -5 }).settings.VadAutoStopMs).toBe(0);
+    expect(fromJsonObject({ VadAutoStopMs: 1e9 }).settings.VadAutoStopMs).toBe(60000);
+    expect(fromJsonObject({ VadEnabled: 'yes' }).settings.VadEnabled).toBe(true);
   });
 
   it('never writes plaintext API keys without a protect hook', () => {
@@ -141,6 +154,17 @@ describe('settings', () => {
     saveDictionary(s, []);
     expect(s.WordReplacementRules).toBe('#');
     expect(dictionaryRows(s)).toEqual([]);
+  });
+
+
+  it('FileDiarize round-trips default false', () => {
+    const s = defaults();
+    expect(s.FileDiarize).toBe(false);
+    s.FileDiarize = true;
+    save(s);
+    expect(load().FileDiarize).toBe(true);
+    const { settings } = fromJsonObject({});
+    expect(settings.FileDiarize).toBe(false);
   });
 
   it('forces CheckUpdates and KeepAwakeWhileListening off on load', () => {

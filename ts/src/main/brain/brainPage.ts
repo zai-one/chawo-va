@@ -7,6 +7,17 @@
 import { basename } from 'node:path';
 import { isRussian, t } from '../../core/strings';
 import * as Log from '../log';
+import {
+  emptyRule,
+  exeKey,
+  isActive,
+  MAX_APP_RULES,
+  suggestedMatch,
+  type AppRule,
+  type AppRuleEdit,
+  type AppRuleToggle,
+  type ForegroundApp,
+} from '../../core/appRules';
 import type { BrainDeviceKind, BrainSource, LocalBrainKind, SettingsData } from '../settings';
 import * as Providers from './brainProviders';
 import type { BrainProvider } from './brainProviders';
@@ -77,6 +88,49 @@ export interface BrainStateDto {
   instruction: { visible: boolean; text: string; hint: string };
   selection: { visible: boolean; on: boolean; hint: string };
   download: BrainDownloadDto | null;
+  appRules: AppRulesDto;
+}
+
+export interface AppRuleDto {
+  match: string;
+  edit: AppRuleEdit;
+  instruction: string;
+  /** The instruction box is shown only for «Своя инструкция». */
+  instructionVisible: boolean;
+  simple: AppRuleToggle;
+  /** Empty Match: the row never fires. */
+  active: boolean;
+  /** This rule fired for the last take. */
+  hit: boolean;
+}
+
+export interface AppRulesDto {
+  heading: string;
+  hint: string;
+  rules: AppRuleDto[];
+  /** The rewrite choice needs a Brain; with the Brain off only simple syntax can be overridden. */
+  editVisible: boolean;
+  editChoices: { value: AppRuleEdit; label: string }[];
+  simpleChoices: { value: AppRuleToggle; label: string }[];
+  matchPlaceholder: string;
+  instructionPlaceholder: string;
+  /** «Последняя программа при диктовке: telegram» or empty before the first take with rules. */
+  last: string;
+  /** Program name to prefill: «Добавить для telegram». */
+  lastMatch: string;
+  canAdd: boolean;
+}
+
+export interface AppRulePatch {
+  match?: string;
+  edit?: AppRuleEdit;
+  instruction?: string;
+  simple?: AppRuleToggle;
+}
+
+export interface LastApp {
+  app: ForegroundApp | null;
+  ruleIndex: number | null;
 }
 
 export interface TimerLike {
@@ -99,10 +153,14 @@ export interface BrainPageHooks {
   deviceNote?: () => string | null;
   fetch?: FetchLike;
   timer?: TimerLike;
+  /** The selection is read by the Windows helper only: the checkbox is hidden elsewhere. */
+  platform?: NodeJS.Platform;
   installed?: () => LocalBrain.InstalledGguf[];
   isReady?: (s: SettingsData) => boolean;
   /** Key debounce, WPF 600 ms. */
   keyPauseMs?: number;
+  /** The program seen at the last take with per-app rules (DictationSession.onApp). */
+  lastApp?: () => LastApp | null;
 }
 
 const realTimer: TimerLike = {
@@ -254,6 +312,94 @@ export class BrainController {
     if (on === s.BrainOnSelection) return;
     s.BrainOnSelection = on;
     this.persist();
+  }
+
+  // ── per-app modes ──────────────────────────────────────
+
+  /** Adds a rule at the end; match prefilled with the last program when the user asks for it. */
+  addRule(match = ''): void {
+    const s = this.s();
+    if (s.AppRules.length >= MAX_APP_RULES) return;
+    s.AppRules = [...s.AppRules, emptyRule(match.trim().slice(0, 500))];
+    this.persist();
+  }
+
+  updateRule(index: number, patch: AppRulePatch): void {
+    const s = this.s();
+    const old = s.AppRules[index];
+    if (!old) return;
+    const next: AppRule = { ...old };
+    if (typeof patch.match === 'string') next.Match = patch.match.slice(0, 500);
+    if (patch.edit === 'Default' || patch.edit === 'Off' || patch.edit === 'Custom') next.Edit = patch.edit;
+    if (typeof patch.instruction === 'string') next.Instruction = patch.instruction.slice(0, 4000);
+    if (patch.simple === 'Default' || patch.simple === 'On' || patch.simple === 'Off') next.SimpleSyntax = patch.simple;
+    if (JSON.stringify(next) === JSON.stringify(old)) return;
+    s.AppRules = s.AppRules.map((r, i) => (i === index ? next : r));
+    this.persist();
+  }
+
+  removeRule(index: number): void {
+    const s = this.s();
+    if (!s.AppRules[index]) return;
+    s.AppRules = s.AppRules.filter((_, i) => i !== index);
+    this.persist();
+  }
+
+  /** Moves a rule one place up: the first matching rule wins. */
+  raiseRule(index: number): void {
+    const s = this.s();
+    if (index <= 0 || index >= s.AppRules.length) return;
+    const list = [...s.AppRules];
+    [list[index - 1], list[index]] = [list[index]!, list[index - 1]!];
+    s.AppRules = list;
+    this.persist();
+  }
+
+  private appRulesState(s: SettingsData): AppRulesDto {
+    const last = this.h.lastApp?.() ?? null;
+    const lastMatch = suggestedMatch(last?.app ?? null);
+    let lastLine = '';
+    if (last?.app) {
+      const name = exeKey(last.app.exe);
+      lastLine = last.ruleIndex !== null
+        ? t(`Последняя программа при диктовке: ${name}. Сработало правило ${last.ruleIndex + 1}.`, `Program at the last take: ${name}. Rule ${last.ruleIndex + 1} applied.`)
+        : t(`Последняя программа при диктовке: ${name}. Ни одно правило не подошло.`, `Program at the last take: ${name}. No rule matched.`);
+    } else if (last && s.AppRules.length > 0) {
+      lastLine = t('При последней диктовке в фокусе было окно Chawo, или программу определить не удалось.', 'At the last take the Chawo window had the focus, or the program could not be told.');
+    }
+    const brainOn = s.Brain !== 'Off';
+    return {
+      heading: t('Для отдельных программ', 'For particular programs'),
+      hint: t(
+        'Правило меняет правку, пока при нажатии клавиши в фокусе эта программа. Подходит первое сверху. Имя программы (telegram, winword) или часть заголовка окна, несколько через запятую. Программа определяется только на этом компьютере и никуда не уходит.',
+        'A rule changes the editing while that program has the focus at key press. The first one from the top applies. A program name (telegram, winword) or part of the window title, several separated by commas. The program is detected on this computer only and goes nowhere.',
+      ),
+      rules: s.AppRules.map((r, i) => ({
+        match: r.Match,
+        edit: r.Edit,
+        instruction: r.Instruction,
+        instructionVisible: brainOn && r.Edit === 'Custom',
+        simple: r.SimpleSyntax,
+        active: isActive(r),
+        hit: last?.ruleIndex === i,
+      })),
+      editVisible: brainOn,
+      editChoices: [
+        { value: 'Default', label: t('Правка как обычно', 'Usual editing') },
+        { value: 'Off', label: t('Не переписывать', 'Do not rewrite') },
+        { value: 'Custom', label: t('Переписывать по своей инструкции', 'Rewrite by own instruction') },
+      ],
+      simpleChoices: [
+        { value: 'Default', label: t('Точка и заглавная как обычно', 'Period and capital as usual') },
+        { value: 'On', label: t('Как в чате: без точки, со строчной', 'Chat style: no period, lowercase') },
+        { value: 'Off', label: t('С точкой и заглавной', 'With period and capital') },
+      ],
+      matchPlaceholder: t('telegram, winword, «Почта»', 'telegram, winword, "Inbox"'),
+      instructionPlaceholder: t('Пусто: убрать повторы и слова-паразиты', 'Empty: drop repeats and filler'),
+      last: lastLine,
+      lastMatch: lastMatch && !s.AppRules.some((r) => r.Match.trim().toLowerCase() === lastMatch) ? lastMatch : '',
+      canAdd: s.AppRules.length < MAX_APP_RULES,
+    };
   }
 
   // ── local ──────────────────────────────────────────────
@@ -656,7 +802,7 @@ export class BrainController {
         ),
       },
       selection: {
-        visible: b !== 'Off',
+        visible: b !== 'Off' && (this.h.platform ?? process.platform) === 'win32',
         on: s.BrainOnSelection,
         hint: t(
           'Выделите текст, зажмите клавишу и скажите, что сделать. Выключите, если хотите диктовать поверх выделения.',
@@ -664,6 +810,7 @@ export class BrainController {
         ),
       },
       download: this.dl,
+      appRules: this.appRulesState(s),
     };
   }
 }

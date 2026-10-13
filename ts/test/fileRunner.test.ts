@@ -38,7 +38,7 @@ function setup(over: Partial<FileRunnerDeps> = {}) {
       return new Float32Array(16000 * 65);
     },
     prepare: async () => ({ ok: true, transcriber: echo }),
-    options: () => ({ timestamps: true, srt: true, useBrain: false }),
+    options: () => ({ timestamps: true, srt: true, useBrain: false, diarize: false }),
     status: (l) => statuses.push(l),
     ...over,
   };
@@ -104,7 +104,7 @@ describe('FileRunner', () => {
     const notes: string[] = [];
     const s = setup({
       now: () => (clock += 70_000),
-      options: () => ({ timestamps: false, srt: false, useBrain: true }),
+      options: () => ({ timestamps: false, srt: false, useBrain: true, diarize: false }),
       notifyDone: (title, body) => notes.push(`${title}|${body}`),
     });
     s.queue.add([audio('long.wav')], false);
@@ -117,7 +117,7 @@ describe('FileRunner', () => {
 
   it('useBrain with injected runBrain writes .brain.txt', async () => {
     const s = setup({
-      options: () => ({ timestamps: false, srt: false, useBrain: true }),
+      options: () => ({ timestamps: false, srt: false, useBrain: true, diarize: false }),
       runBrain: async (segments) => ({
         note: 'мозг ок',
         text: segments.map((x) => x.text).join('\n') + '\n\nКратко\n- x\n',
@@ -128,5 +128,44 @@ describe('FileRunner', () => {
     expect(existsSync(join(dir, 'brainy.brain.txt'))).toBe(true);
     expect(readFileSync(join(dir, 'brainy.brain.txt'), 'utf8')).toContain('Кратко');
     expect(s.queue.snapshot()[0].note).toMatch(/мозг ок/);
+  });
+
+  it('diarize with fake spans writes Спикер labels', async () => {
+    const s = setup({
+      options: () => ({ timestamps: false, srt: true, useBrain: false, diarize: true }),
+      runDiarize: async () => [
+        { start: 0, end: 30, speaker: 5 },
+        { start: 30, end: 120, speaker: 9 },
+      ],
+    });
+    s.queue.add([audio('duo.wav')], false);
+    await s.runner.run();
+    const txt = readFileSync(join(dir, 'duo.txt'), 'utf8');
+    expect(txt).toContain('Спикер 1: first duo.wav');
+    expect(txt).toContain('Спикер 2: second');
+    expect(s.queue.snapshot()[0].note).toMatch(/спикеры|speakers/);
+    expect(readFileSync(join(dir, 'duo.srt'), 'utf8')).toContain('Спикер 1:');
+  });
+
+  it('diarize without models notes and still writes txt', async () => {
+    const s = setup({
+      options: () => ({ timestamps: false, srt: false, useBrain: false, diarize: true }),
+      // no runDiarize
+    });
+    s.queue.add([audio('solo.wav')], false);
+    await s.runner.run();
+    expect(readFileSync(join(dir, 'solo.txt'), 'utf8')).toBe('first solo.wav\nsecond');
+    expect(s.queue.snapshot()[0].note).toMatch(/модели не скачаны|models not downloaded/);
+  });
+
+  it('diarize hook returning null notes missing models', async () => {
+    const s = setup({
+      options: () => ({ timestamps: false, srt: false, useBrain: false, diarize: true }),
+      runDiarize: async () => null,
+    });
+    s.queue.add([audio('miss.wav')], false);
+    await s.runner.run();
+    expect(s.queue.snapshot()[0].note).toMatch(/модели не скачаны|models not downloaded/);
+    expect(existsSync(join(dir, 'miss.txt'))).toBe(true);
   });
 });
