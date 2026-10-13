@@ -99,6 +99,10 @@ export interface SettingsData {
   SpokenPunctuation: boolean;
   /** «двадцать пять» → «25» in a dictated phrase. Off by default. */
   SpokenNumbers: boolean;
+  /** «Свой скрипт»: command that gets the finished text on stdin and prints the new text; empty = off. */
+  PostScript: string;
+  /** Also run PostScript on file transcripts (.txt only). Off by default: dictation only. */
+  PostScriptFiles: boolean;
   /** Per-app modes: overrides of the take editing for a focused program (first match wins). */
   AppRules: AppRule[];
   CleanupEndpointUrl: string;
@@ -163,6 +167,8 @@ export function defaults(): SettingsData {
     WordReplacementRules: '',
     SpokenPunctuation: false,
     SpokenNumbers: false,
+    PostScript: '',
+    PostScriptFiles: false,
     AppRules: [],
     CleanupEndpointUrl: '',
     CleanupApiKey: '',
@@ -413,6 +419,8 @@ export function fromJsonObject(raw: Record<string, unknown>): { settings: Settin
   d.WordReplacementRules = asString(raw.WordReplacementRules, d.WordReplacementRules);
   d.SpokenPunctuation = asBool(raw.SpokenPunctuation, d.SpokenPunctuation);
   d.SpokenNumbers = asBool(raw.SpokenNumbers, d.SpokenNumbers);
+  d.PostScript = asString(raw.PostScript, d.PostScript);
+  d.PostScriptFiles = asBool(raw.PostScriptFiles, d.PostScriptFiles);
   d.AppRules = parseAppRules(raw.AppRules);
   d.CleanupEndpointUrl = asString(raw.CleanupEndpointUrl, d.CleanupEndpointUrl);
   d.CleanupModel = asString(raw.CleanupModel, d.CleanupModel);
@@ -502,6 +510,8 @@ export function toJsonObject(s: SettingsData): Record<string, unknown> {
     WordReplacementRules: s.WordReplacementRules,
     SpokenPunctuation: s.SpokenPunctuation,
     SpokenNumbers: s.SpokenNumbers,
+    PostScript: s.PostScript,
+    PostScriptFiles: s.PostScriptFiles,
     AppRules: s.AppRules,
     CleanupEndpointUrl: s.CleanupEndpointUrl,
     CleanupModel: s.CleanupModel,

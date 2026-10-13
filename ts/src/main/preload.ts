@@ -75,6 +75,9 @@ const api = {
     suggest: () => ipcRenderer.invoke('dict:suggest'),
     addSuggestion: (heard: string, written: string) => ipcRenderer.invoke('dict:addSuggestion', heard, written),
     setSpoken: (kind: 'punctuation' | 'numbers', on: boolean) => ipcRenderer.invoke('dict:setSpoken', kind, on),
+    setScript: (command: string) => ipcRenderer.invoke('dict:setScript', command),
+    setScriptFiles: (on: boolean) => ipcRenderer.invoke('dict:setScriptFiles', on),
+    testScript: () => ipcRenderer.invoke('dict:testScript'),
   },
   sales: {
     state: () => ipcRenderer.invoke('sales:state'),

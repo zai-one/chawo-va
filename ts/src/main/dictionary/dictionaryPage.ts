@@ -6,6 +6,8 @@
 
 import { existsSync, statSync } from 'node:fs';
 import { isRussian, t } from '../../core/strings';
+import { failureText, logLine, runPostScript, scriptCommand, type PostScriptResult, type PostScriptRun } from '../../core/postScript';
+import * as Log from '../log';
 import { DEFAULT_RULES, formatRules, type ReplacePair } from '../../core/wordReplace';
 import { suggestDictionary, type DictSuggestion } from '../sales';
 import { dictionaryRows, saveDictionary, type SettingsData } from '../settings';
@@ -36,7 +38,26 @@ export interface DictionaryStateDto {
   rows: DictRow[];
   suggestions: DictSuggestionRow[];
   spoken: SpokenStateDto;
+  script: ScriptStateDto;
 }
+
+/** «Свой скрипт»: one command field, «also for files», a check button. */
+export interface ScriptStateDto {
+  heading: string;
+  command: string;
+  placeholder: string;
+  hint: string;
+  files: boolean;
+  filesLabel: string;
+  testLabel: string;
+  /** Result of the last «Проверить»: one line, empty before the first check. */
+  testLine: string;
+  testOk: boolean | null;
+  busy: boolean;
+}
+
+/** Sample the check button sends: Russian, punctuation, a digit. */
+export const SCRIPT_SAMPLE = 'Проверка скрипта: привет, Чаво, 25 тысяч.';
 
 /** Voice punctuation and numbers: two switches under the table, nothing else to set. */
 export interface SpokenStateDto {
@@ -57,6 +78,8 @@ export interface DictionaryHooks {
   changed?: () => void;
   /** Override for tests; defaults to SalesRag.suggestDictionary. */
   suggest?: (folder: string, existing: ReplacePair[]) => DictSuggestion[];
+  /** Override for tests; defaults to core runPostScript. */
+  runScript?: (r: PostScriptRun) => Promise<PostScriptResult>;
 }
 
 function folderExists(p: string): boolean {
@@ -90,6 +113,8 @@ export class DictionaryController {
   /** Settings value the rows were loaded from or last written as; a different value reloads. */
   private seenRules: string | null = null;
   private seenFolder: string;
+  private scriptTest: { line: string; ok: boolean } | null = null;
+  private scriptBusy = false;
 
   constructor(private readonly h: DictionaryHooks) {
     this.seenFolder = (h.settings().RagFolder ?? '').trim();
@@ -131,7 +156,74 @@ export class DictionaryController {
       rows: this.rows.map((r) => ({ ...r })),
       suggestions: this.suggestions.map((r) => ({ ...r })),
       spoken: this.spokenState(),
+      script: this.scriptState(),
     };
+  }
+
+  private scriptState(): ScriptStateDto {
+    const s = this.h.settings();
+    return {
+      heading: t('Свой скрипт', 'Your script'),
+      command: s.PostScript ?? '',
+      placeholder: t('например: python C:\\scripts\\fix.py', 'e.g. python ~/scripts/fix.py'),
+      hint: t('Для тех, кто пишет код. Готовая фраза уходит скрипту на вход (stdin, UTF-8), что он напечатает — то и вставится. Последний шаг: после словаря, Мозга и простого синтаксиса. Запускается только на этом компьютере; есть переменная CHAWO_SOURCE (dictation, command, selection, file). Ошибка, пустой ответ или больше 5 с — вставляется текст без скрипта. Пустое поле — выключено.',
+        'For people who write code. The finished phrase goes to the script\'s stdin (UTF-8); whatever it prints is inserted. Last step: after the dictionary, the Brain and simple syntax. Runs only on this computer; CHAWO_SOURCE is set (dictation, command, selection, file). On an error, an empty answer or more than 5 s the text goes in without the script. Empty field: off.'),
+      files: s.PostScriptFiles === true,
+      filesLabel: t('И для расшифровки файлов (весь .txt, до 60 с; .srt и другие форматы не меняются)',
+        'Also for file transcripts (the whole .txt, up to 60 s; .srt and other formats stay as they are)'),
+      testLabel: t('Проверить', 'Check'),
+      testLine: this.scriptTest?.line ?? '',
+      testOk: this.scriptTest?.ok ?? null,
+      busy: this.scriptBusy,
+    };
+  }
+
+  /** Saves the command (trimmed of line breaks; blank = off). A new command forgets the old check. */
+  setScript(command: string): DictionaryStateDto {
+    if (typeof command === 'string') {
+      const next = command.replace(/[\r\n]+/g, ' ');
+      const s = this.h.settings();
+      if ((s.PostScript ?? '') !== next) {
+        s.PostScript = next;
+        this.h.save(s);
+        this.h.changed?.();
+        this.scriptTest = null;
+      }
+    }
+    return this.state();
+  }
+
+  setScriptFiles(on: boolean): DictionaryStateDto {
+    if (typeof on === 'boolean') {
+      const s = this.h.settings();
+      if (s.PostScriptFiles !== on) {
+        s.PostScriptFiles = on;
+        this.h.save(s);
+        this.h.changed?.();
+      }
+    }
+    return this.state();
+  }
+
+  /** «Проверить»: runs the saved command on a sample phrase and shows what came back. */
+  async testScript(): Promise<DictionaryStateDto> {
+    const cmd = scriptCommand(this.h.settings().PostScript);
+    if (!cmd) {
+      this.scriptTest = { line: t('Сначала впишите команду.', 'Type a command first.'), ok: false };
+      return this.state();
+    }
+    if (this.scriptBusy) return this.state();
+    this.scriptBusy = true;
+    try {
+      const res = await (this.h.runScript ?? runPostScript)({ command: cmd, text: SCRIPT_SAMPLE, source: 'dictation' });
+      Log.write(logLine(res, 'dictation', SCRIPT_SAMPLE.length) + ' (check)');
+      this.scriptTest = res.ok
+        ? { line: t(`Работает (${res.ms} мс): ${res.text}`, `Works (${res.ms} ms): ${res.text}`), ok: true }
+        : { line: t(`Не сработал: ${failureText(res, t)}. Фраза пошла бы без скрипта.`, `Failed: ${failureText(res, t)}. The phrase would go in without the script.`), ok: false };
+    } finally {
+      this.scriptBusy = false;
+    }
+    return this.state();
   }
 
   private spokenState(): SpokenStateDto {

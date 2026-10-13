@@ -25,6 +25,7 @@ import {
 } from '../../core/takeBuffer';
 import { applyRules } from '../../core/wordReplace';
 import { applySpoken } from '../../core/spokenText';
+import { DICTATION_TIMEOUT_MS, failureText, logLine, runPostScript, scriptCommand, type PostScriptResult, type PostScriptRun } from '../../core/postScript';
 import { SilenceWatch } from '../../core/vad';
 import { trimTake } from '../vad/vadModel';
 import { parseCommand, serverConfigured, stripAddress, transformAsync } from '../brain/brain';
@@ -96,6 +97,8 @@ export interface SessionHooks {
    * went down turns the take into a Brain command on it. Null or missing: plain dictation.
    */
   selection?: () => SelectionReaderLike | null;
+  /** «Свой скрипт» runner (settings.PostScript); defaults to core runPostScript. */
+  postScript?: (r: PostScriptRun) => Promise<PostScriptResult>;
   /** Client role: RemoteSpeech.transcribe (tests pass a fake host). Throws RemoteHostException. */
   remote?: (s: SettingsData, samples: Float32Array, rate: number, signal: AbortSignal) => Promise<string>;
   /** The focused program at key press (per-app modes). Asked only while settings.AppRules is not empty. */
@@ -546,6 +549,18 @@ export class DictationSession {
         Log.write(`insert as is: simple=${simpleOn} selection=${editedSelection} command=${brainCommand}`);
       }
 
+      // «Свой скрипт»: the very last step, on whatever is about to be inserted. Soft: on any failure
+      // the text goes in as it is and the status says why.
+      let scriptFailure: string | null = null;
+      const script = text.length > 0 && !this.abandon ? scriptCommand(this.h.settings().PostScript) : null;
+      if (script) {
+        const source = editedSelection ? 'selection' : brainCommand ? 'command' : 'dictation';
+        const res = await (this.h.postScript ?? runPostScript)({ command: script, text, source, timeoutMs: DICTATION_TIMEOUT_MS, signal: abort.signal });
+        Log.write(logLine(res, source, text.length));
+        if (res.ok) text = res.text;
+        else if (res.reason !== 'aborted') scriptFailure = failureText(res, t);
+      }
+
       if (this.abandon) {
         overlay?.hideNow();
         Log.write('take cancelled before insert');
@@ -568,8 +583,8 @@ export class DictationSession {
           Log.write(`history: ${e instanceof Error ? e.message : String(e)}`);
         }
         const inserter = this.source === 'hotkey' ? this.h.inserter?.() ?? null : null;
-        if (inserter) await this.insertInto(inserter, text, brainFailure, editedSelection);
-        else this.copyOut(text, brainFailure);
+        if (inserter) await this.insertInto(inserter, text, brainFailure, editedSelection, scriptFailure);
+        else this.copyOut(text, brainFailure, scriptFailure);
       } else if (samples.length <= MIN_TAKE_SAMPLES) {
         // WPF just hides the pill on an accidental tap; the page says what happened.
         overlay?.hideNow();
@@ -600,7 +615,7 @@ export class DictationSession {
   }
 
   /** In-window take (or no helper): the phrase goes to the clipboard and the page. */
-  private copyOut(text: string, brainFailure: string | null): void {
+  private copyOut(text: string, brainFailure: string | null, scriptFailure: string | null = null): void {
     let copied = true;
     try {
       this.h.copy?.(text);
@@ -612,6 +627,8 @@ export class DictationSession {
       this.hint(copied
         ? t(`Мозг не справился: ${brainFailure}. В буфере обмена текст без правки.`, `The Brain failed: ${brainFailure}. The clipboard has the text as recognized.`)
         : t(`Мозг не справился: ${brainFailure}. В буфер обмена скопировать не получилось.`, `The Brain failed: ${brainFailure}. Could not copy to the clipboard.`));
+    } else if (scriptFailure !== null && copied) {
+      this.hint(t(`Скрипт не сработал: ${scriptFailure}. В буфере обмена текст без скрипта.`, `The script failed: ${scriptFailure}. The clipboard has the text without it.`));
     } else {
       this.status = copied
         ? t('Готово. Фраза в буфере обмена: вставьте её Ctrl+V.', 'Done. The phrase is on the clipboard: paste it with Ctrl+V.')
@@ -620,7 +637,7 @@ export class DictationSession {
   }
 
   /** Global-key take: TextInserter.Insert into the focused app with the WPF hints. */
-  private async insertInto(inserter: TextInserterLike, text: string, brainFailure: string | null, editedSelection = false): Promise<void> {
+  private async insertInto(inserter: TextInserterLike, text: string, brainFailure: string | null, editedSelection = false, scriptFailure: string | null = null): Promise<void> {
     const s = this.h.settings();
     let r: 'Done' | 'Blocked';
     try {
@@ -653,6 +670,8 @@ export class DictationSession {
       }
     } else if (brainFailure !== null) {
       this.hint(t(`Мозг не справился: ${brainFailure}. Вставлен текст без правки.`, `The Brain failed: ${brainFailure}. Inserted the text as recognized.`));
+    } else if (scriptFailure !== null) {
+      this.hint(t(`Скрипт не сработал: ${scriptFailure}. Вставлен текст без скрипта.`, `The script failed: ${scriptFailure}. Inserted the text without it.`));
     } else if (editedSelection) {
       this.hint(t('Готово. Вернуть как было: Ctrl+Z', 'Done. Undo with Ctrl+Z'));
     } else {

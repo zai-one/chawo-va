@@ -131,4 +131,19 @@ describe('langFromArgv', () => {
     expect(langFromArgv(['transcribe', '--', '--lang', 'en'])).toBeNull();
     expect(langFromArgv(['transcribe', '--lang'])).toBeNull();
   });
+
+  it('--post-script / --no-post-script: transcribe only, not both', () => {
+    expect(ok(['transcribe', 'a.wav']).postScript).toBeNull();
+    expect(ok(['transcribe', 'a.wav']).noPostScript).toBe(false);
+    expect(ok(['transcribe', 'a.wav', '--post-script', 'python fix.py']).postScript).toBe('python fix.py');
+    expect(ok(['transcribe', 'a.wav', '--post-script=sed s/a/b/']).postScript).toBe('sed s/a/b/');
+    expect(ok(['transcribe', 'a.wav', '--no-post-script']).noPostScript).toBe(true);
+    expect(err(['transcribe', 'a.wav', '--post-script', ' '])).toContain('--post-script is empty');
+    expect(err(['transcribe', 'a.wav', '--post-script', 'x', '--no-post-script'])).toContain('cannot be used together');
+    expect(err(['brief', 'a.txt', '--post-script', 'x'])).toContain('--post-script is for transcribe');
+    expect(err(['translate', 'a.txt', '--no-post-script'])).toContain('--post-script is for transcribe');
+    const help = helpText((_ru, en) => en);
+    expect(help).toContain('--post-script');
+    expect(help).toContain('--no-post-script');
+  });
 });

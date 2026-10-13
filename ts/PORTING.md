@@ -826,3 +826,36 @@ Re-align folder names and tooling with taptain-desktop once its layout is readab
   карточка и файл, промпт «into German»; тёмная тема. Gaps: живой LocalBrain/Qwen на боксе не гонял
   (качество перевода реальной моделью не мерил); confirm спрашивается и для loopback-сервера с портом
   (HostOf = Authority, как в WPF FileBrain.CloudName) — не трогал, вне задачи.
+
+- 2026-10-13 tick: PR #16 (`ts/feat-translate`) слит в `ts-port` (ветка уже была от свежего ts-port; npm ci,
+  734 теста, build зелёные). Дальше ветка `ts/feat-postscript` (IDEAS.md №16, approved batch 2 п.8): «Свой
+  скрипт». `src/core/postScript.ts` (без Electron): `scriptCommand` (пусто = выкл.), `runPostScript` — spawn
+  через системную оболочку (cmd.exe / sh), текст в stdin UTF-8, stdout → новый текст (`cleanOutput` снимает
+  BOM и хвостовые переводы строк), env `CHAWO_SOURCE` dictation|command|selection|file, `CHAWO_FILE`,
+  `PYTHONIOENCODING/PYTHONUTF8` для Python на Windows, без `ELECTRON_RUN_AS_NODE`; таймаут (5 с диктовка,
+  60 с файл) и abort убивают всё дерево (своя группа процессов на POSIX, `taskkill /T /F` на Windows);
+  потолок ответа 16 МБ; никогда не бросает: `{ ok:false, reason: start|exit|timeout|empty|tooLong|aborted }`,
+  `failureText` для статуса, `logLine` без самого текста. Настройки `PostScript` ('') и `PostScriptFiles`
+  (false). Диктовка: последний шаг перед вставкой (после словаря, голосовой пунктуации, Мозга, простого
+  синтаксиса), источник selection/command/dictation; сбой → текст как был + подсказка «Скрипт не сработал: …»
+  (и для вставки хелпером, и для буфера); история пишет final после скрипта. FileRunner: опция
+  `postScript` → только .txt (srt/vtt/json/md/docx и Мозг/brief работают по сегментам), заметка «скрипт» /
+  «скрипт: причина». UI: fieldset «Свой скрипт» внизу «Словаря» — поле, «Проверить» (фраза-пример, строка
+  «Работает (N мс): …» / «Не сработал: …»), галка «И для расшифровки файлов». CLI: `transcribe
+  --post-script "cmd"` / `--no-post-script` (только transcribe, не вместе), без флага — settings
+  (PostScript при PostScriptFiles), работает и с `--stdout`; сбой не меняет код выхода, строка «script: exit
+  code 5, .txt without it». Тесты: postScript (20: чистые функции, настоящие процессы — UTF-8/кириллица,
+  env, код выхода + stderr, нет программы, пустой ответ, скрипт не читает stdin (200 КБ), таймаут 700 мс без
+  сирот, abort; диктовка с настоящим скриптом и фейком сбоя/хелпера; «Словарь» сохранение/проверка;
+  FileRunner настоящий скрипт/сбой/выкл.), cli (+3 с настоящим скриптом, readDefaults), cliArgs (+1),
+  pathsSettings (+1). 759 зелёные (734 до), `tsc` чистый. Live CLI (настоящая v3_e2e_rnnt на CPU, ru30.wav,
+  `python3 fix.py` меняет «язык»→«ЯЗЫК» и ставит `[$CHAWO_SOURCE]`): `--post-script` → .txt «[file] Русский
+  ЯЗЫК…», .srt без изменений; из settings.json + `--stdout` — со скриптом, `--no-post-script` — без;
+  `sys.exit(5)` → «script: exit code 5, .txt without it», exit 0; settings.json не тронут. GUI под xvfb
+  (`scripts/smoke-postscript.cjs`, фейковый микрофон ru30.wav): фраза 1 без скрипта «Русский язык — это»;
+  ввод команды → «Проверить» → «Работает (37 мс): [dictation] Проверка скрипта: …»; фраза 2 в буфере
+  «[dictation] Русский ЯЗЫК. Русский ЯЗЫК — это»; галка файлов → settings.json `PostScriptFiles: true`;
+  очередь файла → строка «00:00:30 · скрипт», .txt «[file] Русский ЯЗЫК…»; в логе только «post script
+  (…): ok N -> M chars, ms». Тёмная тема. Gaps: Windows (cmd.exe, taskkill) на боксе не гонял — только
+  Linux sh; удалённый Hermes-клиент проходит тот же путь сессии, отдельно не проверял.
+

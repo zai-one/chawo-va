@@ -28,6 +28,10 @@ export interface CliOptions {
   instruction: string | null;
   /** translate: target language (code, name or free text); null = settings TranslateTarget / auto. */
   to: string | null;
+  /** transcribe: «Свой скрипт» command for the text; null = settings (PostScript when PostScriptFiles is on). */
+  postScript: string | null;
+  /** transcribe: --no-post-script, skip the script even when settings have one. */
+  noPostScript: boolean;
 }
 
 export type ParseResult = { ok: true; options: CliOptions } | { ok: false; error: string };
@@ -46,7 +50,7 @@ const SCRIPTS: Record<string, CtcScript> = { auto: 'auto', ru: 'russian', russia
 const LANGS: Record<string, 'Russian' | 'English'> = { ru: 'Russian', russian: 'Russian', en: 'English', english: 'English' };
 
 /** Options that take a value: --out DIR and --out=DIR both work. */
-const VALUED = new Set(['--format', '-f', '--out', '-o', '--model', '--device', '--threads', '-j', '--script', '--model-dir', '--lang', '--instruction', '--to']);
+const VALUED = new Set(['--format', '-f', '--out', '-o', '--model', '--device', '--threads', '-j', '--script', '--model-dir', '--lang', '--instruction', '--to', '--post-script']);
 
 function blank(command: CliOptions['command']): CliOptions {
   return {
@@ -66,6 +70,8 @@ function blank(command: CliOptions['command']): CliOptions {
     lang: null,
     instruction: null,
     to: null,
+    postScript: null,
+    noPostScript: false,
   };
 }
 
@@ -173,6 +179,13 @@ export function parseArgs(argv: readonly string[]): ParseResult {
         if (!v) return { ok: false, error: '--to is empty' };
         o.to = v;
         break;
+      case '--post-script':
+        if (!v) return { ok: false, error: '--post-script is empty' };
+        o.postScript = v;
+        break;
+      case '--no-post-script':
+        o.noPostScript = true;
+        break;
       default:
         return { ok: false, error: `unknown option: ${a}` };
     }
@@ -188,6 +201,8 @@ export function parseArgs(argv: readonly string[]): ParseResult {
     if (o.model || o.device || o.threads || o.script || o.modelDir) return { ok: false, error: 'translate takes a transcript .txt (speech options are for transcribe)' };
     if (o.instruction != null) return { ok: false, error: '--instruction is for brief; translate takes --to' };
   }
+  if ((o.postScript != null || o.noPostScript) && o.command !== 'transcribe') return { ok: false, error: '--post-script is for transcribe' };
+  if (o.postScript != null && o.noPostScript) return { ok: false, error: '--post-script and --no-post-script cannot be used together' };
   if (o.to != null && o.command !== 'translate') return { ok: false, error: '--to is for translate' };
   if (o.stdout && o.outDir) return { ok: false, error: '--stdout and --out cannot be used together' };
   if (o.stdout && o.formats.some((f) => f !== 'txt')) return { ok: false, error: '--stdout prints text only; drop --format srt' };
@@ -214,6 +229,9 @@ export function helpText(t: (ru: string, en: string) => string): string {
   -j, --threads auto|1|2|4|max   параллельность длинных записей
       --script auto|ru|en        алфавит для модели ctc
       --model-dir <папка>        папка с моделью (иначе — где её скачало приложение)
+      --post-script «команда»  свой скрипт: текст на stdin, что напечатает — в .txt / stdout
+                         (иначе — из настроек, если там включено «и для файлов»);
+      --no-post-script   без скрипта
       --lang ru|en       язык сообщений
   -q, --quiet            без прогресса
   -h, --help / -v, --version
@@ -261,6 +279,9 @@ Options:
   -j, --threads auto|1|2|4|max   parallelism for long recordings
       --script auto|ru|en        alphabet for the ctc model
       --model-dir <dir>          model folder (default: where the app downloaded it)
+      --post-script "command"  your script: text on stdin, what it prints goes to .txt / stdout
+                         (else settings, when "also for files" is on there);
+      --no-post-script   skip the script
       --lang ru|en       message language
   -q, --quiet            no progress
   -h, --help / -v, --version
