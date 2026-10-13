@@ -30,6 +30,7 @@ import * as LocalBrain from '../brain/localBrain';
 import { BrainException, type FetchLike } from '../brain/speechCleanup';
 import * as RemoteSpeech from '../network/remoteSpeech';
 import { RemoteHostException } from '../network/remoteSpeech';
+import { applyRule, exeKey, findRule, type ForegroundApp } from '../../core/appRules';
 import * as Log from '../log';
 import type { OverlaySink } from '../overlay/overlayModel';
 import type { TextInserterLike } from '../native/nativeHelper';
@@ -89,6 +90,10 @@ export interface SessionHooks {
   inserter?: () => TextInserterLike | null;
   /** Client role: RemoteSpeech.transcribe (tests pass a fake host). Throws RemoteHostException. */
   remote?: (s: SettingsData, samples: Float32Array, rate: number, signal: AbortSignal) => Promise<string>;
+  /** The focused program at key press (per-app modes). Asked only while settings.AppRules is not empty. */
+  foreground?: () => Promise<ForegroundApp | null>;
+  /** The program seen for the last take and the index of the rule that fired (the «Мозг» page shows it). */
+  onApp?: (app: ForegroundApp | null, ruleIndex: number | null) => void;
   /** VAD trim of a finished take (settings.VadEnabled); defaults to Silero when its model is on disk. */
   trim?: (s: SettingsData, samples: Float32Array, rate: number) => Promise<Float32Array>;
   /** App.ShowSales: the local catalog card. Called only in «Продажи» mode, with drafts and the recognized take. */
@@ -105,6 +110,18 @@ export interface TakeRecord {
   brain: boolean;
   brainFailed: boolean;
   seconds: number;
+}
+
+/** How long a release waits for the focus answer before the take goes on without a per-app rule. */
+const FOREGROUND_WAIT_MS = 3000;
+
+async function settleWithin<T>(p: Promise<T>, ms: number, fallback: T): Promise<T> {
+  let timer: NodeJS.Timeout | undefined;
+  try {
+    return await Promise.race([p, new Promise<T>((resolve) => { timer = setTimeout(() => resolve(fallback), ms); })]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
 }
 
 export function defaultBrainUsable(s: SettingsData): boolean {
@@ -152,6 +169,7 @@ export class DictationSession {
   private readonly brainUsable: (s: SettingsData) => boolean;
   private readonly transform: NonNullable<SessionHooks['transform']>;
   private readonly remote: NonNullable<SessionHooks['remote']>;
+  private fgTask: Promise<ForegroundApp | null> | null = null;
   private readonly trim: NonNullable<SessionHooks['trim']>;
   private watch: SilenceWatch | null = null;
 
@@ -252,6 +270,7 @@ export class DictationSession {
     }
     this.abandon = false;
     this.status = '';
+    this.fgTask = this.askForeground();
     const autoStop = this.h.settings().VadAutoStopMs;
     this.watch = autoStop > 0 ? new SilenceWatch(autoStop, SAMPLE_RATE) : null;
     this.source = source;
@@ -261,6 +280,16 @@ export class DictationSession {
     if (this.wantsDrafts(this.h.settings())) this.startPartials();
     this.push();
     return { ok: true };
+  }
+
+  /** Per-app modes: ask which program has the focus now, while the key is down (no rules, no question). */
+  private askForeground(): Promise<ForegroundApp | null> | null {
+    if (!this.h.foreground || this.h.settings().AppRules.length === 0) return null;
+    try {
+      return this.h.foreground().catch(() => null);
+    } catch {
+      return null;
+    }
   }
 
   appendPcm(chunk: ArrayLike<number>): void {
@@ -276,6 +305,7 @@ export class DictationSession {
   micFailed(name: string, message: string): void {
     Log.write(`mic failed: ${name}: ${message}`);
     this.buf.clear();
+    this.fgTask = null;
     this.stopPartials();
     this.overlay?.hideNow();
     this.status = micErrorText(name, message, this.h.platform);
@@ -293,6 +323,7 @@ export class DictationSession {
     this.takeAbort?.abort();
     if (this.buf.isRecording) {
       this.buf.clear();
+      this.fgTask = null;
       Log.write('take cancelled');
     }
     this.overlay?.hideNow();
@@ -318,6 +349,8 @@ export class DictationSession {
     const overlay = this.overlay;
     const samples = this.buf.stop();
     const peak = this.buf.takePeak;
+    const fgTask = this.fgTask;
+    this.fgTask = null;
     this.push();
     let result: string | null = null;
     try {
@@ -333,6 +366,7 @@ export class DictationSession {
       let text = '';
       let brainFailure: string | null = null;
       let brainCommand = false;
+      let simpleOn = this.h.settings().SimpleSyntax;
       let raw = '';
       let command: string | null = null;
       let brainRan = false;
@@ -397,7 +431,22 @@ export class DictationSession {
         }
         raw = text;
         // Brain on a selection waits for SelectionReader (Windows); a take is plain dictation here.
-        const now = this.h.settings();
+        // Per-app mode: the rule for the program that had the focus at key press overrides the edit settings.
+        let now = this.h.settings();
+        if (fgTask) {
+          const app = await settleWithin(fgTask, FOREGROUND_WAIT_MS, null);
+          const found = findRule(now.AppRules, app);
+          this.h.onApp?.(app, found?.index ?? null);
+          if (found && app) {
+            Log.write(`app mode ${found.index + 1} for ${exeKey(app.exe)}: edit=${found.rule.Edit} simple=${found.rule.SimpleSyntax}`);
+            now = applyRule(now, found.rule);
+          }
+          if (this.abandon) {
+            overlay?.hideNow();
+            return null;
+          }
+        }
+        simpleOn = now.SimpleSyntax;
         if (text.length > 0 && this.brainUsable(now)) {
           const cmd = parseCommand(text);
           if (cmd || now.BrainEveryTake) {
@@ -418,7 +467,6 @@ export class DictationSession {
       }
 
       // Simple syntax is for dictation only: a Brain answer to a command goes in as is.
-      const simpleOn = this.h.settings().SimpleSyntax;
       if (text.length > 0 && simpleOn && !brainCommand) {
         const simple = applySimpleSyntax(text);
         Log.write(`simple syntax: ${simple === text ? 'unchanged' : 'applied'}, ${text.length} chars`);

@@ -161,6 +161,19 @@ interface BrainState {
   instruction: { visible: boolean; text: string; hint: string };
   selection: { visible: boolean; on: boolean; hint: string };
   download: BrainDownload | null;
+  appRules: {
+    heading: string;
+    hint: string;
+    rules: { match: string; edit: string; instruction: string; instructionVisible: boolean; simple: string; active: boolean; hit: boolean }[];
+    editVisible: boolean;
+    editChoices: { value: string; label: string }[];
+    simpleChoices: { value: string; label: string }[];
+    matchPlaceholder: string;
+    instructionPlaceholder: string;
+    last: string;
+    lastMatch: string;
+    canAdd: boolean;
+  };
 }
 interface BrainApi {
   state(rebind?: boolean): Promise<BrainState>;
@@ -183,6 +196,10 @@ interface BrainApi {
   dismissDownload(): Promise<BrainState>;
   close(): Promise<boolean>;
   onState(fn: (s: BrainState) => void): () => void;
+  addRule(match?: string): Promise<BrainState>;
+  updateRule(i: number, patch: Record<string, string>): Promise<BrainState>;
+  removeRule(i: number): Promise<BrainState>;
+  raiseRule(i: number): Promise<BrainState>;
 }
 type TextPart = string | { link: string; page: string };
 type Phase = 'NoModel' | 'Idle' | 'Listening' | 'Recognizing';
@@ -655,6 +672,55 @@ function renderBrain(): void {
     page.append(el('label', { className: 'check' }, cb, ' ', L('Править выделенный текст голосом', 'Edit selected text by voice')),
       el('p', { className: 'muted hint indent', textContent: s.selection.hint }));
   }
+  renderAppRules(s);
+}
+
+/** «Для отдельных программ»: one card per rule, the first matching rule from the top wins. */
+function renderAppRules(s: BrainState): void {
+  const v = s.appRules;
+  page.append(el('label', { className: 'block', textContent: v.heading }), el('p', { className: 'muted hint', textContent: v.hint }));
+  v.rules.forEach((r, i) => {
+    const card = el('div', { className: `card app-rule${r.hit ? ' hit' : ''}${r.active ? '' : ' inactive'}` });
+    card.dataset.rule = String(i);
+    const match = el('input', { type: 'text', value: r.match, spellcheck: false, placeholder: v.matchPlaceholder });
+    match.dataset.rule = 'match';
+    match.addEventListener('change', () => void bridge.brain.updateRule(i, { match: match.value }).then(applyBrain));
+    const head = el('div', { className: 'card-head' }, match);
+    if (i > 0) head.append(button('↑', () => void bridge.brain.raiseRule(i).then(applyBrain), 'link'));
+    head.append(button(L('Удалить', 'Delete'), () => void bridge.brain.removeRule(i).then(applyBrain), 'link'));
+    card.append(head);
+    const row = el('div', { className: 'row' });
+    if (v.editVisible) {
+      const edit = selectOf(v.editChoices, r.edit, (x) => void bridge.brain.updateRule(i, { edit: x }).then(applyBrain));
+      edit.dataset.rule = 'edit';
+      row.append(edit);
+    }
+    const simple = selectOf(v.simpleChoices, r.simple, (x) => void bridge.brain.updateRule(i, { simple: x }).then(applyBrain));
+    simple.dataset.rule = 'simple';
+    row.append(simple);
+    card.append(row);
+    if (r.instructionVisible) {
+      const box = el('textarea', { value: r.instruction, spellcheck: false, rows: 3, placeholder: v.instructionPlaceholder });
+      box.dataset.rule = 'instruction';
+      box.addEventListener('change', () => void bridge.brain.updateRule(i, { instruction: box.value }).then((st) => { brainState = st; }));
+      card.append(box);
+    }
+    page.append(card);
+  });
+  if (v.last) page.append(el('p', { className: 'muted hint line', textContent: v.last }));
+  const act = el('div', { className: 'row' });
+  if (v.canAdd) {
+    const add = button(L('Добавить правило', 'Add a rule'), () => void bridge.brain.addRule().then(applyBrain));
+    add.dataset.rule = 'add';
+    act.append(add);
+    if (v.lastMatch) {
+      const name = v.lastMatch;
+      const quick = button(L(`Добавить для ${name}`, `Add for ${name}`), () => void bridge.brain.addRule(name).then(applyBrain));
+      quick.dataset.rule = 'add-last';
+      act.append(quick);
+    }
+  }
+  page.append(act);
 }
 
 

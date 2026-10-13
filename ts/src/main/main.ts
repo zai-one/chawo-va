@@ -7,6 +7,7 @@ import { registerFileIpc } from './fileIpc';
 import { registerSpeechIpc } from './speechIpc';
 import { registerDictionaryIpc } from './dictionaryIpc';
 import { registerBrainIpc } from './brainIpc';
+import type { LastApp } from './brain/brainPage';
 import * as LocalBrain from './brain/localBrain';
 import { registerDictationIpc } from './dictationIpc';
 import { registerNetworkIpc } from './networkIpc';
@@ -153,6 +154,8 @@ if (!app.requestSingleInstanceLock()) {
     // The floating pill: created lazily on the first take with «Показывать плашку» on.
     const overlay = new OverlayWindow({ get: () => settings, save: Settings.save });
     destroyOverlay = () => overlay.destroy();
+    // Per-app modes: the «Мозг» page shows which program the last take saw (memory only, never saved).
+    let lastApp: LastApp | null = null;
     // «История»: finished takes (text only) in a local file, as long as the user chose to keep them.
     const history = registerHistoryIpc(() => win, { get: () => settings });
     // «Продажи»: catalog page + the always-on-top card fed by live drafts (only in Sales mode).
@@ -160,6 +163,10 @@ if (!app.requestSingleInstanceLock()) {
     destroySalesCard = () => sales.card.destroy();
     const dictation = registerDictationIpc(() => win, { get: () => settings }, {
       overlay,
+      onApp: (app, ruleIndex) => {
+        lastApp = { app, ruleIndex };
+        if (win && !win.isDestroyed()) win.webContents.send('brain:state', brain.state());
+      },
       phase: showTrayPhase,
       record: (take) => history.record(take),
       keys: () => nativeHelper,
@@ -205,7 +212,7 @@ if (!app.requestSingleInstanceLock()) {
       beforeDelete: () => dictation.session.release(),
     });
     registerDictionaryIpc({ get: () => settings });
-    registerBrainIpc(() => win, { get: () => settings });
+    const brain = registerBrainIpc(() => win, { get: () => settings }, { lastApp: () => lastApp });
     win = createWindow();
     tray = createTray();
     nativeTheme.on('updated', () => {

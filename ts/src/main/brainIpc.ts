@@ -7,13 +7,13 @@ import { basename } from 'node:path';
 import { t } from '../core/strings';
 import * as Settings from './settings';
 import type { SettingsData } from './settings';
-import { BrainController, LOCAL_KINDS } from './brain/brainPage';
+import { BrainController, LOCAL_KINDS, type AppRulePatch, type LastApp } from './brain/brainPage';
 import * as LocalBrain from './brain/localBrain';
 
 export function registerBrainIpc(
   getWindow: () => BrowserWindow | null,
   settings: { get: () => SettingsData },
-  opts: { changed?: () => void } = {},
+  opts: { changed?: () => void; lastApp?: () => LastApp | null } = {},
 ): BrainController {
   let pushTimer: NodeJS.Timeout | null = null;
   const push = () => {
@@ -31,6 +31,7 @@ export function registerBrainIpc(
     changed: opts.changed,
     stopLocal: () => LocalBrain.stop(),
     download: (s, progress, signal) => LocalBrain.downloadAsync(s, progress, signal),
+    lastApp: opts.lastApp,
   });
   const str = (v: unknown) => (typeof v === 'string' ? v : '');
 
@@ -130,6 +131,31 @@ export function registerBrainIpc(
       if (w) await dialog.showMessageBox(w, msg);
       else await dialog.showMessageBox(msg);
     }
+    return ctl.state();
+  });
+  const idx = (v: unknown) => (typeof v === 'number' && Number.isInteger(v) && v >= 0 ? v : -1);
+  ipcMain.handle('brain:addRule', (_e, v: unknown) => {
+    ctl.addRule(str(v));
+    return ctl.state();
+  });
+  ipcMain.handle('brain:updateRule', (_e, i: unknown, patch: unknown) => {
+    if (patch && typeof patch === 'object') {
+      const p = patch as Record<string, unknown>;
+      const clean: AppRulePatch = {};
+      if (typeof p.match === 'string') clean.match = p.match;
+      if (p.edit === 'Default' || p.edit === 'Off' || p.edit === 'Custom') clean.edit = p.edit;
+      if (typeof p.instruction === 'string') clean.instruction = p.instruction;
+      if (p.simple === 'Default' || p.simple === 'On' || p.simple === 'Off') clean.simple = p.simple;
+      ctl.updateRule(idx(i), clean);
+    }
+    return ctl.state();
+  });
+  ipcMain.handle('brain:removeRule', (_e, i: unknown) => {
+    ctl.removeRule(idx(i));
+    return ctl.state();
+  });
+  ipcMain.handle('brain:raiseRule', (_e, i: unknown) => {
+    ctl.raiseRule(idx(i));
     return ctl.state();
   });
   ipcMain.handle('brain:close', () => {
