@@ -31,7 +31,7 @@ Re-align folder names and tooling with taptain-desktop once its layout is readab
 | App/BrainProviders.cs, SpeechCleanup.cs, Brain.cs, FileBrain.cs, LocalBrain.cs | src/main/brain/ | ✅ providers/cleanup/Brain/FileBrain + tests; LocalBrain helpers ✅, download (Range resume, mirrors, SHA, engine unpack) ✅, llama-server process (start/health/GPU→CPU fallback/idle stop/kill on exit) ✅ + tests; Windows job object ⏳ |
 | App/Recorder.cs | src/core/takeBuffer.ts (accumulator, adaptive VU meter, 5-min cap, take checks) + src/renderer/mic-processor.js (AudioWorklet, 16 kHz mono, 40 ms chunks) | ✅ ported + tests; waveIn/WASAPI replaced by getUserMedia |
 | App/KeyboardHook.cs | native helper (see «Hold-to-talk hotkey» below); in-window hold button meanwhile | ⏳ designed, not built |
-| App/TextInserter.cs, SelectionReader.cs, Native.cs | native helper + clipboard | ⏳ (takes are copied to the clipboard and shown on the page for now) |
+| App/TextInserter.cs, SelectionReader.cs, Native.cs | native helper + clipboard | ⏳ (takes are copied to the clipboard and shown on the page for now); SelectionReader ✅ `native/win/SelectionReader.cs` (`selread`) + `NativeHelper.readSelection` (branch `ts/feat-selection`) |
 | App/HermesServer.cs | src/main/network/hermesServer.ts (Node `http`, no framework) | ✅ ported + tests (health, raw/multipart POST, 400/403/404/503, Content-Length rules, ephemeral port) |
 | App.HermesTranscribe | src/main/network/hermesTranscribe.ts (reuses DictationSession's recognizer, opens it from disk if needed, piece by piece, «model unloaded» on swap) | ✅ ported + tests |
 | App/HermesFirewall.cs | src/main/network/hermesFirewall.ts | ✅ Windows: same netsh script + one elevated powershell (exit code decides), WF.msc console; elsewhere a no-op (the page says the OS firewall is the user's call) + tests |
@@ -46,7 +46,7 @@ Re-align folder names and tooling with taptain-desktop once its layout is readab
 | SettingsWindow speech page, App.SpeechStatusText / DownloadSpeechAsync / DeleteSpeechModelAsync | src/main/speech/speechPage.ts (SpeechController), src/main/speechIpc.ts | ✅ ported + tests (live session line comes from DictationSession; GPU warmup ⏳) |
 | SettingsWindow dictionary page (FillDictionaryRows / PersistDictionary / SuggestDictionary_Click / AddSuggestion_Click) | src/main/dictionary/dictionaryPage.ts (DictionaryController), src/main/dictionaryIpc.ts | ✅ ported + tests |
 | SettingsWindow dictation page (Localize dictation block, FillStartCard, Mode/Hotkey/Insert/Overlay/Mic handlers, SetPhase), App.SetPhase | src/main/dictation/dictationPage.ts (DictationController), src/main/dictationIpc.ts | ✅ ported + tests (language box, copy-to-clipboard options, autostart, updates, unpin not on this page yet) |
-| App.HandlePressAsync / HandleReleaseAsync / RunBrainAsync / RequestStop / StartPartials / PartialTickAsync / ReloadSpeechAsync / SpeechStatusText | src/main/dictation/dictationSession.ts (DictationSession) | ✅ local or Client (RemoteSpeech) take → dictionary → Brain (every take / «Чаво, …») → simple syntax → clipboard, live drafts on the pill (remote too), cancel aborts the Brain / the host request + tests; Brain on a selection, ConfirmBrainMemory, sales card ⏳ |
+| App.HandlePressAsync / HandleReleaseAsync / RunBrainAsync / RequestStop / StartPartials / PartialTickAsync / ReloadSpeechAsync / SpeechStatusText | src/main/dictation/dictationSession.ts (DictationSession) | ✅ local or Client (RemoteSpeech) take → dictionary → Brain (every take / «Чаво, …») → simple syntax → clipboard, live drafts on the pill (remote too), cancel aborts the Brain / the host request + tests; Brain on a selection ✅ (`ts/feat-selection`); ConfirmBrainMemory, sales card ⏳ |
 | SettingsWindow brain page (Localize brain part / UpdateBrainTexts / FillBrainModelRows), BrainServerPanel, App.SelectBrainAsync | src/main/brain/brainPage.ts (BrainController), src/main/brainIpc.ts | ✅ ported + tests; «Скачать» / «Скачать движок» on the rows + in-page «Скачиваю Мозг» card (progress, cancel, retry) ✅ |
 | App.RunFileQueueAsync / RunQueue / RunOneFile / TranscribeLocal / TranscribeRemote | src/main/file/fileRunner.ts, localTranscriber.ts, remoteTranscriber.ts, src/main/fileIpc.ts | ✅ local and Client paths + Brain hook (cloud and local FileBrain); a host error ends the run like WPF |
 | App/Strings.cs | src/core/strings.ts (ru/en `t()`) | ✅ ported |
@@ -407,3 +407,34 @@ Re-align folder names and tooling with taptain-desktop once its layout is readab
   is not exercised for real (the hook ignores injected keys; needs a Windows keyboard), clipboard
   history wait is the registry approximation, SelectionReader (UI Automation first) + Brain on a
   selection, caret-placed pill and the llama-server job object are the next native pieces.
+- 2026-10-13 tick (branch `ts/feat-selection`, stacked on `ts/feat-win-native` because it needs the
+  helper; IDEAS.md №5 = top-8 «Команда над выделенным текстом»): port of SelectionReader + the
+  selection branch of HandleReleaseAsync + HintSelectionAsync. Helper: new `selread <id>` → `sel <id>
+  <b64|->` (`native/win/SelectionReader.cs`): foreground terminal classes skipped, UI Automation
+  (`AutomationElement.FocusedElement` → TextPattern.GetSelection, ≤ 20 000 chars) on its own MTA thread
+  with a 1.2 s wait and a hung-read guard; «nothing selected» from UIA is believed (VS Code), Ctrl+C
+  with the clipboard put back only for apps that do not expose TextPattern, never for spreadsheets
+  (XLMAIN, LibreOffice/OpenOffice/WPS Calc). `Read()` is NoInlining inside a try, so a missing
+  UIAutomationClient (Wine) logs «UI Automation unavailable» instead of killing the helper (it did
+  exit with code 1 before that fix in the Wine run). App: `NativeHelper.readSelection()` (never
+  rejects; null on nothing/blank/helper down/1.8 s timeout; a second read is not sent while one
+  hangs). DictationSession: a global-key take with `BrainOnSelection` on and the Brain usable starts
+  the read at key-down; when it lands while listening the pill shows «Выделено N знаков. Скажите, что с
+  ними сделать» (the page status without the pill); at release, after the dictionary, a selection
+  makes the take a Brain command on it (`stripAddress`, so «Чаво,» is optional; `transform(...,
+  selection=true)` = the WPF SelectionPrompt / LocalSelection), simple syntax skipped, the answer
+  pasted over the selection with «Готово. Вернуть как было: Ctrl+Z»; a Brain failure or an empty answer
+  inserts nothing («Мозг не справился: … Выделенный текст не тронут.»); Escape while reading drops it.
+  The in-window button never reads a selection. The «Мозг» checkbox for it is now shown only on Windows.
+  Tests: `dictationSelection.test.ts` (13), nativeHelper readSelection (3: text/none/blank, hang +
+  no pile-up + helper still answers, slow-in-time + not started), protocol encode, brainPage
+  visibility; 359 green + 1 skipped (342 on `ts/feat-win-native`). Real run (`scripts/smoke-native-wine.cjs`,
+  real ChawoNative.exe under Wine + Xvfb, WinForms target got `selectfirst n` / `deselect`): first 6
+  chars selected → readSelection «Привет» via the Ctrl+C fallback, clipboard back to «OLD clipboard»,
+  Paste of «Здравствуйте» replaced exactly the selection; nothing selected → null and the clipboard
+  untouched; the whole take through the real DictationSession (fake recognizer «Чаво, сделай
+  заглавными.», fake Brain) → Brain got {body «Здравствуйте», command «сделай заглавными», selection}
+  → «ЗДРАВСТВУЙТЕ, мир 👋…» in the target, Ctrl+Z hint, clipboard restored — ALL PASS. Gaps: the UI
+  Automation path needs a real Windows run (wine-mono has no UIAutomationClient), so do Word / Chrome /
+  VS Code / Excel (must be skipped) by hand there; the read races the user's still-held hold key (same
+  as WPF: Ctrl+C is sent while Right Ctrl is down).

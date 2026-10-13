@@ -94,6 +94,38 @@ describe('NativeHelper', () => {
     expect(await h.copySelection()).toBeNull();
   });
 
+  it('readSelection: the selected text through selread; nothing selected or blank → null', async () => {
+    const a = make({ FAKE_SEL: 'выделено в Word' });
+    await a.h.start();
+    expect(await a.h.readSelection()).toBe('выделено в Word');
+    expect(a.logs.some((l) => l.includes('got selread'))).toBe(true);
+    const b = make();
+    await b.h.start();
+    expect(await b.h.readSelection()).toBeNull();
+    const c = make({ FAKE_SEL: '   ' });
+    await c.h.start();
+    expect(await c.h.readSelection()).toBeNull();
+  });
+
+  it('readSelection: a hung app → null after the timeout, and no second read piles up behind it', async () => {
+    const { h, logs } = make({ FAKE_SEL: 'HANG' });
+    await h.start();
+    const t0 = Date.now();
+    expect(await h.readSelection(150)).toBeNull();
+    expect(Date.now() - t0).toBeLessThan(1000);
+    expect(await h.readSelection(150)).toBeNull(); // still in flight: not even sent
+    expect(logs.filter((l) => l.includes('got selread')).length).toBe(1);
+    expect(await h.ping()).toBe(true); // the helper still answers other requests
+  });
+
+  it('readSelection: a slow but in-time answer is used; the helper not running → null, never throws', async () => {
+    const a = make({ FAKE_SEL: 'медленно', FAKE_SEL_DELAY: '80' });
+    await a.h.start();
+    expect(await a.h.readSelection(1000)).toBe('медленно');
+    const b = make();
+    expect(await b.h.readSelection()).toBeNull(); // not started
+  });
+
   it('key down / up / Escape events reach the app; a stray up without down is ignored', async () => {
     const { h, raw, events } = make();
     await h.start();

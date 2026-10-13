@@ -12,6 +12,7 @@ export type HelperCommand =
   | { kind: 'arm'; on: boolean }
   | { kind: 'insert'; id: number; mode: InsertMode; keep: boolean; restore: boolean; text: string }
   | { kind: 'copysel'; id: number }
+  | { kind: 'selread'; id: number }
   | { kind: 'fg'; id: number }
   | { kind: 'ping'; id: number }
   | { kind: 'quit' };
@@ -40,6 +41,7 @@ export function encode(c: HelperCommand): string {
     case 'arm': return `arm ${bit(c.on)}\n`;
     case 'insert': return `insert ${c.id} ${c.mode} ${bit(c.keep)} ${bit(c.restore)} ${toB64(c.text)}\n`;
     case 'copysel': return `copysel ${c.id}\n`;
+    case 'selread': return `selread ${c.id}\n`;
     case 'fg': return `fg ${c.id}\n`;
     case 'ping': return `ping ${c.id}\n`;
     case 'quit': return 'quit\n';

@@ -99,6 +99,8 @@ export interface BrainPageHooks {
   deviceNote?: () => string | null;
   fetch?: FetchLike;
   timer?: TimerLike;
+  /** The selection is read by the Windows helper only: the checkbox is hidden elsewhere. */
+  platform?: NodeJS.Platform;
   installed?: () => LocalBrain.InstalledGguf[];
   isReady?: (s: SettingsData) => boolean;
   /** Key debounce, WPF 600 ms. */
@@ -656,7 +658,7 @@ export class BrainController {
         ),
       },
       selection: {
-        visible: b !== 'Off',
+        visible: b !== 'Off' && (this.h.platform ?? process.platform) === 'win32',
         on: s.BrainOnSelection,
         hint: t(
           'Выделите текст, зажмите клавишу и скажите, что сделать. Выключите, если хотите диктовать поверх выделения.',
