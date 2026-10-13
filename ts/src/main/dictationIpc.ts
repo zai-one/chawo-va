@@ -48,7 +48,7 @@ export interface DictationIpc {
 export function registerDictationIpc(
   getWindow: () => BrowserWindow | null,
   settings: { get: () => SettingsData },
-  opts: { changed?: () => void; overlay?: OverlayWindow; sales?: (transcript: string) => void keys?: () => GlobalKeys | null } = {},
+  opts: { changed?: () => void; overlay?: OverlayWindow; sales?: (transcript: string) => void; keys?: () => GlobalKeys | null } = {},
 ): DictationIpc {
   const send = (channel: string, payload: unknown) => {
     const w = getWindow();
