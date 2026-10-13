@@ -228,6 +228,22 @@ export function getDiarizeRuntime(): DiarizeRuntime {
   return shared;
 }
 
+/**
+ * The file diarization hook (fileRunner `runDiarize`, `chawo-va transcribe`): null when the models or
+ * sherpa-onnx are not there (caller notes it softly), else the spans. Never downloads.
+ */
+export function diarizeHook(
+  runtime: () => DiarizeRuntime = getDiarizeRuntime,
+  statusLine: () => string = () => 'Разделяю спикеров…',
+): (pcm: Float32Array, status: (line: string) => void, signal: AbortSignal) => Promise<DiarSpan[] | null> {
+  return async (pcm, status, signal) => {
+    const diar = runtime();
+    if (!diar.ready) return null;
+    status(statusLine());
+    return diar.run(pcm, signal);
+  };
+}
+
 /** Tests swap the app-wide runtime. */
 export function setDiarizeRuntime(r: DiarizeRuntime | null): void {
   shared = r;

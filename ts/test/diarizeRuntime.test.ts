@@ -94,3 +94,21 @@ describe('unpackTarBz2Flat', () => {
     expect(readFileSync(join(out, 'model.onnx'), 'utf8')).toBe('hello-onnx');
   });
 });
+
+describe('diarizeHook (shared by the file page and chawo-va transcribe)', () => {
+  it('null when not ready (soft), else status line + spans from the runtime', async () => {
+    const { diarizeHook } = await import('../src/main/diarize/diarizeRuntime');
+    const missing = diarizeHook(() => new DiarizeRuntime(() => null, () => ({ process: () => [] })));
+    const said: string[] = [];
+    expect(await missing(new Float32Array(16000), (l) => said.push(l), new AbortController().signal)).toBeNull();
+    expect(said).toEqual([]);
+
+    const paths = { segmentation: '/m/model.onnx', embedding: '/m/e.onnx' };
+    const ready = diarizeHook(
+      () => new DiarizeRuntime(() => paths, () => ({ process: (pcm) => [{ start: 0, end: pcm.length / 16000, speaker: 4 }] })),
+      () => 'Separating speakers…',
+    );
+    expect(await ready(new Float32Array(32000), (l) => said.push(l), new AbortController().signal)).toEqual([{ start: 0, end: 2, speaker: 4 }]);
+    expect(said).toEqual(['Separating speakers…']);
+  });
+});

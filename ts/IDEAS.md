@@ -95,6 +95,7 @@ GPL-проекты — только как источник идей, код н�
 - Источник: [OpenWhispr](https://github.com/OpenWhispr/openwhispr), [vibe](https://github.com/thewh1teagle/vibe), [Buzz](https://github.com/chidiwilliams/buzz).
 - Реализация (ветка `ts/feat-diarization`): `src/core/diarize.ts` — `assignSpeakers` по максимальному пересечению во времени + remap id по первому появлению; `TranscriptSegment.speaker?`; `toTxt`/`toSrt` префиксуют «Спикер N:» (1-based), когда хоть у одного сегмента есть speaker. Runtime: `sherpa-onnx-node` `OfflineSpeakerDiarization` (lazy require), модели pyannote segmentation + 3D-Speaker embedding в `%LOCALAPPDATA%/…/models/diarization/` (скачивание по кнопке, не в репо). Настройка `FileDiarize` (default false), чекбокс «Разделять спикеров» на «Расшифровка файла», после локальной расшифровки — diarize PCM → assign → запись; без моделей очередь не падает.
 - Тесты: assignSpeakers/formats/settings/fileRunner (fake diarizer); smoke `scripts/smoke-diarize.cjs` (четыре спикера wav).
+- ✅ CLI-паритет 2026-10-13 (ветка `ts/feat-cli-diarize`): `chawo-va transcribe … --diarize` / `--no-diarize` (без флага — `FileDiarize` из настроек); тот же хук (`diarizeHook`) и `applyDiarization`/`assignSpeakers`, что у страницы; без моделей — расшифровка без спикеров и пометка «спикеры: модели не скачаны», код выхода 0. «Спикер N:» теперь и в .vtt/.md/.docx, в .json — поле `speaker` (и на странице, и в CLI).
 
 
 ### 12. ✅ DONE — Импорт по URL (YouTube и т.п.) (M)
@@ -136,5 +137,7 @@ GPL-проекты — только как источник идей, код н�
 CLI-паритет уже сделанного (правило пользователя: всё, что имеет смысл без окна, — и в `chawo-va`):
 - ✅ экспорт VTT/JSON/MD/DOCX (`-f`) — `ts/feat-cli-formats`;
 - ✅ история: список и поиск (`chawo-va history`) — `ts/feat-cli-history`;
-- ⏳ VAD, голосовая пунктуация/числа, диаризация, по ссылке (yt-dlp), проход Мозга/сводка для файлов.
+- ✅ VAD: длинные файлы режутся по паузам Silero, как на странице (`fileRanges`), `--vad` / `--no-vad`, без флага — `VadEnabled`; модель VAD CLI не скачивает — `ts/feat-cli-diarize`;
+- ✅ диаризация: `--diarize` / `--no-diarize`, без флага — «Разделять спикеров» (`FileDiarize`) — `ts/feat-cli-diarize`;
+- ⏳ голосовая пунктуация/числа, по ссылке (yt-dlp), проход Мозга/сводка для файлов.
 

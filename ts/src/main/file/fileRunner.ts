@@ -271,27 +271,9 @@ export class FileRunner {
 
     const notes = [clock(samples.length / 16000)];
     if (opts.diarize) {
-      if (this.d.runDiarize) {
-        try {
-          const spans = await this.d.runDiarize(samples, (line) => this.say(prefix + line), signal);
-          if (signal.aborted) throw abortError();
-          if (spans === null) {
-            notes.push(t('спикеры: модели не скачаны', 'speakers: models not downloaded'));
-          } else if (spans.length > 0) {
-            segments = assignSpeakers(segments, spans);
-            notes.push(t('спикеры', 'speakers'));
-          } else {
-            notes.push(t('спикеры: нет сегментов', 'speakers: no segments'));
-          }
-        } catch (e) {
-          if (isAbort(e, signal)) throw e;
-          const msg = message(e);
-          Log.write(`file diarize ${item.path}: ${msg}`);
-          notes.push(t(`спикеры: ${msg}`, `speakers: ${msg}`));
-        }
-      } else {
-        notes.push(t('спикеры: модели не скачаны', 'speakers: models not downloaded'));
-      }
+      const r = await applyDiarization(segments, samples, this.d.runDiarize, (line) => this.say(prefix + line), signal, item.path);
+      segments = r.segments;
+      notes.push(r.note);
     }
 
     let txt = toTxt(segments, opts.timestamps);
@@ -360,4 +342,37 @@ function abortError(): Error {
   const e = new Error('Operation canceled');
   e.name = 'AbortError';
   return e;
+}
+
+/**
+ * Speakers onto the segments after transcription — the page and `chawo-va transcribe` share it.
+ * Soft by design: no hook / models not downloaded / no spans / a backend error leave the segments as
+ * they are and only say so in the note; an abort is rethrown.
+ */
+export async function applyDiarization(
+  segments: TranscriptSegment[],
+  samples: Float32Array,
+  hook: FileDiarizeHook | undefined,
+  status: (line: string) => void,
+  signal: AbortSignal,
+  source: string,
+  tr: (ru: string, en: string) => string = t,
+): Promise<{ segments: TranscriptSegment[]; note: string; ok: boolean }> {
+  const missing = tr('спикеры: модели не скачаны', 'speakers: models not downloaded');
+  if (!hook) return { segments, note: missing, ok: false };
+  try {
+    const spans = await hook(samples, status, signal);
+    if (signal.aborted) throw abortError();
+    if (spans === null) {
+      Log.write(`file diarize ${source}: models not ready, no speakers`);
+      return { segments, note: missing, ok: false };
+    }
+    if (spans.length === 0) return { segments, note: tr('спикеры: нет сегментов', 'speakers: no segments'), ok: false };
+    return { segments: assignSpeakers(segments, spans), note: tr('спикеры', 'speakers'), ok: true };
+  } catch (e) {
+    if (isAbort(e, signal)) throw e;
+    const msg = message(e);
+    Log.write(`file diarize ${source}: ${msg}`);
+    return { segments, note: tr(`спикеры: ${msg}`, `speakers: ${msg}`), ok: false };
+  }
 }

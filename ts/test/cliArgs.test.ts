@@ -139,6 +139,27 @@ describe('langFromArgv', () => {
     expect(langFromArgv(['transcribe', '--lang'])).toBeNull();
   });
 
+  it('--vad / --no-vad / --diarize / --no-diarize: transcribe only, null = settings, not both', () => {
+    expect(ok(['transcribe', 'a.wav'])).toMatchObject({ vad: null, diarize: null });
+    expect(ok(['transcribe', 'a.wav', '--vad', '--diarize'])).toMatchObject({ vad: true, diarize: true });
+    expect(ok(['transcribe', 'a.wav', '--no-vad', '--no-diarize'])).toMatchObject({ vad: false, diarize: false });
+    expect(ok(['transcribe', '--diarize', 'a.wav', '-f', 'srt'])).toMatchObject({ diarize: true, inputs: ['a.wav'], formats: ['srt'] });
+    expect(ok(['transcribe', '--', '--diarize']).inputs).toEqual(['--diarize']);
+    expect(err(['transcribe', 'a.wav', '--vad', '--no-vad'])).toContain('--vad and --no-vad cannot be used together');
+    expect(err(['transcribe', 'a.wav', '--no-diarize', '--diarize'])).toContain('--diarize and --no-diarize cannot be used together');
+    expect(err(['transcribe', 'a.wav', '--diarize=yes'])).toContain('--diarize takes no value');
+    expect(err(['brief', 'a.txt', '--diarize'])).toContain('are for transcribe');
+    expect(err(['translate', 'a.txt', '--no-vad'])).toContain('are for transcribe');
+    expect(err(['history', '--diarize'])).toContain('are for transcribe');
+    for (const lang of ['ru', 'en'] as const) {
+      const help = helpText((ru, en) => (lang === 'ru' ? ru : en));
+      for (const flag of ['--vad', '--no-vad', '--diarize', '--no-diarize']) expect(help).toContain(flag);
+      expect(help).toContain('Спикер 1');
+    }
+    expect(helpText((ru) => ru)).toContain('разделять спикеров');
+    expect(helpText((_ru, en) => en)).toContain('separate speakers');
+  });
+
   it('--post-script / --no-post-script: transcribe only, not both', () => {
     expect(ok(['transcribe', 'a.wav']).postScript).toBeNull();
     expect(ok(['transcribe', 'a.wav']).noPostScript).toBe(false);

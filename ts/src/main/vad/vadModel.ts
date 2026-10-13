@@ -200,7 +200,7 @@ export function setVadRuntime(r: VadRuntime | null): void {
  * VAD off, no model, a load error, or no speech found at all (then pauses tell nothing).
  */
 export async function filePauses(
-  s: SettingsData,
+  s: Pick<SettingsData, 'VadEnabled'>,
   samples: Float32Array,
   rate: number,
   opts: { signal?: AbortSignal; onStart?: () => void; runtime?: VadRuntime } = {},

@@ -896,3 +896,35 @@ Re-align folder names and tooling with taptain-desktop once its layout is readab
   2.»; `--lang ru --raw мозг` → «Мозг: Русский язык — это» + «Распознано: Русский язык — это»; `-n 1
   --json` → одна строка JSON; `абракадабра` → «Nothing found (2 phrases in all).»; HistoryKeep Off →
   «History is off…»; `history --stdout` и `transcribe a.wav --json` → exit 2; sha256 файла не изменился.
+
+- 2026-10-13 tick: PR #19 (`ts/feat-cli-history`) слит в `ts-port`. Дальше CLI-паритет VAD и диаризации, ветка
+  `ts/feat-cli-diarize`. Общее ядро вынесено, чтобы страница и CLI шли одним кодом: `localTranscriber.fileRanges`
+  (Silero-паузы для файла длиннее одного куска при `VadEnabled` и модели на диске, иначе разрез по громкости;
+  VAD не скачивает), `fileRunner.applyDiarization` (хук → `assignSpeakers`, мягкие пометки «спикеры: модели не
+  скачаны / нет сегментов / ошибка», abort пробрасывается) и `diarize.diarizeHook` (null, если моделей или
+  sherpa-onnx нет). `fileIpc` и `FileRunner` перешли на них без смены поведения. CLI: `src/cli/engine.ts`
+  (`engineFromJob` поверх FileJob через `fileRanges`, строка «Ищу паузы в речи…»), `EngineConfig.vad`,
+  `CliDefaults.vad/diarize` из settings.json (`VadEnabled`, `FileDiarize`, только чтение), флаги `--vad` /
+  `--no-vad`, `--diarize` / `--no-diarize` (только transcribe, пара вместе — exit 2), справка ru/en.
+  Диаризация в CLI — после расшифровки и до «Своего скрипта», как на странице; без моделей .txt пишется без
+  спикеров, пометка в строке «Готово», лог `file diarize …: models not ready`, код выхода 0. Заодно «Спикер N:»
+  попал в .vtt/.md/.docx, а в .json — поле `speaker` (1-based) (раньше только .txt/.srt; и для страницы).
+  Тесты: cliEngine (5: длинный файл + VAD → паузы в splitRanges и статус, VAD выкл. → без пауз, короткий файл
+  паузы не ищет, настоящий `filePauses` с фейковой Silero-сессией и без модели — без скачивания, abort/dispose),
+  cli (+8: `--diarize` с фейковым диаризатором → txt/srt/md/vtt/json/--stdout, FileDiarize из настроек и
+  `--no-diarize`, модели не скачаны / нет хука → exit 0 с пометкой, ошибка/пусто, спикеры до скрипта, Ctrl+C
+  во время диаризации → 130, `vad` в EngineConfig из настроек/флагов + строки статуса движка, readDefaults),
+  cliArgs (+1), transcriptExport (+2), diarizeRuntime (+1). 789 зелёные (772 до), `tsc`/build чистые.
+  Live CLI (настоящая v3_e2e_rnnt на CPU, `--model-dir`): ru30.wav `--no-diarize` — как раньше; two.wav (50 с:
+  ru30 + piper + them, склейка ffmpeg) `--diarize` без моделей → «speakers: models not downloaded», exit 0;
+  с настоящими моделями sherpa-onnx (`CHAWO_DIAR_DIR`: pyannote segmentation 3.0 + 3D-Speaker) → «Разделяю
+  спикеров…», «Спикер 1:» / «Спикер 2:» в txt/srt, `speaker` 1/2/2 в json, 16 с; FileDiarize в settings.json
+  без флага → спикеры в `--stdout`, `--no-diarize` их снимает, sha256 settings.json не изменился. long300.wav
+  (5 мин) с `CHAWO_VAD_MODEL`: «Finding pauses in speech…», лог `vad file 300s segments=140 pauses=75`, 15
+  кусков против 14 при `--no-vad`; `--vad` без модели — разрез по громкости, папка models не создана. GUI
+  под xvfb (`scripts/smoke-diarize-gui.cjs`, новые общие функции): «Разделять спикеров» + .vtt/.json/.md,
+  two.wav и long300.wav → строки «00:00:50 · speakers · .vtt · .json · .md», «Спикер N:» во всех форматах, в
+  логе те же `vad file 300s … pauses=75` и `pieces=15`. Gaps: деление по спикерам по кускам расшифровки (как и
+  на странице) — кусок, где говорят двое, получает того, кто говорит дольше; remote/Client по-прежнему без
+  диаризации; smoke-скрипт под xvfb не закрывает Electron сам (обработка закончилась за 127 с, процесс снят
+  timeout), на результат не влияет.

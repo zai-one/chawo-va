@@ -9,6 +9,7 @@ import type { FileParallelismKind } from '../core/fileParallel';
 import type { CtcScript, SpeechDeviceKind, SpeechModelKind } from '../core/speechModels';
 import { clock, toSrt, toTxt, type TranscriptSegment } from '../core/transcriptFormat';
 import { writeExtras } from '../main/file/transcriptExport';
+import { applyDiarization, type FileDiarizeHook } from '../main/file/fileRunner';
 import { helpText, langFromArgv, parseArgs, type CliOptions } from './args';
 import { HistoryStore, keepMs, type HistoryEntry, type HistoryKeep } from '../main/history/historyStore';
 import { FILE_TIMEOUT_MS, failureText, logLine, runPostScript, scriptCommand, type PostScriptResult, type PostScriptRun } from '../core/postScript';
@@ -32,6 +33,10 @@ export interface CliDefaults {
   postScript?: string | null;
   /** «История → Хранить»; entries older than it are not shown (the app deletes them). */
   historyKeep?: HistoryKeep;
+  /** settings VadEnabled: Silero pauses for long files when its model is on disk (default true). */
+  vad?: boolean;
+  /** settings FileDiarize: «Разделять спикеров» (default false). */
+  diarize?: boolean;
 }
 
 export interface EngineConfig {
@@ -40,6 +45,8 @@ export interface EngineConfig {
   device: SpeechDeviceKind;
   threads: FileParallelismKind;
   script: CtcScript;
+  /** Silero VAD pauses for long files (only when the model is on disk; never downloaded here). */
+  vad: boolean;
 }
 
 export interface Engine {
@@ -50,6 +57,8 @@ export interface Engine {
     samples: Float32Array,
     progress: (done: number, total: number, audioSec: number, wallSec: number) => void,
     signal: AbortSignal,
+    /** One-off status lines, e.g. «Ищу паузы в речи…». */
+    status?: (line: string) => void,
   ): Promise<TranscriptSegment[]>;
   dispose(): Promise<void>;
 }
@@ -104,6 +113,11 @@ export interface CliDeps {
   briefBrain(): BriefBrain;
   /** Brain for `translate` (Local / Server). Tests inject a fake ask. */
   translateBrain(): TranslateBrain;
+  /**
+   * Speaker diarization, the same hook as the page (`diarizeHook`): null when the models / sherpa-onnx
+   * are not there (soft: the transcript is written without speakers). Tests inject a fake diarizer.
+   */
+  runDiarize?: FileDiarizeHook;
   /** «Свой скрипт» runner; defaults to core runPostScript (tests may inject). */
   runScript?: (r: PostScriptRun) => Promise<PostScriptResult>;
   /** history.jsonl of the app (read, never written by the CLI). */
@@ -418,6 +432,8 @@ async function transcribe(o: CliOptions, defaults: CliDefaults, d: CliDeps): Pro
   const formats = o.formats.length > 0 ? o.formats : (['txt'] as const);
   const timestamps = o.timestamps ?? defaults.timestamps;
   const script = o.noPostScript ? null : scriptCommand(o.postScript ?? defaults.postScript ?? null);
+  const vad = o.vad ?? defaults.vad ?? true;
+  const diarize = o.diarize ?? defaults.diarize ?? false;
   // Output collisions and --skip-existing are settled before any model is loaded.
   const targets = new Map<string, string>();
   const work: { src: string; txt: string; prefix: string }[] = [];
@@ -466,6 +482,7 @@ async function transcribe(o: CliOptions, defaults: CliDefaults, d: CliDeps): Pro
       device: o.device ?? defaults.device,
       threads: o.threads ?? defaults.threads,
       script: o.script ?? defaults.script,
+      vad,
     });
     say(t(`Устройство: ${engine.device} · ${engine.summary}`, `Device: ${engine.device} · ${engine.summary}`));
 
@@ -477,7 +494,7 @@ async function transcribe(o: CliOptions, defaults: CliDefaults, d: CliDeps): Pro
         const samples = await d.load16k(src, d.signal);
         if (samples.length === 0) throw new Error(t('В файле нет звука.', 'The file has no audio.'));
         let drawn = false;
-        const segments = await engine.transcribe(
+        let segments = await engine.transcribe(
           samples,
           (done, total, audioSec, wallSec) => {
             if (o.quiet || !d.isTTY) return;
@@ -485,11 +502,23 @@ async function transcribe(o: CliOptions, defaults: CliDefaults, d: CliDeps): Pro
             drawn = true;
           },
           d.signal,
+          (line) => {
+            if (drawn) d.err('\r\x1b[2K');
+            drawn = false;
+            say(prefix + line);
+          },
         );
         if (drawn) d.err('\r\x1b[2K');
         if (d.signal.aborted) break;
-        let text = toTxt(segments, timestamps);
         const notes = [clock(samples.length / RATE)];
+        // «Разделять спикеров»: the same hook and assignSpeakers as the page; soft when models are missing.
+        if (diarize) {
+          const r = await applyDiarization(segments, samples, d.runDiarize, (line) => say(prefix + line), d.signal, src, t);
+          if (d.signal.aborted) break;
+          segments = r.segments;
+          notes.push(r.note);
+        }
+        let text = toTxt(segments, timestamps);
         if (script) {
           const res = await (d.runScript ?? runPostScript)({ command: script, text, source: 'file', file: src, timeoutMs: FILE_TIMEOUT_MS, signal: d.signal });
           if (d.signal.aborted) break;
