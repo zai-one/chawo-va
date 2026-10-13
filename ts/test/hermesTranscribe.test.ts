@@ -100,3 +100,34 @@ describe('makeHermesTranscribe (App.HermesTranscribe)', () => {
     expect(sess.current()).toBeNull();
   });
 });
+
+describe('makeHermesTranscribe + VAD pauses', () => {
+  it('long audio asks the pauses hook and passes them to pieceRanges; short audio does not', async () => {
+    const got: (readonly number[] | undefined)[] = [];
+    class PRec extends Rec {
+      pieceRanges(s: Float32Array, pauses?: readonly number[]) {
+        got.push(pauses);
+        return super.pieceRanges(s);
+      }
+    }
+    let asked = 0;
+    const tr = makeHermesTranscribe({
+      current: () => rec,
+      modelName: () => 'X',
+      pauses: async () => { asked++; return [12.5, 30]; },
+    });
+    const rec = new PRec();
+    await tr(wav(40));
+    expect(asked).toBe(1);
+    expect(got[0]).toEqual([12.5, 30]);
+    await tr(wav(3));
+    expect(asked).toBe(1);
+    expect(got[1]).toBeUndefined();
+  });
+
+  it('a failing pauses hook keeps the energy split', async () => {
+    const rec = new Rec();
+    const tr = makeHermesTranscribe({ current: () => rec, modelName: () => 'X', pauses: async () => { throw new Error('vad'); } });
+    expect((await tr(wav(40))).error).toBeNull();
+  });
+});

@@ -5,3 +5,4 @@ export { listZip, readEntry, extractEntry } from './zip';
 export * from './fileRunner';
 export * from './localTranscriber';
 export * from './remoteTranscriber';
+export * from './transcriptExport';
