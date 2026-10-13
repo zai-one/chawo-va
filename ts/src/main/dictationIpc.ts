@@ -12,10 +12,26 @@ import * as Settings from './settings';
 import type { SettingsData } from './settings';
 import { lastTakePath } from './paths';
 import { DictationController, type MicDevice } from './dictation/dictationPage';
-import { DictationSession } from './dictation/dictationSession';
+import { DictationSession, type TakeRecord } from './dictation/dictationSession';
 import type { OverlayWindow } from './overlay/overlayWindow';
 import type { ForegroundApp } from '../core/appRules';
 import { detectForeground } from './foreground/foregroundApp';
+import { CueTracker, cueTones, type CuePhase } from '../core/cues';
+import type { GlobalKeyState } from './dictation/dictationPage';
+import type { TextInserterLike } from './native/nativeHelper';
+import * as Log from './log';
+
+/** The part of NativeHelper the dictation IPC uses (tests: a fake). */
+export interface GlobalKeys extends TextInserterLike {
+  readonly keyWorks: boolean;
+  readonly state: 'off' | 'starting' | 'ready' | 'failed';
+  readonly hookFailure: string;
+  setHotkey(vk: number): void;
+  armCancel(on: boolean): void;
+}
+
+/** If the window never stops the mic after a key-up (reloaded, hung), recognize what we have. */
+const HOT_STOP_FALLBACK_MS = 3000;
 
 /** One chunk is ~640 samples; anything far bigger is not from our worklet. */
 const MAX_CHUNK = 16000;
@@ -24,25 +40,40 @@ const LEVEL_MS = 50;
 export interface DictationIpc {
   controller: DictationController;
   session: DictationSession;
+  /** Global hold key events from the Windows helper. */
+  hotDown: () => void;
+  hotUp: () => void;
+  hotEscape: () => void;
+  /** The helper's state changed: redraw the page. */
+  keysChanged: () => void;
 }
 
 export function registerDictationIpc(
   getWindow: () => BrowserWindow | null,
   settings: { get: () => SettingsData },
-  opts: {
-    changed?: () => void;
-    overlay?: OverlayWindow;
-    /** Per-app modes: the program seen at the last take and the rule that fired. */
-    onApp?: (app: ForegroundApp | null, ruleIndex: number | null) => void;
-  } = {},
+  opts: { changed?: () => void; overlay?: OverlayWindow; sales?: (transcript: string) => void; keys?: () => GlobalKeys | null; record?: (take: TakeRecord) => void; phase?: (phase: CuePhase) => void; onApp?: (app: ForegroundApp | null, ruleIndex: number | null) => void } = {},
 ): DictationIpc {
   const send = (channel: string, payload: unknown) => {
     const w = getWindow();
     if (w && !w.isDestroyed()) w.webContents.send(channel, payload);
   };
+  // Sound cues go to the main window's page (Web Audio there); the tray follows the same phase.
+  const cues = new CueTracker(() => settings.get().SoundCues, (kind) => send('dictation:cue', { kind, tones: cueTones(kind) }));
+  let lastPhase: CuePhase | null = null;
+  const observePhase = () => {
+    const p = session.phase;
+    cues.observe(p);
+    if (p !== lastPhase) {
+      lastPhase = p;
+      opts.phase?.(p);
+    }
+  };
   let pushTimer: NodeJS.Timeout | null = null;
   const push = () => {
+    observePhase();
     syncLevelTimer();
+    // Escape belongs to us only while a take listens or recognizes (KeyboardHook.ArmCancel).
+    opts.keys?.()?.armCancel(session.isBusy);
     if (pushTimer) return;
     pushTimer = setTimeout(() => {
       pushTimer = null;
@@ -81,6 +112,12 @@ export function registerDictationIpc(
     overlay: opts.overlay,
     foreground: () => detectForeground(),
     onApp: opts.onApp,
+    record: opts.record,
+    sales: opts.sales,
+    inserter: () => {
+      const k = opts.keys?.() ?? null;
+      return k && k.state === 'ready' ? k : null;
+    },
   });
   const ctl: DictationController = new DictationController({
     settings: settings.get,
@@ -88,6 +125,15 @@ export function registerDictationIpc(
     push,
     take: () => session.view(),
     changed: opts.changed,
+    globalKey: (): GlobalKeyState => {
+      const k = opts.keys?.() ?? null;
+      if (!k) return { kind: 'none' };
+      if (k.keyWorks) return { kind: 'on' };
+      if (k.state === 'failed' || (k.state === 'ready' && k.hookFailure)) {
+        return { kind: 'failed', reason: k.hookFailure || 'ChawoNative.exe' };
+      }
+      return { kind: 'starting' };
+    },
   });
 
   const state = () => ctl.state();
@@ -104,6 +150,7 @@ export function registerDictationIpc(
   });
   ipcMain.handle('dictation:hotkey', (_e, v: unknown) => {
     if (typeof v === 'number' && HOTKEY_CHOICES.some((c) => c.vk === v)) ctl.setHotkey(v);
+    opts.keys?.()?.setHotkey(settings.get().HotkeyVk);
     return state();
   });
   ipcMain.handle('dictation:insert', (_e, v: unknown) => {
@@ -113,6 +160,10 @@ export function registerDictationIpc(
   ipcMain.handle('dictation:overlay', (_e, v: unknown) => {
     if (typeof v === 'boolean') ctl.setShowOverlay(v);
     if (!settings.get().ShowOverlay) opts.overlay?.hideNow();
+    return state();
+  });
+  ipcMain.handle('dictation:cues', (_e, v: unknown) => {
+    if (typeof v === 'boolean') ctl.setSoundCues(v);
     return state();
   });
   ipcMain.handle('dictation:mic', (_e, v: unknown) => {
@@ -149,5 +200,41 @@ export function registerDictationIpc(
     session.micFailed(str(name).slice(0, 64), str(message).slice(0, 300));
     return state();
   });
-  return { controller: ctl, session };
+
+  // ── the global hold key (HandlePressAsync / HandleReleaseAsync / RequestStop from KeyboardHook) ──
+  let hotTake = false;
+  let hotTimer: NodeJS.Timeout | null = null;
+  const hotDown = () => {
+    if (hotTake) return;
+    if (hotTimer) {
+      clearTimeout(hotTimer);
+      hotTimer = null;
+    }
+    const w = getWindow();
+    if (!w || w.isDestroyed()) return;
+    const r = session.startTake('hotkey');
+    if (!r.ok) return; // the pill / page already say why (no model, busy, bad host address)
+    hotTake = true;
+    send('dictation:hot', { kind: 'start', micId: ctl.micDeviceId() });
+  };
+  const hotUp = () => {
+    if (!hotTake) return;
+    hotTake = false;
+    send('dictation:hot', { kind: 'stop' });
+    if (hotTimer) clearTimeout(hotTimer);
+    hotTimer = setTimeout(() => {
+      hotTimer = null;
+      if (!hotTake && session.phase === 'Listening') {
+        Log.write('hot take: the window did not stop the mic, recognizing what arrived');
+        void session.stopTake();
+      }
+    }, HOT_STOP_FALLBACK_MS);
+    hotTimer.unref?.();
+  };
+  const hotEscape = () => {
+    hotTake = false;
+    session.cancelTake();
+    send('dictation:hot', { kind: 'end' });
+  };
+  return { controller: ctl, session, hotDown, hotUp, hotEscape, keysChanged: push };
 }

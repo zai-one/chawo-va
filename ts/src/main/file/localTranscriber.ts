@@ -9,6 +9,7 @@ import { fromRanges } from '../../core/transcriptFormat';
 import * as Log from '../log';
 import { findComplete } from '../models/speechModelStore';
 import { toCtcScript, toFileParallelism, toSpeechDeviceKind, toSpeechModelKind, type SettingsData } from '../settings';
+import { filePauses } from '../vad/vadModel';
 import type { FileRunnerDeps, FileTranscriber } from './fileRunner';
 
 const RATE = 16000;
@@ -41,7 +42,11 @@ export function localPrepare(settings: () => SettingsData): FileRunnerDeps['prep
       try {
         const plan = job.plan;
         const planShown = t(plan.summaryRu, plan.summaryEn);
-        const ranges = Recognizer.splitRanges(samples, RATE);
+        // Silero pauses when its model is on disk (VadEnabled), else the energy split as before.
+        const pauses = samples.length > (Recognizer.MaxChunkSeconds + 1) * RATE
+          ? await filePauses(cur, samples, RATE, { signal, onStart: () => status(t('Ищу паузы в речи…', 'Finding pauses in speech…')) })
+          : undefined;
+        const ranges = Recognizer.splitRanges(samples, RATE, pauses);
         Log.write(
           `file parallel workers=${plan.workers} batch=${plan.batchSize} intra=${plan.intraOpThreads} gpu=${plan.useGpu} device=${job.deviceActual}/${job.provider} → ${planShown}`,
         );

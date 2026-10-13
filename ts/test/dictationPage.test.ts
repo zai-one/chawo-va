@@ -11,6 +11,7 @@ import {
   modeHint,
   phaseText,
   type DictationHooks,
+  type GlobalKeyState,
   type TakeView,
   type TextPart,
 } from '../src/main/dictation/dictationPage';
@@ -115,7 +116,7 @@ describe('DictationController', () => {
     expect(card.title).toBe('С чего начать');
     expect(card.close).toBe('Больше не показывать');
     expect(flat(card.steps[0])).toBe('1) Скачайте речевую модель в разделе [«Распознавание»→speech] — уже на диске ✓');
-    expect(flat(card.steps[1])).toContain('Правый Ctrl');
+    expect(flat(card.steps[1])).toBe('2) Зажмите кнопку «Удерживайте, чтобы говорить» и говорите. Отпустите — текст появится здесь и в буфере обмена.');
     expect(flat(card.steps[2])).toBe('3) Длинную запись перетащите в это окно — текст ляжет рядом, в [«Расшифровка файла»→file].');
     setOnDisk(false);
     expect(flat(ctl.state().startCard!.steps[0])).toBe('1) Скачайте речевую модель в разделе [«Распознавание»→speech].');
@@ -264,5 +265,29 @@ describe('micErrorText', () => {
     expect(micErrorText('NotReadableError', 'Device in use', 'win32')).toBe('Не удалось открыть микрофон: Device in use');
     expect(micErrorText('NotAllowedError', '', 'linux')).toMatch(/^Система не даёт доступ/);
     expect(micErrorText('', '', 'linux')).toBe('Не удалось открыть микрофон: ?');
+  });
+
+  it('global hold key: the WPF intro and step 2 when it works, one note line otherwise', () => {
+    let gk: GlobalKeyState = { kind: 'on' };
+    const { ctl } = make({ globalKey: () => gk });
+    let st = ctl.state();
+    expect(st.intro).toBe('Курсор в любой текст, зажмите клавишу и говорите. Отпустите, и текст появится сам.');
+    expect(flat(st.startCard!.steps[1])).toBe('2) Поставьте курсор в любое поле, зажмите Правый Ctrl и говорите. Отпустите — текст вставится сам.');
+    expect(st.keyNote).toBe('');
+    gk = { kind: 'starting' };
+    expect(ctl.state().keyNote).toBe('Включаю клавишу Правый Ctrl…');
+    gk = { kind: 'failed', reason: 'SetWindowsHookEx failed: 5' };
+    st = ctl.state();
+    expect(st.keyNote).toBe('Клавиша Правый Ctrl не включилась (SetWindowsHookEx failed: 5). Пока работает кнопка ниже: текст копируется в буфер обмена.');
+    expect(st.intro).toMatch(/^Зажмите кнопку ниже/);
+    gk = { kind: 'none' };
+    expect(ctl.state().keyNote).toMatch(/^Нет помощника ChawoNative\.exe/);
+  });
+
+  it('global hold key off the Windows path: Windows-only note, button intro', () => {
+    const { ctl } = make({ platform: 'linux' });
+    const st = ctl.state();
+    expect(st.keyNote).toBe('Клавиша и вставка в другие программы пока есть только в Windows. Здесь работает кнопка ниже: текст копируется в буфер обмена.');
+    expect(st.intro).toBe('Зажмите кнопку ниже и говорите. Отпустите, и появится текст: он показывается здесь и копируется в буфер обмена.');
   });
 });

@@ -10,6 +10,7 @@ import { HERMES_PORT } from '../core/speechModels';
 import { write as logWrite } from './log';
 import { appDataDir, settingsPath } from './paths';
 import { providerIdFromUrl } from './brainProviders';
+import { HISTORY_KEEPS, type HistoryKeep } from './history/historyStore';
 
 export type InsertMode = 'Type' | 'Paste';
 export type NetworkRole = 'Host' | 'Client';
@@ -38,9 +39,13 @@ export interface SettingsData {
   HotkeyVk: number;
   InsertMode: InsertMode;
   ShowOverlay: boolean;
+  /** Soft start/stop tones for a take (TS port only; off by default). */
+  SoundCues: boolean;
   CopyPhraseToClipboard: boolean;
   RestoreClipboardAfterCopy: boolean;
   KeepLastRecording: boolean;
+  /** How long the dictation history keeps takes («История»); Off keeps nothing. */
+  HistoryKeep: HistoryKeep;
   FirstRunDone: boolean;
   Language: UiLanguage;
   CheckUpdates: boolean;
@@ -51,6 +56,8 @@ export interface SettingsData {
   FileParallelism: SettingsFileParallelism;
   FileTimestamps: boolean;
   FileSrt: boolean;
+  /** Extra outputs beside the .txt besides .srt (TS port only; WPF ignores the key). */
+  FileExtraFormats: FileExtraFormat[];
   FileUseBrain: boolean;
   StartHintDismissed: boolean;
   MicrophoneId: string;
@@ -70,6 +77,10 @@ export interface SettingsData {
   BrainCustomUrl: string;
   BrainInstruction: string;
   SimpleSyntax: boolean;
+  /** Silero VAD: trim silence around a take and cut long files at real pauses (needs the 2 MB model). */
+  VadEnabled: boolean;
+  /** Stop a take after this many ms of silence following speech; 0 = off (settings.json only for now). */
+  VadAutoStopMs: number;
   WordReplacementRules: string;
   /** Per-app modes: overrides of the take editing for a focused program (first match wins). */
   AppRules: AppRule[];
@@ -89,9 +100,11 @@ export function defaults(): SettingsData {
     HotkeyVk: 0xa3,
     InsertMode: 'Paste',
     ShowOverlay: true,
+    SoundCues: false,
     CopyPhraseToClipboard: false,
     RestoreClipboardAfterCopy: true,
     KeepLastRecording: false,
+    HistoryKeep: 'Week',
     FirstRunDone: false,
     Language: 'Auto',
     CheckUpdates: false,
@@ -102,6 +115,7 @@ export function defaults(): SettingsData {
     FileParallelism: 'Auto',
     FileTimestamps: true,
     FileSrt: false,
+    FileExtraFormats: [],
     FileUseBrain: false,
     StartHintDismissed: false,
     MicrophoneId: '',
@@ -121,6 +135,8 @@ export function defaults(): SettingsData {
     BrainCustomUrl: '',
     BrainInstruction: '',
     SimpleSyntax: false,
+    VadEnabled: true,
+    VadAutoStopMs: 0,
     WordReplacementRules: '',
     AppRules: [],
     CleanupEndpointUrl: '',
@@ -260,6 +276,15 @@ export function unprotect(stored: string | null | undefined): string {
   return '';
 }
 
+export type FileExtraFormat = 'vtt' | 'json' | 'md' | 'docx';
+export const FILE_EXTRA_FORMATS: readonly FileExtraFormat[] = ['vtt', 'json', 'md', 'docx'];
+
+/** Known names only, each once, in the fixed order (so the file stays stable). */
+export function asExtraFormats(v: unknown): FileExtraFormat[] {
+  if (!Array.isArray(v)) return [];
+  return FILE_EXTRA_FORMATS.filter((f) => v.includes(f));
+}
+
 function asString(v: unknown, fallback: string): string {
   return typeof v === 'string' ? v : fallback;
 }
@@ -309,9 +334,11 @@ export function fromJsonObject(raw: Record<string, unknown>): { settings: Settin
   d.HotkeyVk = asInt(raw.HotkeyVk, d.HotkeyVk);
   d.InsertMode = asEnum(raw.InsertMode, ['Type', 'Paste'] as const, d.InsertMode);
   d.ShowOverlay = asBool(raw.ShowOverlay, d.ShowOverlay);
+  d.SoundCues = asBool(raw.SoundCues, d.SoundCues);
   d.CopyPhraseToClipboard = asBool(raw.CopyPhraseToClipboard, d.CopyPhraseToClipboard);
   d.RestoreClipboardAfterCopy = asBool(raw.RestoreClipboardAfterCopy, d.RestoreClipboardAfterCopy);
   d.KeepLastRecording = asBool(raw.KeepLastRecording, d.KeepLastRecording);
+  d.HistoryKeep = asEnum(raw.HistoryKeep, HISTORY_KEEPS, d.HistoryKeep);
   d.FirstRunDone = asBool(raw.FirstRunDone, d.FirstRunDone);
   d.Language = asEnum(raw.Language, ['Auto', 'Russian', 'English'] as const, d.Language);
   d.CheckUpdates = asBool(raw.CheckUpdates, d.CheckUpdates);
@@ -330,6 +357,7 @@ export function fromJsonObject(raw: Record<string, unknown>): { settings: Settin
   );
   d.FileTimestamps = asBool(raw.FileTimestamps, d.FileTimestamps);
   d.FileSrt = asBool(raw.FileSrt, d.FileSrt);
+  d.FileExtraFormats = asExtraFormats(raw.FileExtraFormats);
   d.FileUseBrain = asBool(raw.FileUseBrain, d.FileUseBrain);
   d.StartHintDismissed = asBool(raw.StartHintDismissed, d.StartHintDismissed);
   d.MicrophoneId = asString(raw.MicrophoneId, d.MicrophoneId);
@@ -349,6 +377,8 @@ export function fromJsonObject(raw: Record<string, unknown>): { settings: Settin
   d.BrainCustomUrl = asString(raw.BrainCustomUrl, d.BrainCustomUrl);
   d.BrainInstruction = asString(raw.BrainInstruction, d.BrainInstruction);
   d.SimpleSyntax = asBool(raw.SimpleSyntax, d.SimpleSyntax);
+  d.VadEnabled = asBool(raw.VadEnabled, d.VadEnabled);
+  d.VadAutoStopMs = Math.min(60_000, Math.max(0, asInt(raw.VadAutoStopMs, d.VadAutoStopMs)));
   d.WordReplacementRules = asString(raw.WordReplacementRules, d.WordReplacementRules);
   d.AppRules = parseAppRules(raw.AppRules);
   d.CleanupEndpointUrl = asString(raw.CleanupEndpointUrl, d.CleanupEndpointUrl);
@@ -393,9 +423,11 @@ export function toJsonObject(s: SettingsData): Record<string, unknown> {
     HotkeyVk: s.HotkeyVk,
     InsertMode: s.InsertMode,
     ShowOverlay: s.ShowOverlay,
+    SoundCues: s.SoundCues,
     CopyPhraseToClipboard: s.CopyPhraseToClipboard,
     RestoreClipboardAfterCopy: s.RestoreClipboardAfterCopy,
     KeepLastRecording: s.KeepLastRecording,
+    HistoryKeep: s.HistoryKeep,
     FirstRunDone: s.FirstRunDone,
     Language: s.Language,
     CheckUpdates: false,
@@ -406,6 +438,7 @@ export function toJsonObject(s: SettingsData): Record<string, unknown> {
     FileParallelism: s.FileParallelism,
     FileTimestamps: s.FileTimestamps,
     FileSrt: s.FileSrt,
+    FileExtraFormats: [...s.FileExtraFormats],
     FileUseBrain: s.FileUseBrain,
     StartHintDismissed: s.StartHintDismissed,
     MicrophoneId: s.MicrophoneId,
@@ -425,6 +458,8 @@ export function toJsonObject(s: SettingsData): Record<string, unknown> {
     BrainCustomUrl: s.BrainCustomUrl,
     BrainInstruction: s.BrainInstruction,
     SimpleSyntax: s.SimpleSyntax,
+    VadEnabled: s.VadEnabled,
+    VadAutoStopMs: s.VadAutoStopMs,
     WordReplacementRules: s.WordReplacementRules,
     AppRules: s.AppRules,
     CleanupEndpointUrl: s.CleanupEndpointUrl,
