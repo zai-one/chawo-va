@@ -22,8 +22,10 @@ Re-align folder names and tooling with taptain-desktop once its layout is readab
 | Core/Recognizer.cs | src/core/recognizer.ts (onnxruntime-node) | ✅ ported + unit tests (no real weights) |
 | Core/FileJob.cs | src/core/fileJob.ts (Promise pool of Recognizers) | ✅ ported + mocked Open/Run tests |
 | Core/OggOpus.cs | src/core/oggOpus.ts (opus-decoder) | ✅ demux + decode; demux tests |
-| App/SpeechModelStore.cs, ModelDownloader.cs | src/main/models/ | ⏳ |
-| App/Settings.cs, DataMigration.cs | src/main/settings.ts (reads WPF settings for migration) | ⏳ |
+| App/Settings.cs, Log | src/main/settings.ts, paths.ts, log.ts | ✅ ported + tests |
+| App/DataMigration.cs | src/main/dataMigration.ts | ✅ ported + tests |
+| App/SpeechModelStore.cs | src/main/models/speechModelStore.ts | ✅ ported + tests |
+| App/ModelDownloader.cs | src/main/models/modelDownloader.ts, tarGz.ts | ✅ ported + tests (no network) |
 | App/FileTranscript.cs, FileQueue.cs, FfmpegTool.cs | src/main/file/ | ⏳ |
 | App/Brain*.cs, LocalBrain.cs, FileBrain.cs, SpeechCleanup.cs | src/main/brain/ | ⏳ |
 | App/Recorder.cs | renderer getUserMedia → AudioWorklet → main | ⏳ |
@@ -41,6 +43,10 @@ Re-align folder names and tooling with taptain-desktop once its layout is readab
   recognizer is ported.
 - The renderer is sandboxed with `connect-src 'none'` and the main session cancels every non-`file://`
   request; network features will go through the main process only when the user enables them.
+- Settings JSON uses PascalCase string enums (WPF `JsonStringEnumConverter`). Secrets use
+  `electron.safeStorage` when available; otherwise protected fields are omitted (never plaintext).
+  Tests inject a reversible protect hook. Paths honor `CHAWO_APPDATA` / `CHAWO_LOCALAPPDATA` /
+  `CHAWO_MODEL_DIR` (and legacy `PISAR_*`).
 
 ## Log
 
@@ -58,4 +64,13 @@ Re-align folder names and tooling with taptain-desktop once its layout is readab
   opus-decoder at 16 kHz mono with OpusHead preskip scaled 48k→16k. Added onnxruntime-node and
   opus-decoder. Unit tests for CtcVocab, modelExists, SplitRanges, Ogg demux, FileJob plan wiring.
   Next: SpeechModelStore / ModelDownloader, settings migration, file transcription UI wiring.
+
+- 2026-10-13 tick 3: Settings + paths + Log (JSON roundtrip, PascalCase enums, CheckUpdates /
+  KeepAwake forced off, dictionary via wordReplace, secret protect via safeStorage or omit).
+  DataMigration (GigaPisar → ChawoVoiceAssistant, staging `*.migrating`, local move / roaming copy
+  skipping model(s), settings path rewrite). SpeechModelStore (FindComplete / LooksComplete size
+  gates, candidates, deletable under LocalDataDir only). ModelDownloader (URLs, SHA-256, ApproxBytes,
+  streaming fetch, idle timeout, minimal ustar+gzip unpack for v3; no real downloads in tests).
+  Minimal BrainProviders.FromUrl for legacy key layout. 57 tests green. Next: FileTranscript /
+  FileQueue / FfmpegTool, then wire download + file transcription into the main/renderer shell.
 
