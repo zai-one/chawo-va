@@ -50,6 +50,7 @@ GPL-проекты — только как источник идей, код н�
 - Тесты: unit матчинга правил и выбора промпта; тест, что без правил поведение прежнее.
 
 ### 5. ⭐ DO NEXT — Команда над выделенным текстом («Чаво, переведи/сократи это») (M)
+- ✅ Сделано 2026-10-13 (ветка `ts/feat-selection`, поверх `ts/feat-win-native`): выделите текст в любой программе, зажмите клавишу и скажите, что сделать («сделай короче», «переведи на английский», «Чаво,» не обязательно). Пока говорите, плашка пишет «Выделено N знаков». Ответ Мозга вставляется вместо выделения, вернуть — Ctrl+Z. Выделение читается через UI Automation (без побочных эффектов), Ctrl+C с возвратом буфера — только для программ, которые так не умеют; терминалы и таблицы (Excel, Calc) пропускаются. Если Мозг не справился — ничего не вставляется. Галка «Мозга» видна только в Windows.
 - Источник: [OpenWhispr](https://github.com/OpenWhispr/openwhispr) (highlighted text is edited in place), [VoiceInk](https://github.com/Beingpax/VoiceInk).
 - Зачем: естественное расширение «Чаво, …»-команд.
 - Реализация: при нажатии hotkey — Ctrl+C с сохранением/восстановлением буфера (переиспользует п.1) → если выделение есть, передать в Brain как `context.selection`; результат заменяет выделение вставкой.
@@ -88,12 +89,14 @@ GPL-проекты — только как источник идей, код н�
 - Реализация: Electron `desktopCapturer` + `setDisplayMediaRequestHandler({audio:'loopback'})` на Windows; микс mic+loopback в renderer; запись в файл → существующая файловая очередь, либо чанки по VAD в реальном времени.
 - Тесты: ручные (Zoom/YouTube); unit микшера.
 
-### 11. Диаризация спикеров (L)
+### 11. ✅ DONE — Диаризация спикеров (L)
 - Источник: [OpenWhispr](https://github.com/OpenWhispr/openwhispr), [vibe](https://github.com/thewh1teagle/vibe), [Buzz](https://github.com/chidiwilliams/buzz).
-- Реализация: sherpa-onnx модели (pyannote segmentation ONNX + speaker embedding, напр. 3D-Speaker/WeSpeaker) через onnxruntime-node; кластеризация эмбеддингов; поле `speaker` в сегментах → «Спикер 1:» в txt/srt.
-- Тесты: фикстура с 2 голосами; DER-грубая проверка.
+- Реализация (ветка `ts/feat-diarization`): `src/core/diarize.ts` — `assignSpeakers` по максимальному пересечению во времени + remap id по первому появлению; `TranscriptSegment.speaker?`; `toTxt`/`toSrt` префиксуют «Спикер N:» (1-based), когда хоть у одного сегмента есть speaker. Runtime: `sherpa-onnx-node` `OfflineSpeakerDiarization` (lazy require), модели pyannote segmentation + 3D-Speaker embedding в `%LOCALAPPDATA%/…/models/diarization/` (скачивание по кнопке, не в репо). Настройка `FileDiarize` (default false), чекбокс «Разделять спикеров» на «Расшифровка файла», после локальной расшифровки — diarize PCM → assign → запись; без моделей очередь не падает.
+- Тесты: assignSpeakers/formats/settings/fileRunner (fake diarizer); smoke `scripts/smoke-diarize.cjs` (четыре спикера wav).
 
-### 12. Импорт по URL (YouTube и т.п.) (M)
+
+### 12. ✅ DONE — Импорт по URL (YouTube и т.п.) (M)
+- ✅ Сделано 2026-10-13 (ветка `ts/feat-url-transcribe`, approved batch 2 п.4): блок «По ссылке» на «Расшифровке файла» — поле ссылки + «Скачать и расшифровать». yt-dlp не входит в программу: кнопка «Скачать yt-dlp» берёт официальную сборку с GitHub (Windows/macOS/Linux x64/arm64) и сверяет sha256 с SHA2-256SUMS того же релиза; «Обновить yt-dlp» — то же поверх. yt-dlp из PATH тоже подходит. Только http(s), без плейлистов, без cookies и чужого конфига; звук в «Загрузки/Chawo», дальше обычная локальная очередь, .txt рядом. Через сеть идёт только скачивание (так и написано под полем). Для YouTube в роли JS-рантайма yt-dlp используется сам Electron (ELECTRON_RUN_AS_NODE), ставить deno/node не нужно.
 - Источник: [vibe](https://github.com/thewh1teagle/vibe), [OpenWhispr](https://github.com/OpenWhispr/openwhispr).
 - Реализация: опциональный yt-dlp (скачивается по запросу, как модели) → файл в очередь. Явное предупреждение о сети.
 
@@ -115,6 +118,10 @@ GPL-проекты — только как источник идей, код н�
 - Реализация: путь к скрипту в расширенных настройках; stdin→stdout с таймаутом. Для продвинутых.
 
 ## Approved batch 2 (одобрено пользователем 2026-10-13, порядок = приоритет после top-8)
+1. Голосовая пунктуация + числа словами → цифры (см. №9) — ветка `ts/feat-voice-punct`.
+2. Системный звук / встречи вместе с микрофоном (см. №10) — ветка `ts/feat-meeting`.
+3. Диаризация спикеров локально через sherpa-onnx (см. №11) — ветка `ts/feat-diarization`.
+4. ✅ Расшифровка по URL через yt-dlp (см. №12) — ветка `ts/feat-url-transcribe`.
 1. Голосовая пунктуация + числа словами → цифры (см. №9).
 2. ✅ Системный звук / встречи вместе с микрофоном (см. №10) — ветка `ts/feat-meeting`.
 2. Системный звук / встречи вместе с микрофоном (см. №10).

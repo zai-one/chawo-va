@@ -24,5 +24,9 @@
     <Compile Remove="test/**" />
     <None Remove="test/**" />
     <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3" PrivateAssets="all" />
+    <!-- UI Automation (SelectionReader): part of .NET Framework on every Windows 10/11. -->
+    <Reference Include="UIAutomationClient" />
+    <Reference Include="UIAutomationTypes" />
+    <Reference Include="WindowsBase" />
   </ItemGroup>
 </Project>

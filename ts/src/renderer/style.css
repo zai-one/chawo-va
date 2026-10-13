@@ -76,6 +76,8 @@ button.hold.busy { border-color: var(--accent); color: var(--accent); }
 .form.wide { grid-template-columns: 160px minmax(0, 1fr); }
 select.wide { min-width: 360px; max-width: 100%; }
 .status.line { word-break: normal; }
+#file-url { flex: 1 1 auto; width: auto; }
+#file-url + button { flex: none; }
 .meeting .rec { margin: 0; font-variant-numeric: tabular-nums; }
 .meeting .rec .dot { color: var(--accent); }
 .meeting .lv { font-family: ui-monospace, monospace; letter-spacing: -1px; color: var(--accent); }

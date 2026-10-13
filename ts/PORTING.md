@@ -31,7 +31,7 @@ Re-align folder names and tooling with taptain-desktop once its layout is readab
 | App/BrainProviders.cs, SpeechCleanup.cs, Brain.cs, FileBrain.cs, LocalBrain.cs | src/main/brain/ | ✅ providers/cleanup/Brain/FileBrain + tests; LocalBrain helpers ✅, download (Range resume, mirrors, SHA, engine unpack) ✅, llama-server process (start/health/GPU→CPU fallback/idle stop/kill on exit) ✅ + tests; Windows job object ⏳ |
 | App/Recorder.cs | src/core/takeBuffer.ts (accumulator, adaptive VU meter, 5-min cap, take checks) + src/renderer/mic-processor.js (AudioWorklet, 16 kHz mono, 40 ms chunks) | ✅ ported + tests; waveIn/WASAPI replaced by getUserMedia |
 | App/KeyboardHook.cs | native helper (see «Hold-to-talk hotkey» below); in-window hold button meanwhile | ⏳ designed, not built |
-| App/TextInserter.cs, SelectionReader.cs, Native.cs | native helper + clipboard | ⏳ (takes are copied to the clipboard and shown on the page for now) |
+| App/TextInserter.cs, SelectionReader.cs, Native.cs | native helper + clipboard | ⏳ (takes are copied to the clipboard and shown on the page for now); SelectionReader ✅ `native/win/SelectionReader.cs` (`selread`) + `NativeHelper.readSelection` (branch `ts/feat-selection`) |
 | App/HermesServer.cs | src/main/network/hermesServer.ts (Node `http`, no framework) | ✅ ported + tests (health, raw/multipart POST, 400/403/404/503, Content-Length rules, ephemeral port) |
 | App.HermesTranscribe | src/main/network/hermesTranscribe.ts (reuses DictationSession's recognizer, opens it from disk if needed, piece by piece, «model unloaded» on swap) | ✅ ported + tests |
 | App/HermesFirewall.cs | src/main/network/hermesFirewall.ts | ✅ Windows: same netsh script + one elevated powershell (exit code decides), WF.msc console; elsewhere a no-op (the page says the OS firewall is the user's call) + tests |
@@ -46,6 +46,7 @@ Re-align folder names and tooling with taptain-desktop once its layout is readab
 | SettingsWindow speech page, App.SpeechStatusText / DownloadSpeechAsync / DeleteSpeechModelAsync | src/main/speech/speechPage.ts (SpeechController), src/main/speechIpc.ts | ✅ ported + tests (live session line comes from DictationSession; GPU warmup ⏳) |
 | SettingsWindow dictionary page (FillDictionaryRows / PersistDictionary / SuggestDictionary_Click / AddSuggestion_Click) | src/main/dictionary/dictionaryPage.ts (DictionaryController), src/main/dictionaryIpc.ts | ✅ ported + tests |
 | SettingsWindow dictation page (Localize dictation block, FillStartCard, Mode/Hotkey/Insert/Overlay/Mic handlers, SetPhase), App.SetPhase | src/main/dictation/dictationPage.ts (DictationController), src/main/dictationIpc.ts | ✅ ported + tests (language box, copy-to-clipboard options, autostart, updates, unpin not on this page yet) |
+| App.HandlePressAsync / HandleReleaseAsync / RunBrainAsync / RequestStop / StartPartials / PartialTickAsync / ReloadSpeechAsync / SpeechStatusText | src/main/dictation/dictationSession.ts (DictationSession) | ✅ local or Client (RemoteSpeech) take → dictionary → Brain (every take / «Чаво, …») → simple syntax → clipboard, live drafts on the pill (remote too), cancel aborts the Brain / the host request + tests; Brain on a selection ✅ (`ts/feat-selection`); ConfirmBrainMemory, sales card ⏳ |
 | App.HandlePressAsync / HandleReleaseAsync / RunBrainAsync / RequestStop / StartPartials / PartialTickAsync / ReloadSpeechAsync / SpeechStatusText | src/main/dictation/dictationSession.ts (DictationSession) | ✅ local or Client (RemoteSpeech) take → dictionary → Brain (every take / «Чаво, …») → simple syntax → clipboard, live drafts on the pill (remote too), cancel aborts the Brain / the host request + tests; sales card fed by drafts + the take in «Продажи» mode (drafts run with the pill off); Brain on a selection, ConfirmBrainMemory ⏳ |
 | SettingsWindow brain page (Localize brain part / UpdateBrainTexts / FillBrainModelRows), BrainServerPanel, App.SelectBrainAsync | src/main/brain/brainPage.ts (BrainController), src/main/brainIpc.ts | ✅ ported + tests; «Скачать» / «Скачать движок» on the rows + in-page «Скачиваю Мозг» card (progress, cancel, retry) ✅ |
 | App.RunFileQueueAsync / RunQueue / RunOneFile / TranscribeLocal / TranscribeRemote | src/main/file/fileRunner.ts, localTranscriber.ts, remoteTranscriber.ts, src/main/fileIpc.ts | ✅ local and Client paths + Brain hook (cloud and local FileBrain); a host error ends the run like WPF |
@@ -369,6 +370,50 @@ Re-align folder names and tooling with taptain-desktop once its layout is readab
   unit-tested with a fake spawn only (needs a Windows run). Next: the Windows native helper (hold
   key, TextInserter, SelectionReader, caret placement, job object), the «Продажи» card, then
   Updater/Autostart.
+
+- 2026-10-13 tick (branch `ts/feat-url-transcribe`, IDEAS.md №12, approved batch 2 п.4): расшифровка по
+  ссылке через yt-dlp. `src/core/mediaUrl.ts` (pure): `parseMediaUrl` (только http/https, ссылка без
+  схемы → https, file:/data:/javascript:/ftp: и длиннее 2048 — отказ), `ytDlpArgs` (`--ignore-config`,
+  `--no-playlist`, `-f bestaudio[ext=m4a]/bestaudio[ext=webm]/bestaudio/best`, `-P <папка>`,
+  `-o "%(title).90B [%(id)s].%(ext)s"`, `--windows-filenames`, свои теги прогресса и пути через
+  `--progress-template`/`--print after_move:`, `--no-simulate`, `--ffmpeg-location` при наличии,
+  `--js-runtimes node:<electron>`, URL после `--`), `parseYtDlpLine`, `ytDlpAsset` (yt-dlp.exe /
+  yt-dlp_macos / yt-dlp_linux / yt-dlp_linux_aarch64), `shaFromSums`, `ytDlpError`.
+  `src/main/file/ytDlpTool.ts`: find (свой в `tools/yt-dlp`, затем PATH), statusLine, downloadAsync
+  (SHA2-256SUMS → бинарь через fetchFile → sha256 → chmod → `--version` → rename; старая сборка
+  остаётся при несовпадении), fetchAudio (spawn в своей группе процессов, Stop/таймаут 30 мин убивают
+  дерево — POSIX `kill(-pid)`, Windows `taskkill /T /F`; при Electron `ELECTRON_RUN_AS_NODE=1`, чтобы
+  yt-dlp решал JS-челленджи YouTube самим Electron). `urlImport.ts` (UrlImport, без Electron): одна
+  ссылка за раз, статусы «Скачиваю звук с <host>… N%», «Скачано: … Расшифровываю локально.»,
+  ошибки «Не скачалось: <ERROR-строка yt-dlp>», стоп → «Скачивание по ссылке остановлено.»; файл
+  уходит в FileQueue и запускает прогон (идущий прогон подхватит сам). fileIpc: `file:url`,
+  `file:ytdlpDownload`, `url` в FileStateDto (line/canDownload/installed/managed/busy/folder =
+  Downloads/Chawo), «Остановить» гасит и скачивание; статус очереди снова главный, когда она
+  заговорит. Renderer: fieldset «По ссылке» (поле сохраняет текст/фокус/курсор при перерисовке,
+  Enter = запуск), строка о сети, строка yt-dlp, «Скачать yt-dlp»/«Обновить yt-dlp». Новых настроек нет.
+  Тесты: mediaUrl (21), urlImport (4), ytDlpTool (8: fake fetch + /bin/sh fake yt-dlp — sha, mismatch
+  сохраняет старую сборку, аргументы после `--`, прогресс, ERROR, abort/таймаут). 342 теста зелёные
+  (309 до). Smoke под xvfb (`scripts/smoke-url.cjs`): кнопка скачала настоящий yt-dlp 2026.08.19 c
+  GitHub (sha ок) за 4 с; `file:///etc/passwd` → «нужна ссылка http(s)»; MP3 с 127.0.0.1 (generic
+  extractor) → `Downloads/Chawo/lecture [lecture].mp3` → `[00:00:00] Русский язык. Русский язык —
+  это один из восточнославянских языков…` за 6.8 с; YouTube «Me at the zoo» → `.m4a` 19 с →
+  .txt (английская речь, русская модель текста не дала — ожидаемо) за 9 с, с Electron как
+  JS-рантаймом. Gaps: CLI (`chawo-va transcribe <url>`) не трогал — CLI в отдельной ветке; Windows-
+  путь taskkill проверен только кодом.
+- 2026-10-13 tick (branch `ts/feat-diarization`, IDEAS.md №11): локальная диаризация спикеров после
+  файловой расшифровки. `src/core/diarize.ts` (pure): `assignSpeakers(transcript, diarSpans)` —
+  max time-overlap, remap id по первому появлению в транскрипте; `speakerPrefix` → «Спикер N:»
+  (1-based, всегда по-русски). `TranscriptSegment.speaker?`; `toTxt`/`toSrt` добавляют префикс,
+  когда хотя бы у одного сегмента есть speaker. Runtime: `sherpa-onnx-node` `OfflineSpeakerDiarization`
+  (lazy `require`, тесты без native addon), конфиг clustering `numClusters: -1`, `threshold: 0.5`,
+  `minDurationOn: 0.2`, `minDurationOff: 0.5`; float32 mono 16 kHz. Модели по запросу в
+  `models/diarization/` (pyannote segmentation tar.bz2 → `model.onnx` + 3D-Speaker embedding onnx,
+  ~47 МБ; unpack через python3 bz2). Настройка `FileDiarize` (default false). `FileRunner.runDiarize`
+  после локальных сегментов: нет моделей → заметка в note, очередь не падает; есть → assign + «спикеры».
+  UI: чекбокс «Разделять спикеров» + «Скачать модели (~47 МБ)» на «Расшифровка файла». Тесты:
+  diarize, diarizeRuntime (fake fetch + tar.bz2), fileRunner (3), settings FileDiarize, formats.
+  Smoke: `scripts/smoke-diarize.cjs` (skip-friendly). Gap: remote/Client path не диаризует на хосте
+  (только локальный PCM); DER-метрика не считается автоматически.
 - 2026-10-13 tick (branch `ts/feat-meeting`, IDEAS.md №10 = approved batch 2 item 2): meeting recording
   with the computer sound. «Расшифровка файла» got a «Встреча» box: «Записать встречу» → «● Запись
   чч:мм:сс · микрофон ▮▮▮ · компьютер ▮▮▮» with «Остановить и расшифровать» / «Отменить»; one
@@ -677,6 +722,38 @@ Re-align folder names and tooling with taptain-desktop once its layout is readab
   history wait is the registry approximation, SelectionReader (UI Automation first) + Brain on a
   selection, caret-placed pill and the llama-server job object are the next native pieces.
 
+- 2026-10-13 tick (branch `ts/feat-selection`, stacked on `ts/feat-win-native` because it needs the
+  helper; IDEAS.md №5 = top-8 «Команда над выделенным текстом»): port of SelectionReader + the
+  selection branch of HandleReleaseAsync + HintSelectionAsync. Helper: new `selread <id>` → `sel <id>
+  <b64|->` (`native/win/SelectionReader.cs`): foreground terminal classes skipped, UI Automation
+  (`AutomationElement.FocusedElement` → TextPattern.GetSelection, ≤ 20 000 chars) on its own MTA thread
+  with a 1.2 s wait and a hung-read guard; «nothing selected» from UIA is believed (VS Code), Ctrl+C
+  with the clipboard put back only for apps that do not expose TextPattern, never for spreadsheets
+  (XLMAIN, LibreOffice/OpenOffice/WPS Calc). `Read()` is NoInlining inside a try, so a missing
+  UIAutomationClient (Wine) logs «UI Automation unavailable» instead of killing the helper (it did
+  exit with code 1 before that fix in the Wine run). App: `NativeHelper.readSelection()` (never
+  rejects; null on nothing/blank/helper down/1.8 s timeout; a second read is not sent while one
+  hangs). DictationSession: a global-key take with `BrainOnSelection` on and the Brain usable starts
+  the read at key-down; when it lands while listening the pill shows «Выделено N знаков. Скажите, что с
+  ними сделать» (the page status without the pill); at release, after the dictionary, a selection
+  makes the take a Brain command on it (`stripAddress`, so «Чаво,» is optional; `transform(...,
+  selection=true)` = the WPF SelectionPrompt / LocalSelection), simple syntax skipped, the answer
+  pasted over the selection with «Готово. Вернуть как было: Ctrl+Z»; a Brain failure or an empty answer
+  inserts nothing («Мозг не справился: … Выделенный текст не тронут.»); Escape while reading drops it.
+  The in-window button never reads a selection. The «Мозг» checkbox for it is now shown only on Windows.
+  Tests: `dictationSelection.test.ts` (13), nativeHelper readSelection (3: text/none/blank, hang +
+  no pile-up + helper still answers, slow-in-time + not started), protocol encode, brainPage
+  visibility; 359 green + 1 skipped (342 on `ts/feat-win-native`). Real run (`scripts/smoke-native-wine.cjs`,
+  real ChawoNative.exe under Wine + Xvfb, WinForms target got `selectfirst n` / `deselect`): first 6
+  chars selected → readSelection «Привет» via the Ctrl+C fallback, clipboard back to «OLD clipboard»,
+  Paste of «Здравствуйте» replaced exactly the selection; nothing selected → null and the clipboard
+  untouched; the whole take through the real DictationSession (fake recognizer «Чаво, сделай
+  заглавными.», fake Brain) → Brain got {body «Здравствуйте», command «сделай заглавными», selection}
+  → «ЗДРАВСТВУЙТЕ, мир 👋…» in the target, Ctrl+Z hint, clipboard restored — ALL PASS. Gaps: the UI
+  Automation path needs a real Windows run (wine-mono has no UIAutomationClient), so do Word / Chrome /
+  VS Code / Excel (must be skipped) by hand there; the read races the user's still-held hold key (same
+  as WPF: Ctrl+C is sent while Right Ctrl is down).
+
 - 2026-10-13 tick (branch `ts/feat-idle-unload`, IDEAS.md №13, approved batch 2 п.5): выгрузка моделей при
   простое. `src/core/idleTimer.ts` (pure, инжектируемые часы): `IdleTimer` (touch/cancel, задержка
   читается при каждом взводе, busy в момент срабатывания → ждём ещё полный срок, 0 = никогда),
@@ -701,3 +778,4 @@ Re-align folder names and tooling with taptain-desktop once its layout is readab
   добавления этой строки; RSS 601 → 267 МБ); фраза 2 снова тот же текст за 7.3–7.5 с от нажатия
   (перезагрузка спряталась за речью), RSS 600 МБ. Gaps: Silero VAD (2 МБ) не выгружается — не стоит; настоящий llama-server на
   боксе не гонял (проверен фейковым сервером в тестах).
+

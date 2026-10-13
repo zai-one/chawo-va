@@ -103,6 +103,13 @@ internal sealed class Worker
                 _emit($"sel {cmd[1]} {(sel == null ? "-" : Program.ToB64(sel))}");
                 break;
             }
+            case "selread" when cmd.Length >= 2:
+            {
+                // SelectionReader: UI Automation first, Ctrl+C only for apps that do not say.
+                string? sel = SelectionReader.TryGet(CopySelection);
+                _emit($"sel {cmd[1]} {(sel == null ? "-" : Program.ToB64(sel))}");
+                break;
+            }
             case "fg" when cmd.Length >= 2:
                 _emit($"fg {cmd[1]} {Program.ToB64(ForegroundProcess())}");
                 break;

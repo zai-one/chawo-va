@@ -1,8 +1,9 @@
 // One dictation take on the main side: start → 16 kHz chunks from the renderer → stop → local
 // recognition → dictionary → Brain (every take or a «Чаво, …» command) → simple syntax → final text.
 // Port of App.HandlePressAsync / HandleReleaseAsync / RunBrainAsync / RequestStop / PartialTickAsync /
-// ReloadSpeechAsync / SpeechStatusText minus the parts that are not ported yet (Brain on a selection,
-// memory check before a cold local Brain, inserting into other apps). In «Продажи» mode the live
+// ReloadSpeechAsync / SpeechStatusText minus the parts that are not ported yet (memory check before a
+// cold local Brain). A global-key take with text selected in another app is a Brain command on that
+// selection (HintSelectionAsync + the selection branch of HandleReleaseAsync). In «Продажи» mode the live
 // drafts run even with the pill off and every draft and the finished recognition go to the sales card. In the Client role
 // the take (and the live drafts) go to the host through RemoteSpeech instead of a local recognizer.
 // No Electron imports: the clipboard, the WAV writer, the pill and the Brain come in as hooks, and
@@ -26,7 +27,7 @@ import { applyRules } from '../../core/wordReplace';
 import { applySpoken } from '../../core/spokenText';
 import { SilenceWatch } from '../../core/vad';
 import { trimTake } from '../vad/vadModel';
-import { parseCommand, serverConfigured, transformAsync } from '../brain/brain';
+import { parseCommand, serverConfigured, stripAddress, transformAsync } from '../brain/brain';
 import * as LocalBrain from '../brain/localBrain';
 import { BrainException, type FetchLike } from '../brain/speechCleanup';
 import * as RemoteSpeech from '../network/remoteSpeech';
@@ -34,7 +35,7 @@ import { RemoteHostException } from '../network/remoteSpeech';
 import { applyRule, exeKey, findRule, type ForegroundApp } from '../../core/appRules';
 import * as Log from '../log';
 import type { OverlaySink } from '../overlay/overlayModel';
-import type { TextInserterLike } from '../native/nativeHelper';
+import type { SelectionReaderLike, TextInserterLike } from '../native/nativeHelper';
 import { IdleTimer, type IdleClock } from '../../core/idleTimer';
 import { findComplete } from '../models';
 import {
@@ -80,7 +81,7 @@ export interface SessionHooks {
   /** App.BrainUsable: Local with the model on disk, or Server with url/model/key filled in. */
   brainUsable?: (s: SettingsData) => boolean;
   /** Brain.TransformAsync; defaults to the real one with `fetch`. */
-  transform?: (s: SettingsData, body: string, command: string | null, status: (line: string) => void, signal: AbortSignal) => Promise<string>;
+  transform?: (s: SettingsData, body: string, command: string | null, status: (line: string) => void, signal: AbortSignal, selection?: boolean) => Promise<string>;
   /** fetch for the default transform (tests pass a fake OpenAI-compatible server). */
   fetch?: FetchLike;
   /** Live-draft pass interval while listening (WPF 1000 ms); 0 turns drafts off. */
@@ -90,6 +91,11 @@ export interface SessionHooks {
    * (TextInserter). Null or missing: the phrase goes to the clipboard as for the in-window button.
    */
   inserter?: () => TextInserterLike | null;
+  /**
+   * SelectionReader (Windows helper) for global-key takes: text selected in the focused app when the key
+   * went down turns the take into a Brain command on it. Null or missing: plain dictation.
+   */
+  selection?: () => SelectionReaderLike | null;
   /** Client role: RemoteSpeech.transcribe (tests pass a fake host). Throws RemoteHostException. */
   remote?: (s: SettingsData, samples: Float32Array, rate: number, signal: AbortSignal) => Promise<string>;
   /** The focused program at key press (per-app modes). Asked only while settings.AppRules is not empty. */
@@ -172,6 +178,8 @@ export class DictationSession {
   private partialBusy = false;
   private partialTask: Promise<void> | null = null;
   private partialAbort: AbortController | null = null;
+  /** Text selected when the key went down (read in the background); a take with a selection is a command on it. */
+  private selectionAtPress: Promise<string | null> | null = null;
   private readonly brainUsable: (s: SettingsData) => boolean;
   private readonly transform: NonNullable<SessionHooks['transform']>;
   private readonly remote: NonNullable<SessionHooks['remote']>;
@@ -186,7 +194,7 @@ export class DictationSession {
     this.h = { find: findComplete, open: openRecognizer, platform: process.platform, ...hooks };
     this.brainUsable = hooks.brainUsable ?? defaultBrainUsable;
     this.transform = hooks.transform
-      ?? ((s, body, command, status, signal) => transformAsync(s, body, command, status, signal, false, hooks.fetch ?? globalThis.fetch));
+      ?? ((s, body, command, status, signal, selection) => transformAsync(s, body, command, status, signal, selection ?? false, hooks.fetch ?? globalThis.fetch));
     this.remote = hooks.remote ?? ((s, samples, rate, signal) => RemoteSpeech.transcribe(s, samples, rate, signal));
     this.trim = hooks.trim ?? ((s, samples, rate) => trimTake(s, samples, rate));
     this.idle = new IdleTimer({
@@ -293,6 +301,14 @@ export class DictationSession {
     this.overlay?.showListening();
     // Sales needs the live draft even when the pill is hidden. Dictation does not.
     if (this.wantsDrafts(this.h.settings())) this.startPartials();
+    this.selectionAtPress = null;
+    const s = this.h.settings();
+    const reader = source === 'hotkey' && s.BrainOnSelection && this.brainUsable(s) ? this.h.selection?.() ?? null : null;
+    if (reader) {
+      const read = reader.readSelection().catch(() => null);
+      this.selectionAtPress = read;
+      void this.hintSelection(read);
+    }
     this.push();
     return { ok: true };
   }
@@ -304,6 +320,18 @@ export class DictationSession {
       return this.h.foreground().catch(() => null);
     } catch {
       return null;
+    }
+  }
+
+  /** HintSelectionAsync: once the selection is read, say how much is selected and what to do. */
+  private async hintSelection(read: Promise<string | null>): Promise<void> {
+    const selected = await read;
+    if (selected === null || read !== this.selectionAtPress || !this.buf.isRecording) return;
+    const text = t(`Выделено ${selected.length} знаков. Скажите, что с ними сделать`, `${selected.length} characters selected. Say what to do with them`);
+    if (this.h.settings().ShowOverlay && this.h.overlay) this.h.overlay.showCaption(text);
+    else {
+      this.status = text;
+      this.push();
     }
   }
 
@@ -341,6 +369,7 @@ export class DictationSession {
       this.fgTask = null;
       Log.write('take cancelled');
     }
+    this.selectionAtPress = null;
     this.overlay?.hideNow();
     this.status = '';
     this.push();
@@ -381,6 +410,7 @@ export class DictationSession {
       let text = '';
       let brainFailure: string | null = null;
       let brainCommand = false;
+      let editedSelection = false;
       let simpleOn = this.h.settings().SimpleSyntax;
       let raw = '';
       let command: string | null = null;
@@ -450,7 +480,6 @@ export class DictationSession {
           text = spoken;
         }
         raw = text;
-        // Brain on a selection waits for SelectionReader (Windows); a take is plain dictation here.
         // Per-app mode: the rule for the program that had the focus at key press overrides the edit settings.
         let now = this.h.settings();
         if (fgTask) {
@@ -467,7 +496,29 @@ export class DictationSession {
           }
         }
         simpleOn = now.SimpleSyntax;
-        if (text.length > 0 && this.brainUsable(now)) {
+        const selected = this.selectionAtPress && text.length > 0 ? await this.selectionAtPress : null;
+        this.selectionAtPress = null;
+        if (this.abandon) {
+          overlay?.hideNow();
+          return null;
+        }
+        if (selected !== null) {
+          // Selected text + speech = a command on the selection ("make it shorter", "translate").
+          // The answer is pasted over the selection; Ctrl+Z in the app brings the original back.
+          Log.write(`brain on selection, ${selected.length} chars`);
+          const { answer, failure } = await this.runBrain(now, selected, stripAddress(text), overlay, abort.signal, true);
+          if (this.abandon) {
+            overlay?.hideNow();
+            return null;
+          }
+          if (answer === null) {
+            overlay?.hideNow();
+            this.hint(t(`Мозг не справился: ${failure}. Выделенный текст не тронут.`, `The Brain failed: ${failure}. The selection is untouched.`));
+            return null; // never paste the spoken command over the user's text
+          }
+          text = answer;
+          editedSelection = true;
+        } else if (text.length > 0 && this.brainUsable(now)) {
           const cmd = parseCommand(text);
           if (cmd || now.BrainEveryTake) {
             const body = cmd?.body ?? text;
@@ -486,13 +537,13 @@ export class DictationSession {
         }
       }
 
-      // Simple syntax is for dictation only: a Brain answer to a command goes in as is.
-      if (text.length > 0 && simpleOn && !brainCommand) {
+      // Simple syntax is for dictation only: a Brain answer to a command or an edited selection goes in as is.
+      if (text.length > 0 && simpleOn && !brainCommand && !editedSelection) {
         const simple = applySimpleSyntax(text);
         Log.write(`simple syntax: ${simple === text ? 'unchanged' : 'applied'}, ${text.length} chars`);
         text = simple;
       } else if (text.length > 0) {
-        Log.write(`insert as is: simple=${simpleOn} selection=false command=${brainCommand}`);
+        Log.write(`insert as is: simple=${simpleOn} selection=${editedSelection} command=${brainCommand}`);
       }
 
       if (this.abandon) {
@@ -517,7 +568,7 @@ export class DictationSession {
           Log.write(`history: ${e instanceof Error ? e.message : String(e)}`);
         }
         const inserter = this.source === 'hotkey' ? this.h.inserter?.() ?? null : null;
-        if (inserter) await this.insertInto(inserter, text, brainFailure);
+        if (inserter) await this.insertInto(inserter, text, brainFailure, editedSelection);
         else this.copyOut(text, brainFailure);
       } else if (samples.length <= MIN_TAKE_SAMPLES) {
         // WPF just hides the pill on an accidental tap; the page says what happened.
@@ -539,6 +590,7 @@ export class DictationSession {
     } finally {
       this.busy = false;
       this.abandon = false;
+      this.selectionAtPress = null;
       if (this.takeAbort === abort) this.takeAbort = null;
       this.disposeRetired();
       if (this.rec) this.idle.touch();
@@ -568,7 +620,7 @@ export class DictationSession {
   }
 
   /** Global-key take: TextInserter.Insert into the focused app with the WPF hints. */
-  private async insertInto(inserter: TextInserterLike, text: string, brainFailure: string | null): Promise<void> {
+  private async insertInto(inserter: TextInserterLike, text: string, brainFailure: string | null, editedSelection = false): Promise<void> {
     const s = this.h.settings();
     let r: 'Done' | 'Blocked';
     try {
@@ -601,6 +653,8 @@ export class DictationSession {
       }
     } else if (brainFailure !== null) {
       this.hint(t(`Мозг не справился: ${brainFailure}. Вставлен текст без правки.`, `The Brain failed: ${brainFailure}. Inserted the text as recognized.`));
+    } else if (editedSelection) {
+      this.hint(t('Готово. Вернуть как было: Ctrl+Z', 'Done. Undo with Ctrl+Z'));
     } else {
       this.status = t('Готово. Фраза вставлена.', 'Done. The phrase is inserted.');
     }
@@ -617,13 +671,14 @@ export class DictationSession {
     command: string | null,
     overlay: OverlaySink | null,
     signal: AbortSignal,
+    selection = false,
   ): Promise<{ answer: string | null; failure: string | null }> {
     try {
       const answer = await this.transform(s, body, command, (line) => {
         overlay?.showStatus(line);
         this.status = line;
         this.push();
-      }, signal);
+      }, signal, selection);
       return answer.trim().length > 0
         ? { answer, failure: null }
         : { answer: null, failure: t('нейросеть вернула пустой ответ', 'the model returned an empty answer') };
