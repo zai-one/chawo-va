@@ -67,6 +67,7 @@ const api = {
     setHotkey: (vk: number) => ipcRenderer.invoke('dictation:hotkey', vk),
     setInsertMode: (v: string) => ipcRenderer.invoke('dictation:insert', v),
     setOverlay: (v: boolean) => ipcRenderer.invoke('dictation:overlay', v),
+    setSoundCues: (v: boolean) => ipcRenderer.invoke('dictation:cues', v),
     setMic: (id: string) => ipcRenderer.invoke('dictation:mic', id),
     setDevices: (list: { id: string; label: string }[], defaultName: string) => ipcRenderer.invoke('dictation:devices', list, defaultName),
     dismissStartCard: () => ipcRenderer.invoke('dictation:dismissStart'),
@@ -80,6 +81,11 @@ const api = {
       const h = (_e: unknown, s: unknown) => fn(s);
       ipcRenderer.on('dictation:state', h);
       return () => ipcRenderer.removeListener('dictation:state', h);
+    },
+    onCue: (fn: (cue: unknown) => void) => {
+      const h = (_e: unknown, cue: unknown) => fn(cue);
+      ipcRenderer.on('dictation:cue', h);
+      return () => ipcRenderer.removeListener('dictation:cue', h);
     },
     onLevel: (fn: (v: number) => void) => {
       const h = (_e: unknown, v: number) => fn(v);

@@ -56,6 +56,9 @@ export interface DictationStateDto {
   showOverlay: boolean;
   overlayLabel: string;
   overlayTip: string;
+  soundCues: boolean;
+  soundCuesLabel: string;
+  soundCuesTip: string;
   /** Raw Chromium deviceId for getUserMedia; '' means the system default. */
   micId: string;
   micChoices: { value: string; label: string }[];
@@ -212,6 +215,10 @@ export class DictationController {
       overlayLabel: t('Показывать плашку: волна и черновик текста', 'Show the pill: wave and the draft text'),
       overlayTip: t('Пока клавиша зажата, на плашке волна и черновик. Вставляется не он, а окончательный проход после отпускания. Плашку можно перетащить мышью.',
         'While the key is held the pill shows the wave and a draft. What is inserted is the final pass after release, not the draft. Drag the pill to pin it.'),
+      soundCues: s.SoundCues,
+      soundCuesLabel: t('Звуковые сигналы начала и конца записи', 'Sound cues when a take starts and ends'),
+      soundCuesTip: t('Тихий короткий звук: запись пошла, запись принята, запись отменена. Звуки рождаются в самом приложении, ничего не скачивается.',
+        'A soft short tone: recording started, take accepted, take dropped. The tones are made by the app itself; nothing is downloaded.'),
       micId: this.micDeviceId(),
       micChoices: [{ value: '', label: this.defaultLabel() }, ...this.devices.map((d) => ({ value: d.id, label: d.label }))],
       micHint: this.micHint(s),
@@ -378,6 +385,14 @@ export class DictationController {
     const s = this.h.settings();
     if (s.ShowOverlay === on) return;
     s.ShowOverlay = on;
+    this.h.save(s);
+    this.h.changed?.();
+  }
+
+  setSoundCues(on: boolean): void {
+    const s = this.h.settings();
+    if (s.SoundCues === on) return;
+    s.SoundCues = on;
     this.h.save(s);
     this.h.changed?.();
   }

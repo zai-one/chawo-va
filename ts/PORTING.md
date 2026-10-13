@@ -369,6 +369,31 @@ Re-align folder names and tooling with taptain-desktop once its layout is readab
   unit-tested with a fake spawn only (needs a Windows run). Next: the Windows native helper (hold
   key, TextInserter, SelectionReader, caret placement, job object), the «Продажи» card, then
   Updater/Autostart.
+- 2026-10-13 tick (branch `ts/feat-mic-level`, IDEAS.md №7): sound cues + tray take state. The mic level
+  was already ported (pill bars and the page meter). `src/core/cues.ts` (no Electron):
+  `cueForTransition` (→Listening = start, Listening→Recognizing = stop, Listening→Idle/NoModel =
+  cancel, Recognizing→Idle = quiet), `cueTones` (two-tone rising fifth 660→990 Hz for start, falling
+  for stop, one 330 Hz tone for cancel; ≤0.1 gain, ≤0.3 s, so the start tone barely reaches the mic),
+  `CueTracker` (first phase is the baseline: no beep at app start; reads the setting on every change),
+  `trayStateFor`/`trayTooltip`. `src/core/trayDot.ts`: `paintDot` paints an anti-aliased dot with a dark
+  ring bottom-right on the BGRA bitmap from `nativeImage.toBitmap()` — red #EF5143 recording, amber
+  #FFB261 recognizing — so no new icon files (the iconset belongs to WPF). Wire-up: `dictationIpc`'s
+  `push` observes `session.phase`, sends `dictation:cue` {kind, tones} to the main page when
+  `SoundCues` is on and calls `opts.phase` → `main.ts` `showTrayPhase` (setImage + tooltip «… — идёт
+  запись / распознаю»; images cached per state, cleared on nativeTheme `updated`). The page synthesises
+  the tones with an OscillatorNode + 8 ms gain ramps (values clamped again in the page). New setting
+  `SoundCues` (default false) and one checkbox «Звуковые сигналы начала и конца записи» under the pill
+  checkbox on «Диктовка». Tests: `test/cues.test.ts` (22: transition table, tone limits/shape, tracker,
+  tray state/tooltips RU/EN, paintDot pixels/scaling/short buffer, settings round-trip, controller,
+  a real DictationSession take → start/stop, Escape → cancel, off → silent but the tray follows).
+  331 green + 1 skipped (309 on ts-port). Electron under xvfb (`scripts/smoke-cues.cjs`, fake mic from
+  ru30.wav, real v3 model): checkbox ticked → settings.json SoundCues true; hold 4 s → cue 1 start
+  (AudioContext running), release → 2 stop, text «Русский язык. Русский язык»; second press + Escape →
+  3 start, 4 cancel; tray tooltips idle → «идёт запись» → «распознаю» → idle → «идёт запись» → idle,
+  tray bitmap at the dot BGRA 67,81,239 (red) / 97,178,255 (amber) / plain glyph when idle.
+  Gaps: media pause (needs the Windows helper + GSMTC); cues are not heard through a real speaker
+  on the box (no audio device), and whether the start tone leaks into a take on laptop speakers
+  needs a check on zai-redmibook.
 - 2026-10-13 tick (branch `ts/feat-vad`, IDEAS.md №2): Silero VAD. `src/core/vad.ts` (no Electron):
   Silero v5 window plumbing — 16 kHz, 512 new samples + 64 of context (576 in), state [2,B,128],
   `input`/`state`/`sr` → `output`/`stateN` (`sileroScorer` wraps any ORT-like session); the scorer is

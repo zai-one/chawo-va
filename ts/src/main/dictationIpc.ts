@@ -14,6 +14,7 @@ import { lastTakePath } from './paths';
 import { DictationController, type MicDevice } from './dictation/dictationPage';
 import { DictationSession, type TakeRecord } from './dictation/dictationSession';
 import type { OverlayWindow } from './overlay/overlayWindow';
+import { CueTracker, cueTones, type CuePhase } from '../core/cues';
 import type { GlobalKeyState } from './dictation/dictationPage';
 import type { TextInserterLike } from './native/nativeHelper';
 import * as Log from './log';
@@ -48,14 +49,26 @@ export interface DictationIpc {
 export function registerDictationIpc(
   getWindow: () => BrowserWindow | null,
   settings: { get: () => SettingsData },
-  opts: { changed?: () => void; overlay?: OverlayWindow; sales?: (transcript: string) => void; keys?: () => GlobalKeys | null; record?: (take: TakeRecord) => void } = {},
+  opts: { changed?: () => void; overlay?: OverlayWindow; sales?: (transcript: string) => void; keys?: () => GlobalKeys | null; record?: (take: TakeRecord) => void; phase?: (phase: CuePhase) => void } = {},
 ): DictationIpc {
   const send = (channel: string, payload: unknown) => {
     const w = getWindow();
     if (w && !w.isDestroyed()) w.webContents.send(channel, payload);
   };
+  // Sound cues go to the main window's page (Web Audio there); the tray follows the same phase.
+  const cues = new CueTracker(() => settings.get().SoundCues, (kind) => send('dictation:cue', { kind, tones: cueTones(kind) }));
+  let lastPhase: CuePhase | null = null;
+  const observePhase = () => {
+    const p = session.phase;
+    cues.observe(p);
+    if (p !== lastPhase) {
+      lastPhase = p;
+      opts.phase?.(p);
+    }
+  };
   let pushTimer: NodeJS.Timeout | null = null;
   const push = () => {
+    observePhase();
     syncLevelTimer();
     // Escape belongs to us only while a take listens or recognizes (KeyboardHook.ArmCancel).
     opts.keys?.()?.armCancel(session.isBusy);
@@ -143,6 +156,10 @@ export function registerDictationIpc(
   ipcMain.handle('dictation:overlay', (_e, v: unknown) => {
     if (typeof v === 'boolean') ctl.setShowOverlay(v);
     if (!settings.get().ShowOverlay) opts.overlay?.hideNow();
+    return state();
+  });
+  ipcMain.handle('dictation:cues', (_e, v: unknown) => {
+    if (typeof v === 'boolean') ctl.setSoundCues(v);
     return state();
   });
   ipcMain.handle('dictation:mic', (_e, v: unknown) => {

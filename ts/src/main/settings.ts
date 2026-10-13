@@ -38,6 +38,8 @@ export interface SettingsData {
   HotkeyVk: number;
   InsertMode: InsertMode;
   ShowOverlay: boolean;
+  /** Soft start/stop tones for a take (TS port only; off by default). */
+  SoundCues: boolean;
   CopyPhraseToClipboard: boolean;
   RestoreClipboardAfterCopy: boolean;
   KeepLastRecording: boolean;
@@ -95,6 +97,7 @@ export function defaults(): SettingsData {
     HotkeyVk: 0xa3,
     InsertMode: 'Paste',
     ShowOverlay: true,
+    SoundCues: false,
     CopyPhraseToClipboard: false,
     RestoreClipboardAfterCopy: true,
     KeepLastRecording: false,
@@ -327,6 +330,7 @@ export function fromJsonObject(raw: Record<string, unknown>): { settings: Settin
   d.HotkeyVk = asInt(raw.HotkeyVk, d.HotkeyVk);
   d.InsertMode = asEnum(raw.InsertMode, ['Type', 'Paste'] as const, d.InsertMode);
   d.ShowOverlay = asBool(raw.ShowOverlay, d.ShowOverlay);
+  d.SoundCues = asBool(raw.SoundCues, d.SoundCues);
   d.CopyPhraseToClipboard = asBool(raw.CopyPhraseToClipboard, d.CopyPhraseToClipboard);
   d.RestoreClipboardAfterCopy = asBool(raw.RestoreClipboardAfterCopy, d.RestoreClipboardAfterCopy);
   d.KeepLastRecording = asBool(raw.KeepLastRecording, d.KeepLastRecording);
@@ -414,6 +418,7 @@ export function toJsonObject(s: SettingsData): Record<string, unknown> {
     HotkeyVk: s.HotkeyVk,
     InsertMode: s.InsertMode,
     ShowOverlay: s.ShowOverlay,
+    SoundCues: s.SoundCues,
     CopyPhraseToClipboard: s.CopyPhraseToClipboard,
     RestoreClipboardAfterCopy: s.RestoreClipboardAfterCopy,
     KeepLastRecording: s.KeepLastRecording,

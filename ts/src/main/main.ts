@@ -22,6 +22,8 @@ import * as Settings from './settings';
 import * as Log from './log';
 import { helperExePath, NativeHelper } from './native/nativeHelper';
 import { applyLanguage } from '../core/strings';
+import { trayStateFor, trayTooltip, type CuePhase, type TrayState } from '../core/cues';
+import { DOT_RECOGNIZING, DOT_RECORDING, paintDot } from '../core/trayDot';
 
 const APP_NAME = 'Chawo Voice Assistant';
 const BG = '#14161a';
@@ -75,10 +77,39 @@ function createWindow(): BrowserWindow {
   return w;
 }
 
-function createTray(): Tray {
+function trayBase(): Electron.NativeImage {
   // Tray glyph follows the OS taskbar shade (as in WPF 1.17.1); the app UI itself is always dark.
   const set = nativeTheme.shouldUseDarkColors ? 'tray-dark' : 'tray-light';
-  const t = new Tray(nativeImage.createFromPath(iconPath(set, 32)));
+  return nativeImage.createFromPath(iconPath(set, 32));
+}
+
+const trayImages = new Map<TrayState, Electron.NativeImage>();
+function trayImage(state: TrayState): Electron.NativeImage {
+  const hit = trayImages.get(state);
+  if (hit) return hit;
+  const base = trayBase();
+  let img = base;
+  const { width, height } = base.getSize();
+  if (state !== 'idle' && width > 0 && height > 0) {
+    const dotted = paintDot(base.toBitmap(), width, height, state === 'recording' ? DOT_RECORDING : DOT_RECOGNIZING);
+    img = nativeImage.createFromBitmap(Buffer.from(dotted), { width, height });
+  }
+  trayImages.set(state, img);
+  return img;
+}
+
+let trayState: TrayState = 'idle';
+/** The take phase on the tray: a red dot while recording, amber while recognizing, plain otherwise. */
+function showTrayPhase(phase: CuePhase): void {
+  const next = trayStateFor(phase);
+  if (!tray || next === trayState) return;
+  trayState = next;
+  tray.setImage(trayImage(next));
+  tray.setToolTip(trayTooltip(next, `${APP_NAME} ${app.getVersion()}`));
+}
+
+function createTray(): Tray {
+  const t = new Tray(trayImage('idle'));
   t.setToolTip(`${APP_NAME} ${app.getVersion()}`);
   t.setContextMenu(
     Menu.buildFromTemplate([
@@ -129,6 +160,7 @@ if (!app.requestSingleInstanceLock()) {
     destroySalesCard = () => sales.card.destroy();
     const dictation = registerDictationIpc(() => win, { get: () => settings }, {
       overlay,
+      phase: showTrayPhase,
       record: (take) => history.record(take),
       keys: () => nativeHelper,
       sales: (text) => sales.session.show(text),
@@ -176,6 +208,10 @@ if (!app.requestSingleInstanceLock()) {
     registerBrainIpc(() => win, { get: () => settings });
     win = createWindow();
     tray = createTray();
+    nativeTheme.on('updated', () => {
+      trayImages.clear();
+      tray?.setImage(trayImage(trayState));
+    });
     void network.start();
   });
   app.on('window-all-closed', () => {
