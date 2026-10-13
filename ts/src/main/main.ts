@@ -10,6 +10,7 @@ import { registerBrainIpc } from './brainIpc';
 import * as LocalBrain from './brain/localBrain';
 import { registerDictationIpc } from './dictationIpc';
 import { registerNetworkIpc } from './networkIpc';
+import { registerSalesIpc } from './salesIpc';
 import { makeHermesTranscribe } from './network/hermesTranscribe';
 import * as KeepAwake from './network/keepAwake';
 import { OverlayWindow } from './overlay/overlayWindow';
@@ -28,6 +29,7 @@ let tray: Tray | null = null;
 let settings: Settings.SettingsData = Settings.defaults();
 let releaseDictation: (() => Promise<void>) | null = null;
 let destroyOverlay: (() => void) | null = null;
+let destroySalesCard: (() => void) | null = null;
 let disposeNetwork: (() => Promise<void>) | null = null;
 let nativeHelper: NativeHelper | null = null;
 
@@ -118,7 +120,16 @@ if (!app.requestSingleInstanceLock()) {
     // The floating pill: created lazily on the first take with «Показывать плашку» on.
     const overlay = new OverlayWindow({ get: () => settings, save: Settings.save });
     destroyOverlay = () => overlay.destroy();
-    const dictation = registerDictationIpc(() => win, { get: () => settings }, { overlay, keys: () => nativeHelper });
+    // «Продажи»: catalog page + the always-on-top card fed by live drafts (only in Sales mode).
+    const sales = registerSalesIpc(() => win, { get: () => settings });
+    destroySalesCard = () => sales.card.destroy();
+    const dictation = registerDictationIpc(() => win, { get: () => settings }, {
+      overlay,
+      keys: () => nativeHelper,
+      sales: (text) => sales.session.show(text),
+      // Leaving Sales mode closes the stand-in call and hides the card (App.ApplySettings).
+      changed: () => sales.session.settingsChanged(),
+    });
     // Windows: the global hold key and inserting into other apps (KeyboardHook / TextInserter) live in a
     // small helper exe. Elsewhere the in-window hold button is the way to dictate for now.
     if (process.platform === 'win32') {
@@ -173,6 +184,7 @@ if (!app.requestSingleInstanceLock()) {
     nativeHelper?.dispose();
     void releaseDictation?.();
     destroyOverlay?.();
+    destroySalesCard?.();
     tray?.destroy();
   });
 }

@@ -76,6 +76,44 @@ interface DictApi {
   suggest(): Promise<DictState>;
   addSuggestion(heard: string, written: string): Promise<DictState>;
 }
+interface SalesRowDto { id: number; Code: string; Name: string; Line: string; SimilarCode: string }
+interface SalesState {
+  ru: boolean;
+  intro: string;
+  callHeading: string;
+  callIntro: string;
+  extensionHeader: string;
+  numberHeader: string;
+  managerHeader: string;
+  showCallLabel: string;
+  call: { extension: string; number: string; manager: string; status: string };
+  codeHeader: string;
+  nameHeader: string;
+  lineHeader: string;
+  similarHeader: string;
+  addLabel: string;
+  deleteLabel: string;
+  rows: SalesRowDto[];
+  ragHeading: string;
+  ragIntro: string;
+  ragFolder: string;
+  ragFolderText: string;
+  pickLabel: string;
+  clearLabel: string;
+  canClear: boolean;
+  ragStatus: string;
+  modeNote: string;
+  salesMode: boolean;
+}
+interface SalesApi {
+  state(): Promise<SalesState>;
+  setRow(id: number, code: string, name: string, line: string, similar: string): Promise<SalesState>;
+  add(): Promise<{ id: number; state: SalesState }>;
+  remove(id: number): Promise<SalesState>;
+  pickFolder(): Promise<SalesState>;
+  clearFolder(): Promise<SalesState>;
+  showCall(extension: string, number: string, manager: string): Promise<SalesState>;
+}
 interface BrainRow { kind: string | null; label: string; selected: boolean; onDisk: boolean; path: string | null; canDownload: boolean; downloadLabel: string }
 interface BrainDownload { kind: string; title: string; intro: string; percent: number | null; text: string; running: boolean; failed: boolean }
 interface BrainState {
@@ -232,7 +270,7 @@ interface NetworkApi {
   setKeepAwake(v: boolean): Promise<NetworkState>;
   onState(fn: (s: NetworkState) => void): () => void;
 }
-const bridge = (window as unknown as { chawo: { file: FileApi; speech: SpeechApi; dict: DictApi; brain: BrainApi; dictation: DictationApi; network: NetworkApi } }).chawo;
+const bridge = (window as unknown as { chawo: { file: FileApi; speech: SpeechApi; dict: DictApi; brain: BrainApi; dictation: DictationApi; network: NetworkApi; sales: SalesApi } }).chawo;
 
 const titlesEn: Record<string, string> = {
   dictation: 'Dictation',
@@ -261,6 +299,7 @@ let dictState: DictState | null = null;
 let brainState: BrainState | null = null;
 let dictationState: DictationState | null = null;
 let networkState: NetworkState | null = null;
+let salesState: SalesState | null = null;
 let ru = true;
 const L = (r: string, e: string) => (ru ? r : e);
 
@@ -916,6 +955,7 @@ function setLanguage(r: boolean): void {
   else if (current === 'dictionary') renderDictionary();
   else if (current === 'brain') renderBrain();
   else if (current === 'network') renderNetwork();
+  else if (current === 'sales') renderSales();
   else if (current !== 'file') show(current);
 }
 
@@ -966,6 +1006,84 @@ function renderDictionary(focusId?: number): void {
     }
     page.append(list);
   }
+  if (focusEl) focusEl.focus();
+}
+
+const applySales = (st: SalesState, focusId?: number) => {
+  salesState = st;
+  if (st.ru !== ru) setLanguage(st.ru);
+  else if (current === 'sales') renderSales(focusId);
+};
+
+function renderSales(focusId?: number): void {
+  const s = salesState;
+  page.replaceChildren(el('h1', { textContent: title('sales') }));
+  if (!s) return;
+  page.append(el('p', { className: 'muted', textContent: s.intro }));
+  page.append(el('p', { className: s.salesMode ? 'hint' : 'hint warn', textContent: s.modeNote }));
+
+  // Catalog: code, name, short line, similar code; saved on every edit, the page is not redrawn.
+  const table = el('div', { className: 'dict sales' },
+    el('div', { className: 'dict-row head muted' },
+      el('span', { textContent: s.codeHeader }),
+      el('span', { textContent: s.nameHeader }),
+      el('span', { textContent: s.lineHeader }),
+      el('span', { textContent: s.similarHeader }),
+      el('span'),
+    ),
+  );
+  let focusEl: HTMLInputElement | null = null;
+  for (const r of s.rows) {
+    const box = (value: string, label: string) => {
+      const i = el('input', { type: 'text', value, spellcheck: false });
+      i.setAttribute('aria-label', label);
+      return i;
+    };
+    const code = box(r.Code, s.codeHeader);
+    const name = box(r.Name, s.nameHeader);
+    const line = box(r.Line, s.lineHeader);
+    const similar = box(r.SimilarCode, s.similarHeader);
+    const send = () => void bridge.sales.setRow(r.id, code.value, name.value, line.value, similar.value).then((st) => { salesState = st; });
+    for (const i of [code, name, line, similar]) i.addEventListener('input', send);
+    const del = button(s.deleteLabel, () => void bridge.sales.remove(r.id).then((st) => applySales(st)));
+    table.append(el('div', { className: 'dict-row' }, code, name, line, similar, del));
+    if (r.id === focusId) focusEl = code;
+  }
+  page.append(table);
+  page.append(el('div', { className: 'row' },
+    button(s.addLabel, () => void bridge.sales.add().then((res) => applySales(res.state, res.id))),
+  ));
+
+  // Materials folder (local RAG).
+  const rag = el('fieldset', {}, el('legend', { textContent: s.ragHeading }), el('p', { className: 'muted hint', textContent: s.ragIntro }));
+  const folder = el('input', { type: 'text', value: s.ragFolderText, readOnly: true, spellcheck: false });
+  folder.setAttribute('aria-label', s.ragHeading);
+  const clear = button(s.clearLabel, () => void bridge.sales.clearFolder().then((st) => applySales(st)));
+  clear.disabled = !s.canClear;
+  rag.append(el('div', { className: 'folder-row' }, folder,
+    button(s.pickLabel, () => void bridge.sales.pickFolder().then((st) => applySales(st))),
+    clear,
+  ));
+  rag.append(el('p', { className: 'muted hint', textContent: s.ragStatus }));
+  page.append(rag);
+
+  // Call stand-in.
+  const call = el('fieldset', {}, el('legend', { textContent: s.callHeading }), el('p', { className: 'muted hint', textContent: s.callIntro }));
+  const field = (value: string, label: string) => {
+    const i = el('input', { type: 'text', value, spellcheck: false, autocomplete: 'off' });
+    i.setAttribute('aria-label', label);
+    return el('label', { className: 'stack' }, el('span', { className: 'muted', textContent: label }), i);
+  };
+  const ext = field(s.call.extension, s.extensionHeader);
+  const num = field(s.call.number, s.numberHeader);
+  const mgr = field(s.call.manager, s.managerHeader);
+  const val = (l: HTMLElement) => (l.querySelector('input') as HTMLInputElement).value;
+  call.append(el('div', { className: 'call-row' }, ext, num, mgr));
+  call.append(el('div', { className: 'row' },
+    button(s.showCallLabel, () => void bridge.sales.showCall(val(ext), val(num), val(mgr)).then((st) => applySales(st))),
+  ));
+  if (s.call.status) call.append(el('p', { className: 'muted hint', textContent: s.call.status }));
+  page.append(call);
   if (focusEl) focusEl.focus();
 }
 
@@ -1125,6 +1243,11 @@ function show(name: string): void {
   if (name === 'brain') {
     renderBrain();
     void bridge.brain.state(true).then(applyBrain);
+    return;
+  }
+  if (name === 'sales') {
+    renderSales();
+    void bridge.sales.state().then((st) => applySales(st));
     return;
   }
   if (name === 'network') {

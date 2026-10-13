@@ -2,7 +2,8 @@
 // recognition → dictionary → Brain (every take or a «Чаво, …» command) → simple syntax → final text.
 // Port of App.HandlePressAsync / HandleReleaseAsync / RunBrainAsync / RequestStop / PartialTickAsync /
 // ReloadSpeechAsync / SpeechStatusText minus the parts that are not ported yet (Brain on a selection,
-// memory check before a cold local Brain, sales card, inserting into other apps). In the Client role
+// memory check before a cold local Brain, inserting into other apps). In «Продажи» mode the live
+// drafts run even with the pill off and every draft and the finished recognition go to the sales card. In the Client role
 // the take (and the live drafts) go to the host through RemoteSpeech instead of a local recognizer.
 // No Electron imports: the clipboard, the WAV writer, the pill and the Brain come in as hooks, and
 // tests pass a fake recognizer and a fake OpenAI-compatible fetch. The recognizer is opened on demand
@@ -86,6 +87,8 @@ export interface SessionHooks {
   inserter?: () => TextInserterLike | null;
   /** Client role: RemoteSpeech.transcribe (tests pass a fake host). Throws RemoteHostException. */
   remote?: (s: SettingsData, samples: Float32Array, rate: number, signal: AbortSignal) => Promise<string>;
+  /** App.ShowSales: the local catalog card. Called only in «Продажи» mode, with drafts and the recognized take. */
+  sales?: (transcript: string) => void;
 }
 
 export function defaultBrainUsable(s: SettingsData): boolean {
@@ -164,6 +167,20 @@ export class DictationSession {
     this.overlay?.showHint(text);
   }
 
+  /** Live drafts: for the pill, or for the sales card (which needs them even with the pill off). */
+  private wantsDrafts(s: SettingsData): boolean {
+    return s.ShowOverlay || s.Mode === 'Sales';
+  }
+
+  private showSales(text: string): void {
+    if (this.h.settings().Mode !== 'Sales' || !this.h.sales) return;
+    try {
+      this.h.sales(text);
+    } catch (e) {
+      Log.write(`sales card: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+
   private get client(): boolean {
     return this.h.settings().NetworkRole === 'Client';
   }
@@ -219,7 +236,8 @@ export class DictationSession {
     this.source = source;
     this.buf.start();
     this.overlay?.showListening();
-    if (this.h.settings().ShowOverlay) this.startPartials();
+    // Sales needs the live draft even when the pill is hidden. Dictation does not.
+    if (this.wantsDrafts(this.h.settings())) this.startPartials();
     this.push();
     return { ok: true };
   }
@@ -334,6 +352,7 @@ export class DictationSession {
           Log.write('recognize cancelled');
           return null;
         }
+        if (text.length > 0) this.showSales(text);
         // Dictionary on the finished recognition only, before the Brain sees the phrase. Not the live draft.
         if (text.length > 0) {
           const replaced = applyRules(text, effectiveWordReplacementRules(this.h.settings()));
@@ -524,8 +543,8 @@ export class DictationSession {
    */
   async partialTick(): Promise<void> {
     if (!this.buf.isRecording) return;
-    if (!this.h.settings().ShowOverlay) return; // Sales (needs drafts without the pill) is not ported
     const settings = this.h.settings();
+    if (!this.wantsDrafts(settings)) return;
     const remote = settings.NetworkRole === 'Client';
     const rec = this.rec;
     if ((!remote && !rec) || this.partialBusy) return;
@@ -550,7 +569,10 @@ export class DictationSession {
     this.partialTask = task;
     try {
       const text = await run;
-      if (wanted() && this.buf.isRecording && text.length > 0) this.overlay?.showPartial(text);
+      if (wanted() && this.buf.isRecording && text.length > 0) {
+        this.overlay?.showPartial(text);
+        this.showSales(text);
+      }
       if (text.length > 0) Log.write(`partial ${text.length} chars`);
     } catch (e) {
       if (e instanceof RemoteHostException) Log.write(`partial remote: ${e.english}`);
