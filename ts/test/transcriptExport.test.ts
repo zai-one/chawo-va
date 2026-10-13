@@ -176,3 +176,31 @@ describe('FileRunner with extra formats', () => {
     expect(JSON.parse(readFileSync(join(dir, 'call.json'), 'utf8')).duration).toBe(5);
   });
 });
+
+describe('speaker labels in vtt / json / md / docx (diarization, page and CLI)', () => {
+  const segs = [
+    { start: 0, end: 2, text: 'Привет.', speaker: 0 },
+    { start: 2, end: 2.1, text: ' ', speaker: 1 },
+    { start: 3, end: 5, text: 'Как дела?', speaker: 1 },
+    { start: 6, end: 7, text: 'Без спикера.' },
+  ];
+  it('«Спикер N:» prefix like .txt/.srt; json carries a 1-based speaker field', () => {
+    expect(toVtt(segs)).toContain('00:00:00.000 --> 00:00:02.000\nСпикер 1: Привет.\n');
+    expect(toVtt(segs)).toContain('\nСпикер 2: Как дела?\n');
+    expect(toVtt(segs)).toContain('\nБез спикера.\n');
+    const j = JSON.parse(toJson(segs, { source: 'a.wav', duration: 7 })) as { segments: Array<{ text: string; speaker?: number }> };
+    expect(j.segments).toEqual([
+      { start: 0, end: 2, text: 'Привет.', speaker: 1 },
+      { start: 3, end: 5, text: 'Как дела?', speaker: 2 },
+      { start: 6, end: 7, text: 'Без спикера.' },
+    ]);
+    expect(toMarkdown(segs, true, 't')).toContain('**[00:00:03]** Спикер 2: Как дела?');
+    expect(documentXml(segs, false, 'x')).toContain('Спикер 1: Привет.');
+  });
+  it('no speakers → unchanged output', () => {
+    const plain = segs.map(({ start, end, text }) => ({ start, end, text }));
+    expect(toVtt(plain)).not.toContain('Спикер');
+    expect(toJson(plain, { source: 'a', duration: 7 })).not.toContain('speaker');
+    expect(toMarkdown(plain, false, 't')).not.toContain('Спикер');
+  });
+});

@@ -145,7 +145,7 @@ describe('runCli', () => {
     expect(await run(h, 'transcribe', '/rec/talk.wav')).toBe(EXIT_OK);
     expect([...h.files.keys()]).toEqual(['/rec/talk.txt']);
     expect(h.files.get('/rec/talk.txt')).toBe('[00:00:00] Привет.\n[00:01:01] Как дела?');
-    expect(h.opened).toEqual([{ dir: '/models/v3', kind: 'v3_e2e_rnnt', device: 'cpu', threads: 'auto', script: 'auto' }]);
+    expect(h.opened).toEqual([{ dir: '/models/v3', kind: 'v3_e2e_rnnt', device: 'cpu', threads: 'auto', script: 'auto', vad: true }]);
     expect(h.disposed).toBe(1);
     const log = h.err.join('');
     expect(log).toContain('Device: cpu/cpu · Auto → 2× CPU');
@@ -330,16 +330,27 @@ describe('readDefaults (settings.json read-only)', () => {
     writeFileSync(file, body);
     const before = statSync(file).mtimeMs;
     const { readDefaults } = await import('../src/cli');
-    expect(readDefaults()).toEqual({ model: 'multilingual_large_ctc', device: 'cpu', threads: 2, script: 'english', timestamps: false, language: 'English', postScript: 'python fix.py', historyKeep: 'Week' });
+    expect(readDefaults()).toEqual({ model: 'multilingual_large_ctc', device: 'cpu', threads: 2, script: 'english', timestamps: false, language: 'English', postScript: 'python fix.py', historyKeep: 'Week', vad: true, diarize: false });
     expect(readFileSync(file, 'utf8')).toBe(body);
     expect(statSync(file).mtimeMs).toBe(before);
+  });
+
+  it('VadEnabled / FileDiarize are read from settings', async () => {
+    dir = mkdtempSync(join(tmpdir(), 'chawo-cli-'));
+    process.env.CHAWO_APPDATA = dir;
+    process.env.CHAWO_LOCALAPPDATA = dir;
+    const app = join(dir, 'ChawoVoiceAssistant');
+    mkdirSync(app, { recursive: true });
+    writeFileSync(join(app, 'settings.json'), JSON.stringify({ VadEnabled: false, FileDiarize: true }));
+    const { readDefaults } = await import('../src/cli');
+    expect(readDefaults()).toMatchObject({ vad: false, diarize: true });
   });
 
   it('no settings file → app defaults', async () => {
     dir = mkdtempSync(join(tmpdir(), 'chawo-cli-'));
     process.env.CHAWO_APPDATA = dir;
     const { readDefaults } = await import('../src/cli');
-    expect(readDefaults()).toMatchObject({ model: 'v3_e2e_rnnt', device: 'gpu', threads: 'auto', timestamps: true });
+    expect(readDefaults()).toMatchObject({ model: 'v3_e2e_rnnt', device: 'gpu', threads: 'auto', timestamps: true, vad: true, diarize: false });
   });
 });
 
@@ -474,6 +485,140 @@ describe('runCli transcribe + «Свой скрипт»', () => {
     expect(await run(h, 'transcribe', '/a.wav', '--no-timestamps', '--post-script', `${node} -e "process.exit(4)"`)).toBe(EXIT_OK);
     expect(h.files.get('/a.txt')).toBe('Привет.\nКак дела?');
     expect(h.err.join('')).toContain('script: exit code 4, .txt without it');
+  });
+});
+
+describe('runCli transcribe: VAD and speakers (CLI parity with the page)', () => {
+  /** Fake diarizer: the same hook shape as the page's diarizeHook; records calls. */
+  function diarizer(result: Array<{ start: number; end: number; speaker: number }> | null | Error) {
+    const calls: number[] = [];
+    const hook: NonNullable<CliDeps['runDiarize']> = async (pcm, status) => {
+      calls.push(pcm.length);
+      if (result === null) return null;
+      if (result instanceof Error) throw result;
+      status('Separating speakers…');
+      return result;
+    };
+    return { hook, calls };
+  }
+  const TWO = [
+    { start: 0, end: 10, speaker: 7 },
+    { start: 60, end: 65, speaker: 3 },
+  ];
+
+  it('--diarize: speakers from the injected diarizer go into txt, srt, md and --stdout', async () => {
+    const h = harness({ existing: ['/rec/talk.wav'] });
+    const d = diarizer(TWO);
+    h.deps.runDiarize = d.hook;
+    expect(await run(h, 'transcribe', '/rec/talk.wav', '--diarize', '-f', 'txt,srt,md,vtt,json')).toBe(EXIT_OK);
+    expect(d.calls).toEqual([16000 * 65]);
+    expect(h.files.get('/rec/talk.txt')).toBe('[00:00:00] Спикер 1: Привет.\n[00:01:01] Спикер 2: Как дела?');
+    expect(String(h.files.get('/rec/talk.srt'))).toContain('Спикер 2: Как дела?');
+    expect(String(h.files.get('/rec/talk.md'))).toContain('**[00:00:00]** Спикер 1: Привет.');
+    expect(String(h.files.get('/rec/talk.vtt'))).toContain('Спикер 2: Как дела?');
+    expect(JSON.parse(String(h.files.get('/rec/talk.json'))).segments.map((x: { speaker?: number }) => x.speaker)).toEqual([1, 2]);
+    const log = h.err.join('');
+    expect(log).toContain('Separating speakers…');
+    expect(log).toMatch(/Done: \/rec\/talk\.txt \(00:01:05 · speakers · \.srt · .*\.md/);
+
+    const o = harness({ existing: ['/a.wav'] });
+    o.deps.runDiarize = diarizer(TWO).hook;
+    expect(await run(o, 'transcribe', '/a.wav', '--diarize', '--stdout', '--no-timestamps')).toBe(EXIT_OK);
+    expect(o.out.join('')).toBe('Спикер 1: Привет.\nСпикер 2: Как дела?\n');
+  });
+
+  it('settings FileDiarize turns it on; --no-diarize turns it off; off by default', async () => {
+    const on = harness({ existing: ['/a.wav'], defaults: { diarize: true } });
+    const d1 = diarizer(TWO);
+    on.deps.runDiarize = d1.hook;
+    expect(await run(on, 'transcribe', '/a.wav', '--no-timestamps')).toBe(EXIT_OK);
+    expect(on.files.get('/a.txt')).toBe('Спикер 1: Привет.\nСпикер 2: Как дела?');
+
+    const off = harness({ existing: ['/a.wav'], defaults: { diarize: true } });
+    const d2 = diarizer(TWO);
+    off.deps.runDiarize = d2.hook;
+    expect(await run(off, 'transcribe', '/a.wav', '--no-timestamps', '--no-diarize')).toBe(EXIT_OK);
+    expect(d2.calls).toEqual([]);
+    expect(off.files.get('/a.txt')).toBe('Привет.\nКак дела?');
+
+    const dflt = harness({ existing: ['/a.wav'] });
+    const d3 = diarizer(TWO);
+    dflt.deps.runDiarize = d3.hook;
+    expect(await run(dflt, 'transcribe', '/a.wav')).toBe(EXIT_OK);
+    expect(d3.calls).toEqual([]);
+    expect(dflt.err.join('')).not.toContain('speakers');
+  });
+
+  it('models not downloaded: transcript without speakers, exit 0, the line says so (like the page)', async () => {
+    const h = harness({ existing: ['/a.wav', '/b.wav'], defaults: { language: 'Russian' } });
+    h.deps.runDiarize = diarizer(null).hook;
+    expect(await run(h, 'transcribe', '/a.wav', '/b.wav', '--diarize', '--no-timestamps')).toBe(EXIT_OK);
+    expect(h.files.get('/a.txt')).toBe('Привет.\nКак дела?');
+    expect(h.files.get('/b.txt')).toBe('Привет.\nКак дела?');
+    expect(h.err.join('')).toContain('[1/2] Готово: /a.txt (00:01:05 · спикеры: модели не скачаны ·');
+
+    const none = harness({ existing: ['/a.wav'] });
+    expect(await run(none, 'transcribe', '/a.wav', '--diarize')).toBe(EXIT_OK);
+    expect(none.err.join('')).toContain('speakers: models not downloaded');
+  });
+
+  it('a diarizer error or no spans: soft note, transcript written, exit 0', async () => {
+    const h = harness({ existing: ['/a.wav'] });
+    h.deps.runDiarize = diarizer(new Error('bad onnx')).hook;
+    expect(await run(h, 'transcribe', '/a.wav', '--diarize', '--no-timestamps')).toBe(EXIT_OK);
+    expect(h.files.get('/a.txt')).toBe('Привет.\nКак дела?');
+    expect(h.err.join('')).toContain('speakers: bad onnx');
+
+    const e = harness({ existing: ['/a.wav'] });
+    e.deps.runDiarize = diarizer([]).hook;
+    expect(await run(e, 'transcribe', '/a.wav', '--diarize')).toBe(EXIT_OK);
+    expect(e.err.join('')).toContain('speakers: no segments');
+  });
+
+  it('speakers before «Свой скрипт»: the script sees the labelled text', async () => {
+    const node = JSON.stringify(process.execPath);
+    const upper = `${node} ${JSON.stringify(join(__dirname, 'fixtures', 'postscript', 'upper.cjs'))}`;
+    const h = harness({ existing: ['/a.wav'] });
+    h.deps.runDiarize = diarizer(TWO).hook;
+    expect(await run(h, 'transcribe', '/a.wav', '--diarize', '--no-timestamps', '--post-script', upper)).toBe(EXIT_OK);
+    expect(h.files.get('/a.txt')).toBe('СПИКЕР 1: ПРИВЕТ.\nСПИКЕР 2: КАК ДЕЛА?');
+  });
+
+  it('Ctrl+C during diarization → 130, nothing written', async () => {
+    const h = harness({ existing: ['/a.wav'] });
+    h.deps.runDiarize = async () => {
+      h.ac.abort();
+      return TWO;
+    };
+    expect(await run(h, 'transcribe', '/a.wav', '--diarize')).toBe(EXIT_INTERRUPTED);
+    expect(h.files.size).toBe(0);
+  });
+
+  it('VadEnabled from settings goes to the engine; --vad / --no-vad override; engine status lines are printed', async () => {
+    const h = harness({ existing: ['/a.wav'], defaults: { vad: false } });
+    expect(await run(h, 'transcribe', '/a.wav')).toBe(EXIT_OK);
+    expect(h.opened[0]).toMatchObject({ vad: false });
+    expect(await run(h, 'transcribe', '/a.wav', '--vad', '--skip-existing')).toBe(EXIT_OK);
+    expect(h.opened).toHaveLength(1);
+    const v = harness({ existing: ['/a.wav'], defaults: { vad: false } });
+    expect(await run(v, 'transcribe', '/a.wav', '--vad')).toBe(EXIT_OK);
+    expect(v.opened[0]).toMatchObject({ vad: true });
+    const n = harness({ existing: ['/a.wav'] });
+    expect(await run(n, 'transcribe', '/a.wav', '--no-vad')).toBe(EXIT_OK);
+    expect(n.opened[0]).toMatchObject({ vad: false });
+
+    const s = harness({ existing: ['/a.wav'], isTTY: true });
+    const open = s.deps.openEngine;
+    s.deps.openEngine = async (cfg) => {
+      const e = await open(cfg);
+      return { ...e, transcribe: (x, p, sig, status) => (status?.('Finding pauses in speech…'), e.transcribe(x, p, sig, status)) };
+    };
+    expect(await run(s, 'transcribe', '/a.wav')).toBe(EXIT_OK);
+    expect(s.err).toContain('Finding pauses in speech…\n');
+    const q = harness({ existing: ['/a.wav'] });
+    q.deps.openEngine = s.deps.openEngine;
+    expect(await run(q, 'transcribe', '/a.wav', '-q')).toBe(EXIT_OK);
+    expect(q.err.join('')).toBe('');
   });
 });
 

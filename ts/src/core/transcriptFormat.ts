@@ -103,7 +103,8 @@ function nonEmpty(segments: readonly TranscriptSegment[]): TranscriptSegment[] {
   const list: TranscriptSegment[] = [];
   for (const seg of segments) {
     const text = (seg.text ?? '').trim();
-    if (text) list.push({ start: seg.start, end: seg.end, text });
+    if (!text) continue;
+    list.push(typeof seg.speaker === 'number' ? { start: seg.start, end: seg.end, text, speaker: seg.speaker } : { start: seg.start, end: seg.end, text });
   }
   return list;
 }
@@ -115,7 +116,7 @@ export function toVtt(segments: readonly TranscriptSegment[]): string {
   for (const seg of nonEmpty(segments)) {
     n++;
     const end = Math.max(seg.end, seg.start + 0.5);
-    const text = oneLine(seg.text).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const text = (speakerPrefix(seg.speaker) + oneLine(seg.text)).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     out += `${n}\n${vttTime(seg.start)} --> ${vttTime(end)}\n${text}\n\n`;
   }
   return out;
@@ -131,7 +132,12 @@ export function toJson(
   segments: readonly TranscriptSegment[],
   info: { source: string; duration: number },
 ): string {
-  const list = nonEmpty(segments).map((s) => ({ start: ms(s.start), end: ms(Math.max(s.end, s.start)), text: s.text }));
+  // speaker: 1-based like «Спикер N» in the .txt; only when diarization labelled the piece.
+  const list = nonEmpty(segments).map((s) => {
+    const item: { start: number; end: number; text: string; speaker?: number } = { start: ms(s.start), end: ms(Math.max(s.end, s.start)), text: s.text };
+    if (speakerPrefix(s.speaker)) item.speaker = Math.floor(s.speaker!) + 1;
+    return item;
+  });
   const doc = {
     format: 'chawo-transcript',
     version: 1,
@@ -154,7 +160,7 @@ export function mdEscape(text: string): string {
 export function toMarkdown(segments: readonly TranscriptSegment[], timestamps: boolean, title: string): string {
   const parts = [`# ${mdEscape(oneLine(title.trim()) || 'Transcript')}`];
   for (const seg of nonEmpty(segments)) {
-    const text = mdEscape(oneLine(seg.text));
+    const text = mdEscape(speakerPrefix(seg.speaker) + oneLine(seg.text));
     parts.push(timestamps ? `**[${clock(seg.start)}]** ${text}` : text);
   }
   return parts.join('\n\n') + '\n';

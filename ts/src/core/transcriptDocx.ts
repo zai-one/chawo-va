@@ -2,6 +2,7 @@
 // paragraph per piece, the [hh:mm:ss] mark in grey when timestamps are on. No dependency: the
 // caller zips these parts (src/main/file/transcriptExport.ts). Opens in Word and LibreOffice.
 
+import { speakerPrefix } from './diarize';
 import { clock, type TranscriptSegment } from './transcriptFormat';
 
 /** XML text: escapes markup and drops characters XML 1.0 does not allow. */
@@ -28,8 +29,9 @@ export function documentXml(segments: readonly TranscriptSegment[], timestamps: 
   const heading = title.replace(/\s+/g, ' ').trim() || 'Transcript';
   body.push(paragraph(run(heading, '<w:b/><w:sz w:val="32"/>'), '<w:spacing w:after="240"/>'));
   for (const seg of segments) {
-    const text = (seg.text ?? '').replace(/\s*\r?\n\s*/g, ' ').trim();
-    if (!text) continue;
+    const words = (seg.text ?? '').replace(/\s*\r?\n\s*/g, ' ').trim();
+    if (!words) continue;
+    const text = speakerPrefix(seg.speaker) + words;
     const runs = timestamps ? run(`[${clock(seg.start)}] `, '<w:color w:val="808080"/>') + run(text) : run(text);
     body.push(paragraph(runs, '<w:spacing w:after="120"/>'));
   }

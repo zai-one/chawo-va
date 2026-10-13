@@ -5,10 +5,10 @@
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { FileJob } from './core/fileJob';
-import { Recognizer } from './core/recognizer';
 import { applyLanguage, t } from './core/strings';
-import { fromRanges } from './core/transcriptFormat';
 import { scriptCommand } from './core/postScript';
+import { engineFromJob } from './cli/engine';
+import { diarizeHook } from './main/diarize/diarizeRuntime';
 import { runCli, EXIT_INTERRUPTED, type CliDefaults, type CliDeps, type Engine, type EngineConfig } from './cli/run';
 import * as Log from './main/log';
 import { findComplete, looksComplete } from './main/models/speechModelStore';
@@ -20,8 +20,6 @@ import * as Translate from './main/brain/translate';
 import * as FileBrain from './main/brain/fileBrain';
 import type { SettingsData } from './main/settings';
 import type { SpeechModelKind } from './core/speechModels';
-
-const RATE = 16000;
 
 function version(): string {
   try {
@@ -54,28 +52,14 @@ export function readDefaults(): CliDefaults {
     language: s.Language,
     postScript: s.PostScriptFiles ? scriptCommand(s.PostScript) : null,
     historyKeep: s.HistoryKeep,
+    vad: s.VadEnabled,
+    diarize: s.FileDiarize,
   };
 }
 
 async function openEngine(cfg: EngineConfig): Promise<Engine> {
   const job = await FileJob.open(cfg.dir, cfg.kind, cfg.device, cfg.threads, cfg.script);
-  return {
-    summary: t(job.plan.summaryRu, job.plan.summaryEn),
-    device: `${job.deviceActual}/${job.provider}`,
-    async transcribe(samples, progress, signal) {
-      const onAbort = () => job.cancel();
-      signal.addEventListener('abort', onAbort);
-      try {
-        const ranges = Recognizer.splitRanges(samples, RATE);
-        progress(0, ranges.length, 0, 0);
-        const bits = await job.run(samples, ranges, progress, signal);
-        return fromRanges(ranges.map((r) => [r.from, r.to] as const), bits, RATE);
-      } finally {
-        signal.removeEventListener('abort', onAbort);
-      }
-    },
-    dispose: () => job.dispose(),
-  };
+  return engineFromJob(job, { vad: cfg.vad, t });
 }
 
 function findModel(kind: SpeechModelKind, override: string | null): string | null {
@@ -94,6 +78,7 @@ export function realDeps(signal: AbortSignal): CliDeps {
     t,
     findModel,
     openEngine,
+    runDiarize: diarizeHook(undefined, () => t('Разделяю спикеров…', 'Separating speakers…')),
     load16k,
     outputPath,
     briefOutputPath: (txt) => MeetingBrief.outputPath(txt),

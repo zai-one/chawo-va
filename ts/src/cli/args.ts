@@ -38,6 +38,10 @@ export interface CliOptions {
   json: boolean;
   /** history: also print the text as recognized (before the Brain) when it differs. */
   raw: boolean;
+  /** transcribe: --vad / --no-vad; null = settings VadEnabled (Silero pauses for long files when on disk). */
+  vad: boolean | null;
+  /** transcribe: --diarize / --no-diarize; null = settings FileDiarize («Разделять спикеров»). */
+  diarize: boolean | null;
 }
 
 export type ParseResult = { ok: true; options: CliOptions } | { ok: false; error: string };
@@ -81,6 +85,8 @@ function blank(command: CliOptions['command']): CliOptions {
     limit: null,
     json: false,
     raw: false,
+    vad: null,
+    diarize: null,
   };
 }
 
@@ -94,6 +100,7 @@ export function parseArgs(argv: readonly string[]): ParseResult {
 
   const o = blank(first);
   let onlyFiles = false;
+  const toggles = new Set<string>();
   for (let i = 1; i < args.length; i++) {
     let a = args[i];
     if (onlyFiles || a === '-' || !a.startsWith('-')) {
@@ -211,11 +218,24 @@ export function parseArgs(argv: readonly string[]): ParseResult {
       case '--raw':
         o.raw = true;
         break;
+      case '--vad':
+      case '--no-vad':
+        toggles.add(a);
+        o.vad = a === '--vad';
+        break;
+      case '--diarize':
+      case '--no-diarize':
+        toggles.add(a);
+        o.diarize = a === '--diarize';
+        break;
       default:
         return { ok: false, error: `unknown option: ${a}` };
     }
   }
   if (o.inputs.includes('-')) return { ok: false, error: 'reading audio from stdin is not supported; pass a file path' };
+  if (toggles.has('--vad') && toggles.has('--no-vad')) return { ok: false, error: '--vad and --no-vad cannot be used together' };
+  if (toggles.has('--diarize') && toggles.has('--no-diarize')) return { ok: false, error: '--diarize and --no-diarize cannot be used together' };
+  if ((o.vad !== null || o.diarize !== null) && o.command !== 'transcribe') return { ok: false, error: '--vad and --diarize are for transcribe' };
   if (o.command === 'history') {
     // Words after `history` are the search, like the page's search box (every word must occur).
     const speech = o.model || o.device || o.threads || o.script || o.modelDir;
@@ -269,6 +289,12 @@ export function helpText(t: (ru: string, en: string) => string): string {
       --post-script «команда»  свой скрипт: текст на stdin, что напечатает — в .txt / stdout
                          (иначе — из настроек, если там включено «и для файлов»);
       --no-post-script   без скрипта
+      --vad / --no-vad   резать длинные записи по паузам Silero VAD (если модель VAD скачана
+                         в приложении) или по громкости; по умолчанию — из настроек
+      --diarize / --no-diarize
+                         разделять спикеров («Спикер 1: …» в txt/srt/…); по умолчанию — из
+                         настроек «Разделять спикеров». Модели спикеров (~47 МБ) скачиваются
+                         в приложении; без них — расшифровка без спикеров, с пометкой
       --lang ru|en       язык сообщений
   -q, --quiet            без прогресса
   -h, --help / -v, --version
@@ -297,7 +323,7 @@ export function helpText(t: (ru: string, en: string) => string): string {
   -q, --quiet            без строки «Найдено …»
 
 Чего нет в параметрах, берётся из настроек приложения (settings.json, только чтение).
-Модель не скачивается: сначала скачайте её в приложении («Распознавание»).
+Модели не скачиваются (речь, VAD, спикеры): сначала скачайте их в приложении.
 WAV и Ogg/Opus читаются сами, остальные форматы (MP3, M4A, FLAC, …) — через ffmpeg.
 Папки — без подпапок, как в приложении.
 brief читает готовый .txt (рядом с записью или .brain.txt) и пишет .brief.txt через Мозг.
@@ -328,6 +354,12 @@ Options:
       --post-script "command"  your script: text on stdin, what it prints goes to .txt / stdout
                          (else settings, when "also for files" is on there);
       --no-post-script   skip the script
+      --vad / --no-vad   cut long recordings at Silero VAD pauses (when the VAD model was
+                         downloaded in the app) or by loudness; default: settings
+      --diarize / --no-diarize
+                         separate speakers ("Спикер 1: …" in txt/srt/…); default: the
+                         "Separate speakers" setting. Speaker models (~47 MB) are downloaded
+                         in the app; without them the transcript has no speakers and a note says so
       --lang ru|en       message language
   -q, --quiet            no progress
   -h, --help / -v, --version
@@ -356,7 +388,7 @@ history options (dictation history, read-only, newest first):
   -q, --quiet            no «Found …» line
 
 Anything not given falls back to the app's settings (settings.json, read-only).
-No model is downloaded: download it in the app first (Speech page).
+No model is downloaded (speech, VAD, speakers): download them in the app first.
 WAV and Ogg/Opus are read natively; other formats (MP3, M4A, FLAC, …) need ffmpeg.
 Folders are not searched recursively, same as in the app.
 brief reads a finished .txt (beside the recording or .brain.txt) and writes .brief.txt via the Brain.
