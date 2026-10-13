@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { FILE_TAG, PROGRESS_TAG, parseMediaUrl, parseYtDlpLine, shaFromSums, ytDlpArgs, ytDlpAsset, ytDlpError } from '../src/core/mediaUrl';
+import { FILE_TAG, PROGRESS_TAG, downloadsFolder, isLinkInput, parseMediaUrl, parseYtDlpLine, shaFromSums, ytDlpArgs, ytDlpAsset, ytDlpError } from '../src/core/mediaUrl';
 
 describe('parseMediaUrl', () => {
   it.each([
@@ -78,5 +78,34 @@ describe('ytDlpAsset / shaFromSums / ytDlpError', () => {
     expect(ytDlpError('WARNING: x\nERROR: [youtube] abc: Video unavailable\n')).toBe('[youtube] abc: Video unavailable');
     expect(ytDlpError('something odd\n')).toBe('something odd');
     expect(ytDlpError('')).toBe('');
+  });
+});
+
+describe('isLinkInput (CLI)', () => {
+  it('only an explicit http(s):// prefix is a link', () => {
+    expect(isLinkInput('https://youtu.be/x')).toBe(true);
+    expect(isLinkInput('HTTP://a.test')).toBe(true);
+    expect(isLinkInput('<https://a.test>')).toBe(true);
+    expect(isLinkInput('youtube.com.mp3')).toBe(false);
+    expect(isLinkInput('youtube.com/watch?v=1')).toBe(false);
+    expect(isLinkInput('file:///etc/passwd')).toBe(false);
+    expect(isLinkInput('/home/u/https://x')).toBe(false);
+    expect(isLinkInput('C:\\rec.wav')).toBe(false);
+  });
+});
+
+describe('downloadsFolder (CLI, no Electron)', () => {
+  const j = (...p: string[]) => p.join('/');
+  it('Linux: XDG_DOWNLOAD_DIR from user-dirs.dirs, $HOME expanded; else ~/Downloads', () => {
+    const dirs = '# comment\nXDG_DESKTOP_DIR="$HOME/Desktop"\nXDG_DOWNLOAD_DIR="$HOME/Загрузки"\n';
+    expect(downloadsFolder('linux', '/home/u', dirs, j)).toBe('/home/u/Загрузки');
+    expect(downloadsFolder('linux', '/home/u', 'XDG_DOWNLOAD_DIR="/data/dl/"', j)).toBe('/data/dl');
+    expect(downloadsFolder('linux', '/home/u', 'XDG_DOWNLOAD_DIR="$HOME/"', j)).toBe('/home/u/Downloads');
+    expect(downloadsFolder('linux', '/home/u', 'XDG_DOWNLOAD_DIR="rel"', j)).toBe('/home/u/Downloads');
+    expect(downloadsFolder('linux', '/home/u', null, j)).toBe('/home/u/Downloads');
+  });
+  it('Windows and macOS: <home>/Downloads (user-dirs ignored)', () => {
+    expect(downloadsFolder('win32', 'C:/Users/u', 'XDG_DOWNLOAD_DIR="/x"', j)).toBe('C:/Users/u/Downloads');
+    expect(downloadsFolder('darwin', '/Users/u', null, j)).toBe('/Users/u/Downloads');
   });
 });

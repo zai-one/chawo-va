@@ -12,6 +12,7 @@ import { writeExtras } from '../main/file/transcriptExport';
 import { applyDiarization, type FileDiarizeHook } from '../main/file/fileRunner';
 import { helpText, langFromArgv, parseArgs, type CliOptions } from './args';
 import { HistoryStore, keepMs, type HistoryEntry, type HistoryKeep } from '../main/history/historyStore';
+import { isLinkInput, parseMediaUrl } from '../core/mediaUrl';
 import { FILE_TIMEOUT_MS, failureText, logLine, runPostScript, scriptCommand, type PostScriptResult, type PostScriptRun } from '../core/postScript';
 
 export const EXIT_OK = 0;
@@ -136,6 +137,12 @@ export interface CliDeps {
    * are not there (soft: the transcript is written without speakers). Tests inject a fake diarizer.
    */
   runDiarize?: FileDiarizeHook;
+  /** yt-dlp for `transcribe <link>` (the app's tools/yt-dlp, then PATH); null = none. Never downloaded here. */
+  findYtDlp?(): string | null;
+  /** Runs yt-dlp for one link (same as «По ссылке» on the page); resolves with the saved audio path. */
+  fetchAudio?(url: string, outDir: string, progress: (percent: number) => void, signal: AbortSignal): Promise<string>;
+  /** Where link audio is saved without --out: Downloads/Chawo, like the page. */
+  urlFolder?(): string;
   /** «Свой скрипт» runner; defaults to core runPostScript (tests may inject). */
   runScript?: (r: PostScriptRun) => Promise<PostScriptResult>;
   /** history.jsonl of the app (read, never written by the CLI). */
@@ -509,6 +516,73 @@ async function history(o: CliOptions, defaults: CliDefaults, d: CliDeps): Promis
   return EXIT_OK;
 }
 
+/**
+ * `transcribe <link>`: the same yt-dlp run as «По ссылке» on the page, one link after another.
+ * code ≠ null ends the run (no model / no yt-dlp → 3, Ctrl+C → 130) before or during downloads.
+ */
+async function downloadLinks(
+  links: string[],
+  kind: SpeechModelKind,
+  o: CliOptions,
+  d: CliDeps,
+  say: (line: string) => void,
+  fail: (line: string) => void,
+): Promise<{ files: string[]; failed: number; code: number | null; noModel?: boolean }> {
+  const t = d.t;
+  if (!d.findModel(kind, o.modelDir)) return { files: [], failed: 0, code: EXIT_NO_MODEL, noModel: true };
+  if (!d.fetchAudio || !d.findYtDlp?.()) {
+    fail(
+      t(
+        'Ошибка: для ссылок нужен yt-dlp. Скачайте его в приложении («Расшифровка файла» → «По ссылке» → «Скачать yt-dlp») или поставьте в PATH.',
+        'Error: links need yt-dlp. Download it in the app (File transcription → By link → Download yt-dlp) or put it on PATH.',
+      ),
+    );
+    return { files: [], failed: 0, code: EXIT_NO_MODEL };
+  }
+  const folder = o.outDir ?? d.urlFolder?.() ?? '.';
+  say(t(`По ссылке: через сеть идёт только скачивание звука (в ${folder}), расшифровка — на этом компьютере.`, `By link: only the audio download (to ${folder}) uses the network; transcription stays on this computer.`));
+  const files: string[] = [];
+  let failed = 0;
+  for (let i = 0; i < links.length; i++) {
+    if (d.signal.aborted) break;
+    const url = links[i]!;
+    const prefix = links.length > 1 ? `[${i + 1}/${links.length}] ` : '';
+    const host = new URL(url).hostname;
+    const line = t(`Скачиваю звук с ${host}…`, `Downloading audio from ${host}…`);
+    say(prefix + line);
+    let drawn = false;
+    let shown = -1;
+    try {
+      const path = await d.fetchAudio(
+        url,
+        folder,
+        (p) => {
+          if (o.quiet || !d.isTTY || Math.floor(p) === shown) return;
+          shown = Math.floor(p);
+          d.err(`\r\x1b[2K${prefix}${line} ${shown}%`);
+          drawn = true;
+        },
+        d.signal,
+      );
+      if (drawn) d.err('\r\x1b[2K');
+      say(prefix + t(`Скачано: ${path}`, `Downloaded: ${path}`));
+      d.log(`cli url ${host} → ${path}`);
+      if (!files.includes(path)) files.push(path);
+    } catch (e) {
+      if (drawn) d.err('\r\x1b[2K');
+      if (d.signal.aborted) break;
+      failed++;
+      fail(prefix + t(`Ошибка: не скачалось: ${url}: ${message(e)}`, `Error: download failed: ${url}: ${message(e)}`));
+      d.log(`cli url ${host} failed: ${message(e)}`);
+    }
+  }
+  if (d.signal.aborted) {
+    fail(t('Прервано.', 'Interrupted.'));
+    return { files, failed, code: EXIT_INTERRUPTED };
+  }
+  return { files, failed, code: null };
+}
+
 async function transcribe(o: CliOptions, defaults: CliDefaults, d: CliDeps): Promise<number> {
   const t = d.t;
   const say = (line: string) => {
@@ -516,11 +590,19 @@ async function transcribe(o: CliOptions, defaults: CliDefaults, d: CliDeps): Pro
   };
   const fail = (line: string) => d.err(line + '\n');
 
-  // Inputs: files as given, folders expanded (no recursion), duplicates dropped.
+  // Inputs: files as given, folders expanded (no recursion), http(s) links downloaded below,
+  // duplicates dropped.
   const files: string[] = [];
+  const links: string[] = [];
   let failed = 0;
   for (const input of o.inputs) {
-    if (d.isDirectory(input)) {
+    if (isLinkInput(input)) {
+      const check = parseMediaUrl(input);
+      if (!check.ok) {
+        fail(t(`Ошибка: не ссылка: ${input}`, `Error: not a valid link: ${input}`));
+        failed++;
+      } else if (!links.includes(check.url)) links.push(check.url);
+    } else if (d.isDirectory(input)) {
       const found = d.collectFromFolder(input);
       if (found.length === 0) {
         fail(t(`Ошибка: в папке ${input} нет аудиофайлов.`, `Error: no audio files in ${input}.`));
@@ -534,7 +616,31 @@ async function transcribe(o: CliOptions, defaults: CliDefaults, d: CliDeps): Pro
       failed++;
     }
   }
-  if (files.length === 0) return EXIT_FAILED;
+  if (files.length === 0 && links.length === 0) return EXIT_FAILED;
+
+  const kind = o.model ?? defaults.model;
+  const noModel = () =>
+    fail(
+      o.modelDir
+        ? t(`Ошибка: в ${o.modelDir} нет полной модели ${kind}.`, `Error: ${o.modelDir} has no complete ${kind} model.`)
+        : t(
+            'Ошибка: модели нет на диске. Откройте в приложении «Распознавание» и скачайте её, или укажите --model-dir.',
+            'Error: the model is not on disk. Download it on the Speech page of the app, or pass --model-dir.',
+          ),
+    );
+
+  // «По ссылке»: yt-dlp saves the audio (Downloads/Chawo, or --out), then it is an ordinary file.
+  // Model and yt-dlp are checked first so nothing is downloaded for a run that cannot finish.
+  if (links.length > 0) {
+    const r = await downloadLinks(links, kind, o, d, say, fail);
+    if (r.code !== null) {
+      if (r.code === EXIT_NO_MODEL && r.noModel) noModel();
+      return r.code;
+    }
+    failed += r.failed;
+    for (const f of r.files) if (!files.includes(f)) files.push(f);
+    if (files.length === 0) return EXIT_FAILED;
+  }
 
   const formats = o.formats.length > 0 ? o.formats : (['txt'] as const);
   const timestamps = o.timestamps ?? defaults.timestamps;
@@ -567,17 +673,9 @@ async function transcribe(o: CliOptions, defaults: CliDefaults, d: CliDeps): Pro
   });
   if (work.length === 0) return failed > 0 ? EXIT_FAILED : EXIT_OK;
 
-  const kind = o.model ?? defaults.model;
   const dir = d.findModel(kind, o.modelDir);
   if (!dir) {
-    fail(
-      o.modelDir
-        ? t(`Ошибка: в ${o.modelDir} нет полной модели ${kind}.`, `Error: ${o.modelDir} has no complete ${kind} model.`)
-        : t(
-            'Ошибка: модели нет на диске. Откройте в приложении «Распознавание» и скачайте её, или укажите --model-dir.',
-            'Error: the model is not on disk. Download it on the Speech page of the app, or pass --model-dir.',
-          ),
-    );
+    noModel();
     return EXIT_NO_MODEL;
   }
 
