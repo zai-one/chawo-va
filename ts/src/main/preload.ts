@@ -27,6 +27,21 @@ const api = {
       return () => ipcRenderer.removeListener('file:toast', h);
     },
   },
+  meeting: {
+    state: () => ipcRenderer.invoke('meeting:state'),
+    start: () => ipcRenderer.invoke('meeting:start'),
+    systemOpened: (ok: boolean, reason?: string) => ipcRenderer.invoke('meeting:systemOpened', ok, reason ?? ''),
+    pcm: (chunk: Float32Array) => ipcRenderer.send('meeting:pcm', chunk),
+    stop: () => ipcRenderer.invoke('meeting:stop'),
+    cancel: () => ipcRenderer.invoke('meeting:cancel'),
+    failed: (reason: string) => ipcRenderer.invoke('meeting:failed', reason),
+    setSystem: (on: boolean) => ipcRenderer.invoke('meeting:system', on),
+    onState: (fn: (s: unknown) => void) => {
+      const h = (_e: unknown, s: unknown) => fn(s);
+      ipcRenderer.on('meeting:state', h);
+      return () => ipcRenderer.removeListener('meeting:state', h);
+    },
+  },
   speech: {
     state: () => ipcRenderer.invoke('speech:state'),
     select: (kind: string) => ipcRenderer.invoke('speech:select', kind),

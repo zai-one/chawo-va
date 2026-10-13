@@ -369,6 +369,39 @@ Re-align folder names and tooling with taptain-desktop once its layout is readab
   unit-tested with a fake spawn only (needs a Windows run). Next: the Windows native helper (hold
   key, TextInserter, SelectionReader, caret placement, job object), the «Продажи» card, then
   Updater/Autostart.
+- 2026-10-13 tick (branch `ts/feat-meeting`, IDEAS.md №10 = approved batch 2 item 2): meeting recording
+  with the computer sound. «Расшифровка файла» got a «Встреча» box: «Записать встречу» → «● Запись
+  чч:мм:сс · микрофон ▮▮▮ · компьютер ▮▮▮» with «Остановить и расшифровать» / «Отменить»; one
+  checkbox «Со звуком компьютера (собеседники в Zoom, Teams, Telegram)» (`MeetingSystemAudio`, true;
+  hidden on macOS) and a hint that the file stays on this PC. Renderer: mic via getUserMedia (the
+  dictation mic, default fallback, raw), computer sound via getDisplayMedia with AEC/NS/AGC off (with
+  AGC on Chromium turned the Pulse monitor volume down to 8%), video track stopped at once;
+  `meeting-processor.js` worklet, 2 inputs → mono each → 16 kHz → interleaved stereo 4000-frame
+  chunks (an unconnected input = silence) → `meeting:pcm`. Main: `meetingIpc.ts` answers the display
+  request with the first screen + `audio: 'loopback'` only while a start is armed (once; others get
+  `{}`), Windows and Linux (Chromium hides monitor sources from getUserMedia on Linux, loopback reads
+  the default output's monitor); `meeting/meetingRecorder.ts` streams 16-bit stereo WAV (L = mic,
+  R = computer) to `<Documents>/Chawo VA/Встречи/Встреча YYYY-MM-DD HH-MM.wav` (« (2)» on a clash,
+  `CHAWO_MEETINGS_DIR` override), ~0.5 s per write, header patched every 5 s, < 1 s → deleted;
+  `repairUnfinished` fixes stale headers left by a crash on the next start; quit finalizes the file.
+  `meetingController.ts`: start/systemOpened(fallback to mic only with a note)/stop → `files.enqueue`
+  (queue.add + run, or joins the running run)/cancel (deletes)/failed (mic). `readWav` now averages
+  all channels (was: first channel only), so the file pipeline and Hermes hear both sides.
+  Tests: `meeting.test.ts` (18: stereo readWav, naming, L/R layout, clamping, crash-safe header,
+  short/cancel, repair, per-OS mode, controller flows RU/EN, worklet at 16/48 kHz with fake
+  AudioWorklet globals), `meetingIpc.test.ts` (3, mocked Electron: loopback only when armed and once,
+  pcm size cap, no screen → refused, macOS mic only). 330 green + 1 skipped (309 on ts-port).
+  Real run on the box (`scripts/smoke-meeting.cjs`, Electron under Xvfb, PulseAudio with null sinks
+  `speakers` (default output) and `micsink` + `module-remap-source` as the default mic, real v3 e2e
+  int8 on CPU): click «Записать встречу», piper «Добрый день. Меня зовут Александр…» into the mic sink,
+  then «Здравствуйте. Нам нужно двести метров медного кабеля…» into the speakers; live meters moved
+  on the right side each time; stop → 12.5 s stereo WAV (first half L 0.148 RMS / R 0.020, second half
+  L 0.000 / R 0.097) → queue «готово» → `.txt` beside it: «[00:00:00] Добрый день. Меня зовут
+  Александр. Я менеджер по продажам компании Чава. Здравствуйте. Нам нужно 200 м медного кабеля до
+  пятницы. Пришлите счёт.» Gaps: Windows loopback is not run for real here (same Chromium path,
+  needs a Windows run); on Wayland the screen-source request may show the portal picker; echo from
+  speakers lands on both channels (headphones advised); no live (during-the-call) transcript yet;
+  the L/R split is ready for «Я / Собеседник» in the diarization item.
 - 2026-10-13 tick (branch `ts/feat-voice-punct`, IDEAS.md №9 = approved batch 2 item 1): voice punctuation
   and spoken numbers. `src/core/spokenText.ts` (no Electron): `applySpokenPunctuation` — one regex of
   all commands (longest first, ё/е and case ignored, a comma allowed inside two-word commands as the

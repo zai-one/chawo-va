@@ -11,6 +11,7 @@ import type { LastApp } from './brain/brainPage';
 import * as LocalBrain from './brain/localBrain';
 import { registerDictationIpc } from './dictationIpc';
 import { registerNetworkIpc } from './networkIpc';
+import { registerMeetingIpc } from './meetingIpc';
 import { registerHistoryIpc } from './historyIpc';
 import { registerSalesIpc } from './salesIpc';
 import { makeHermesTranscribe } from './network/hermesTranscribe';
@@ -36,6 +37,7 @@ let releaseDictation: (() => Promise<void>) | null = null;
 let destroyOverlay: (() => void) | null = null;
 let destroySalesCard: (() => void) | null = null;
 let disposeNetwork: (() => Promise<void>) | null = null;
+let disposeMeeting: (() => void) | null = null;
 let nativeHelper: NativeHelper | null = null;
 
 function iconPath(set: 'app' | 'tray-dark' | 'tray-light', size: number): string {
@@ -151,6 +153,9 @@ if (!app.requestSingleInstanceLock()) {
     // MP3/M4A/FLAC/… decode in a hidden sandboxed renderer; ffmpeg stays an optional fallback.
     setPlatformDecoder(chromiumDecode);
     const files = registerFileIpc(() => win, { get: () => settings });
+    // «Запись встречи»: mic + computer sound into a WAV that then goes through the file queue.
+    const meeting = registerMeetingIpc(() => win, { get: () => settings }, files);
+    disposeMeeting = () => meeting.dispose();
     // The floating pill: created lazily on the first take with «Показывать плашку» on.
     const overlay = new OverlayWindow({ get: () => settings, save: Settings.save });
     destroyOverlay = () => overlay.destroy();
@@ -226,6 +231,7 @@ if (!app.requestSingleInstanceLock()) {
   });
   app.on('before-quit', () => {
     quitting = true;
+    disposeMeeting?.();
     LocalBrain.stop();
     void disposeNetwork?.();
     KeepAwake.allowSleep();

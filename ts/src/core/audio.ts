@@ -1,7 +1,8 @@
 // WAV reading/writing, resampling and pause-based splitting. Port of src/Core/AudioUtils.cs.
 // Pure functions over bytes/Float32Array so they run in Electron main, a worker, or a CLI server.
 
-/** Reads a 16-bit PCM WAV from memory; takes the first channel. */
+/** Reads a 16-bit PCM WAV from memory; several channels are averaged to mono (a meeting recording
+ * keeps the microphone and the computer sound on separate channels, both must be heard). */
 export function readWav(d: Uint8Array, label = 'wav'): { samples: Float32Array; rate: number } {
   const v = new DataView(d.buffer, d.byteOffset, d.byteLength);
   if (d.length < 44 || v.getUint32(0, true) !== 0x46464952) throw new Error(`Not a WAV file: ${label}`);
@@ -28,7 +29,16 @@ export function readWav(d: Uint8Array, label = 'wav'): { samples: Float32Array; 
       const step = 2 * Math.max(1, channels);
       const count = Math.max(0, Math.floor((end - body) / step));
       const out = new Float32Array(count);
-      for (let k = 0, p = body; k < count; k++, p += step) out[k] = v.getInt16(p, true) / 32768;
+      const ch = Math.max(1, channels);
+      if (ch === 1) {
+        for (let k = 0, p = body; k < count; k++, p += step) out[k] = v.getInt16(p, true) / 32768;
+      } else {
+        for (let k = 0, p = body; k < count; k++, p += step) {
+          let sum = 0;
+          for (let c = 0; c < ch; c++) sum += v.getInt16(p + 2 * c, true);
+          out[k] = sum / ch / 32768;
+        }
+      }
       return { samples: out, rate };
     }
     i = body + size + (size & 1);

@@ -32,6 +32,29 @@ interface FileApi {
   onState(fn: (s: FileState) => void): () => void;
   onToast(fn: (s: string) => void): () => void;
 }
+interface MeetingState {
+  recording: boolean;
+  startedAt: number;
+  seconds: number;
+  systemOn: boolean;
+  systemSupported: boolean;
+  capturing: 'mic+system' | 'mic' | null;
+  folder: string;
+  note: string;
+  ru: boolean;
+}
+type SystemPlan = { kind: 'loopback' } | { kind: 'none' };
+interface MeetingApi {
+  state(): Promise<MeetingState>;
+  start(): Promise<{ ok: boolean; micId: string; system: SystemPlan; state: MeetingState }>;
+  systemOpened(ok: boolean, reason?: string): Promise<MeetingState>;
+  pcm(chunk: Float32Array): void;
+  stop(): Promise<MeetingState>;
+  cancel(): Promise<MeetingState>;
+  failed(reason: string): Promise<MeetingState>;
+  setSystem(on: boolean): Promise<MeetingState>;
+  onState(fn: (s: MeetingState) => void): () => void;
+}
 interface SpeechModelRow { kind: string; label: string; selected: boolean; onDisk: boolean; path: string | null; canDelete: boolean; deleteTip: string }
 interface SpeechState {
   ru: boolean;
@@ -333,7 +356,7 @@ interface HistoryApi {
   rerun(id: string): Promise<HistoryState>;
   onState(fn: (s: HistoryState) => void): () => void;
 }
-const bridge = (window as unknown as { chawo: { file: FileApi; speech: SpeechApi; dict: DictApi; brain: BrainApi; dictation: DictationApi; network: NetworkApi; sales: SalesApi; history: HistoryApi } }).chawo;
+const bridge = (window as unknown as { chawo: { file: FileApi; meeting: MeetingApi; speech: SpeechApi; dict: DictApi; brain: BrainApi; dictation: DictationApi; network: NetworkApi; sales: SalesApi; history: HistoryApi } }).chawo;
 
 const titlesEn: Record<string, string> = {
   dictation: 'Dictation',
@@ -359,6 +382,7 @@ const titles: Record<string, string> = {
 const page = document.getElementById('page') as HTMLElement;
 let current = 'dictation';
 let fileState: FileState | null = null;
+let meetingState: MeetingState | null = null;
 let speechState: SpeechState | null = null;
 let dictState: DictState | null = null;
 let brainState: BrainState | null = null;
@@ -1447,6 +1471,7 @@ function renderFile(): void {
   }
 
   page.append(el('p', { className: 'status', textContent: s.status }));
+  renderMeeting();
 
   const ts = el('input', { type: 'checkbox', checked: s.options.timestamps });
   ts.addEventListener('change', () => void bridge.file.setOptions({ timestamps: ts.checked }).then(apply));
@@ -1481,6 +1506,214 @@ function renderFile(): void {
   page.append(ff);
 }
 
+// ── «Запись встречи» (on the file page) ─────────────────────
+
+/** Mic + computer sound → meeting worklet (16 kHz, interleaved stereo) → main writes the WAV. */
+class MeetingCapture {
+  private streams: MediaStream[] = [];
+  private ctx: AudioContext | null = null;
+  private node: AudioWorkletNode | null = null;
+  private flushed: (() => void) | null = null;
+  /** Peaks of the last chunk: [mic, computer]. */
+  levels: [number, number] = [0, 0];
+
+  private static async mic(id: string): Promise<MediaStream> {
+    const ask = (d: string) => navigator.mediaDevices.getUserMedia({
+      audio: { deviceId: d ? { exact: d } : undefined, channelCount: 1, echoCancellation: false, noiseSuppression: false, autoGainControl: false },
+      video: false,
+    });
+    try {
+      return await ask(id);
+    } catch (e) {
+      const name = (e as DOMException)?.name;
+      if (!id || (name !== 'OverconstrainedError' && name !== 'NotFoundError' && name !== 'NotReadableError')) throw e;
+      return ask('');
+    }
+  }
+
+  /** Opens the computer sound; null (and the reason to main) when it cannot be had. */
+  private static async system(plan: SystemPlan): Promise<MediaStream | null> {
+    if (plan.kind === 'none') return null;
+    try {
+      // Raw like the mic: Chromium's AGC would otherwise turn the output monitor's volume down (seen on Linux).
+      const st = await navigator.mediaDevices.getDisplayMedia({
+        audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
+        video: true,
+      });
+      // Only the sound is wanted: the screen track is stopped before any frame is used.
+      for (const v of st.getVideoTracks()) { v.stop(); st.removeTrack(v); }
+      if (st.getAudioTracks().length === 0) {
+        await bridge.meeting.systemOpened(false, L('нет звуковой дорожки', 'no audio track'));
+        return null;
+      }
+      await bridge.meeting.systemOpened(true);
+      return st;
+    } catch (e) {
+      await bridge.meeting.systemOpened(false, (e as DOMException)?.name ?? String(e));
+      return null;
+    }
+  }
+
+  async start(micId: string, plan: SystemPlan): Promise<void> {
+    const mic = await MeetingCapture.mic(micId);
+    this.streams.push(mic);
+    const sys = await MeetingCapture.system(plan);
+    if (sys) this.streams.push(sys);
+    try {
+      this.ctx = new AudioContext({ sampleRate: 16000, latencyHint: 'playback' });
+    } catch {
+      this.ctx = new AudioContext({ latencyHint: 'playback' });
+    }
+    await this.ctx.audioWorklet.addModule('meeting-processor.js');
+    this.node = new AudioWorkletNode(this.ctx, 'chawo-meeting', { numberOfInputs: 2, numberOfOutputs: 1, outputChannelCount: [1] });
+    this.node.port.onmessage = (e: MessageEvent) => {
+      if (e.data instanceof Float32Array) {
+        const c = e.data;
+        let a = 0;
+        let b = 0;
+        for (let k = 0; k + 1 < c.length; k += 2) {
+          const x = Math.abs(c[k]);
+          const y = Math.abs(c[k + 1]);
+          if (x > a) a = x;
+          if (y > b) b = y;
+        }
+        this.levels = [a, b];
+        bridge.meeting.pcm(c);
+      } else if (e.data === 'flushed') this.flushed?.();
+    };
+    this.ctx.createMediaStreamSource(mic).connect(this.node, 0, 0);
+    if (sys) this.ctx.createMediaStreamSource(sys).connect(this.node, 0, 1);
+    // The worklet outputs silence; the connection only keeps the graph running.
+    this.node.connect(this.ctx.destination);
+    if (this.ctx.state === 'suspended') await this.ctx.resume();
+  }
+
+  async stop(): Promise<void> {
+    if (this.node) {
+      const done = new Promise<void>((r) => { this.flushed = r; setTimeout(r, 500); });
+      this.node.port.postMessage('flush');
+      await done;
+      this.node.port.onmessage = null;
+      this.node.disconnect();
+    }
+    for (const st of this.streams) st.getTracks().forEach((t) => t.stop());
+    if (this.ctx && this.ctx.state !== 'closed') await this.ctx.close().catch(() => undefined);
+    this.node = null;
+    this.ctx = null;
+    this.streams = [];
+  }
+}
+
+let meetingCapture: MeetingCapture | null = null;
+let meetingBusy = false;
+let meetingTimer: number | null = null;
+
+const clockText = (sec: number) => {
+  const s = Math.max(0, Math.floor(sec));
+  const p = (n: number) => String(n).padStart(2, '0');
+  return `${p(Math.floor(s / 3600))}:${p(Math.floor((s % 3600) / 60))}:${p(s % 60)}`;
+};
+const bars = (v: number) => '▮'.repeat(Math.min(8, Math.round(Math.sqrt(Math.min(1, v)) * 8))).padEnd(8, '·');
+
+function meetingLive(): void {
+  const m = meetingState;
+  const clock = document.querySelector('[data-m="clock"]');
+  if (!m || !m.recording || !clock) return;
+  clock.textContent = clockText((Date.now() - m.startedAt) / 1000);
+  const lv = meetingCapture?.levels ?? [0, 0];
+  const mic = document.querySelector('[data-m="mic"]');
+  const sys = document.querySelector('[data-m="sys"]');
+  if (mic) mic.textContent = bars(lv[0]);
+  if (sys) sys.textContent = bars(lv[1]);
+}
+
+function applyMeeting(s: MeetingState): void {
+  meetingState = s;
+  if (s.recording && meetingTimer === null) meetingTimer = window.setInterval(meetingLive, 500);
+  if (!s.recording && meetingTimer !== null) {
+    window.clearInterval(meetingTimer);
+    meetingTimer = null;
+  }
+  if (current === 'file') renderFile();
+}
+
+async function meetingStart(): Promise<void> {
+  if (meetingBusy || meetingState?.recording) return;
+  meetingBusy = true;
+  try {
+    const r = await bridge.meeting.start();
+    if (!r.ok) {
+      applyMeeting(r.state);
+      return;
+    }
+    const cap = new MeetingCapture();
+    try {
+      await cap.start(r.micId, r.system);
+    } catch (e) {
+      await cap.stop().catch(() => undefined);
+      applyMeeting(await bridge.meeting.failed((e as DOMException)?.name ?? String(e)));
+      return;
+    }
+    meetingCapture = cap;
+    applyMeeting(await bridge.meeting.state());
+  } finally {
+    meetingBusy = false;
+  }
+}
+
+async function meetingFinish(cancel: boolean): Promise<void> {
+  if (meetingBusy) return;
+  meetingBusy = true;
+  try {
+    const cap = meetingCapture;
+    meetingCapture = null;
+    await cap?.stop();
+    applyMeeting(await (cancel ? bridge.meeting.cancel() : bridge.meeting.stop()));
+  } finally {
+    meetingBusy = false;
+  }
+}
+
+function renderMeeting(): void {
+  const m = meetingState;
+  if (!m) return;
+  const box = el('fieldset', { className: 'meeting' }, el('legend', { textContent: L('Встреча', 'Meeting') }));
+  if (m.recording) {
+    const span = (key: string, cls = '') => {
+      const e = el('span', { className: cls });
+      e.dataset.m = key;
+      return e;
+    };
+    const clock = span('clock');
+    clock.textContent = clockText((Date.now() - m.startedAt) / 1000);
+    const line = el('p', { className: 'rec' },
+      el('span', { className: 'dot', textContent: '● ' }),
+      el('span', { textContent: L('Запись ', 'Recording ') }),
+      clock,
+      el('span', { className: 'muted', textContent: L(' · микрофон ', ' · mic ') }),
+      span('mic', 'lv'),
+    );
+    if (m.capturing === 'mic+system') {
+      line.append(el('span', { className: 'muted', textContent: L(' · компьютер ', ' · computer ') }), span('sys', 'lv'));
+    }
+    box.append(line, el('div', { className: 'row' },
+      button(L('Остановить и расшифровать', 'Stop and transcribe'), () => void meetingFinish(false), 'primary'),
+      button(L('Отменить', 'Cancel'), () => void meetingFinish(true), 'link'),
+    ));
+  } else {
+    box.append(el('div', { className: 'row' }, button(L('Записать встречу', 'Record a meeting'), () => void meetingStart())));
+    if (m.systemSupported) {
+      const cb = el('input', { type: 'checkbox', checked: m.systemOn });
+      cb.addEventListener('change', () => void bridge.meeting.setSystem(cb.checked).then(applyMeeting));
+      box.append(el('label', {}, cb, L(' Со звуком компьютера (собеседники в Zoom, Teams, Telegram)', ' With the computer sound (people in Zoom, Teams, Telegram)')));
+    }
+    box.append(el('p', { className: 'muted hint', textContent: L(`Запись остаётся только на этом компьютере: ${m.folder}. Текст сохранится рядом.`, `The recording stays on this PC only: ${m.folder}. The text is saved next to it.`) }));
+  }
+  if (m.note) box.append(el('p', { className: 'muted', textContent: m.note }));
+  page.append(box);
+  meetingLive();
+}
+
 function show(name: string): void {
   if (current === 'brain' && name !== 'brain') void bridge.brain.close();
   current = name;
@@ -1492,6 +1725,7 @@ function show(name: string): void {
   if (name === 'file') {
     renderFile();
     void bridge.file.state().then(apply);
+    void bridge.meeting.state().then(applyMeeting);
     return;
   }
   if (name === 'speech') {
@@ -1539,6 +1773,7 @@ for (const btn of Array.from(document.querySelectorAll<HTMLButtonElement>('.nav 
 }
 
 bridge.file.onState(apply);
+bridge.meeting.onState(applyMeeting);
 bridge.speech.onState(applySpeech);
 bridge.brain.onState(applyBrainPush);
 bridge.dictation.onState(applyDictation);
