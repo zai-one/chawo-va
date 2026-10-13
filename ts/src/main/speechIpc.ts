@@ -19,6 +19,8 @@ export function registerSpeechIpc(
     session?: () => string | null;
     /** Close open sessions before model files are deleted (Windows keeps open files locked). */
     beforeDelete?: () => Promise<void>;
+    /** «Выгружать модели при простое» changed. */
+    idleChanged?: () => void;
   } = {},
 ): SpeechController {
   let pushTimer: NodeJS.Timeout | null = null;
@@ -38,6 +40,7 @@ export function registerSpeechIpc(
     changed: opts.changed,
     session: opts.session,
     vad: getVadRuntime(),
+    idleChanged: opts.idleChanged,
   });
   const kindOf = (k: unknown): SpeechModelKind | null =>
     typeof k === 'string' && (SPEECH_KINDS as readonly string[]).includes(k) ? (k as SpeechModelKind) : null;
@@ -54,6 +57,10 @@ export function registerSpeechIpc(
   });
   ipcMain.handle('speech:threads', (_e, n: unknown) => {
     if (typeof n === 'number') ctl.setThreads(n);
+    return ctl.state();
+  });
+  ipcMain.handle('speech:idle', (_e, n: unknown) => {
+    if (typeof n === 'number') ctl.setIdleMinutes(n);
     return ctl.state();
   });
   ipcMain.handle('speech:vad', (_e, on: unknown) => {

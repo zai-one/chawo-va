@@ -178,9 +178,14 @@ export async function transformAsync(
       enable_thinking: false,
       chat_template_kwargs: { enable_thinking: false },
     };
-    const local = stripThink(
-      await cleanAsync(body, runtime.endpointUrl, runtime.apiKey, 'local', prompt, signal, extra, 120_000, fetchImpl),
-    );
+    let raw: string;
+    try {
+      raw = await cleanAsync(body, runtime.endpointUrl, runtime.apiKey, 'local', prompt, signal, extra, 120_000, fetchImpl);
+    } finally {
+      // The idle delay counts from the end of the answer, not from the start of the request.
+      runtime.touch?.();
+    }
+    const local = stripThink(raw);
     if (local.length === 0) throw new BrainException(t('нейросеть вернула пустой ответ', 'the model returned an empty answer'));
     checkLength(local, body);
     if (command == null && looksLikeRefusal(local, body)) {

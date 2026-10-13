@@ -191,6 +191,24 @@ describe('LlamaServerRuntime (fake llama-server)', () => {
     await until(() => !alive(pid));
   });
 
+  it('idle delay follows a live getter; 0 keeps the server; touch() counts from the last answer', async () => {
+    let ms = 0;
+    const rt = make({ idleStopMs: () => ms });
+    await rt.ensureStarted(settings('idle-live'), () => {}, signal());
+    await new Promise((r) => setTimeout(r, 300));
+    expect(rt.running).toBe(true);
+    ms = 400;
+    rt.touch();
+    await new Promise((r) => setTimeout(r, 250));
+    rt.touch();
+    await new Promise((r) => setTimeout(r, 250));
+    expect(rt.running).toBe(true);
+    await until(() => !rt.running);
+    // Not running: touch() does not arm anything.
+    rt.touch();
+    expect(rt.running).toBe(false);
+  }, 10_000);
+
   it('not ready: clear error before anything starts; cancel while waiting is an AbortError', async () => {
     const before = launches().length;
     const rt = make({ isReady: () => false });

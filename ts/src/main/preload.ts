@@ -47,6 +47,7 @@ const api = {
     select: (kind: string) => ipcRenderer.invoke('speech:select', kind),
     setDevice: (d: 'Gpu' | 'Cpu') => ipcRenderer.invoke('speech:device', d),
     setThreads: (n: number) => ipcRenderer.invoke('speech:threads', n),
+    setIdle: (minutes: number) => ipcRenderer.invoke('speech:idle', minutes),
     download: (kind: string) => ipcRenderer.invoke('speech:download', kind),
     cancel: () => ipcRenderer.invoke('speech:cancel'),
     dismiss: () => ipcRenderer.invoke('speech:dismiss'),

@@ -35,6 +35,7 @@ import { applyRule, exeKey, findRule, type ForegroundApp } from '../../core/appR
 import * as Log from '../log';
 import type { OverlaySink } from '../overlay/overlayModel';
 import type { TextInserterLike } from '../native/nativeHelper';
+import { IdleTimer, type IdleClock } from '../../core/idleTimer';
 import { findComplete } from '../models';
 import {
   effectiveWordReplacementRules,
@@ -101,6 +102,10 @@ export interface SessionHooks {
   sales?: (transcript: string) => void;
   /** A finished take with text, for «История». Errors here never affect the take. */
   record?: (take: TakeRecord) => void;
+  /** Someone else is using the open recognizer (Hermes requests): idle unload waits. */
+  idleBusy?: () => boolean;
+  /** Fake timers for the idle unload in tests. */
+  idleClock?: IdleClock;
 }
 
 /** What «История» keeps of a take: the text before and after the Brain, no audio. */
@@ -173,6 +178,7 @@ export class DictationSession {
   private fgTask: Promise<ForegroundApp | null> | null = null;
   private readonly trim: NonNullable<SessionHooks['trim']>;
   private watch: SilenceWatch | null = null;
+  private readonly idle: IdleTimer;
 
   constructor(hooks: SessionHooks) {
     this.h = { find: findComplete, open: openRecognizer, platform: process.platform, ...hooks };
@@ -181,6 +187,12 @@ export class DictationSession {
       ?? ((s, body, command, status, signal) => transformAsync(s, body, command, status, signal, false, hooks.fetch ?? globalThis.fetch));
     this.remote = hooks.remote ?? ((s, samples, rate, signal) => RemoteSpeech.transcribe(s, samples, rate, signal));
     this.trim = hooks.trim ?? ((s, samples, rate) => trimTake(s, samples, rate));
+    this.idle = new IdleTimer({
+      ms: () => this.h.settings().IdleUnloadMinutes * 60_000,
+      busy: () => this.isBusy || this.loading !== null || (this.h.idleBusy?.() ?? false),
+      onIdle: () => this.unloadIdle(),
+      clock: hooks.idleClock,
+    });
     this.buf.onTakeTooLong = () => {
       Log.write('take too long, stopping');
       void this.stopTake().then(() => {
@@ -527,6 +539,7 @@ export class DictationSession {
       this.abandon = false;
       if (this.takeAbort === abort) this.takeAbort = null;
       this.disposeRetired();
+      if (this.rec) this.idle.touch();
       this.push();
     }
     return result;
@@ -725,6 +738,7 @@ export class DictationSession {
         }
         this.rec = r;
         this.recKey = key;
+        this.idle.touch();
         this.loadNote = r.deviceNote && r.deviceActual === 'cpu'
           ? t('Видеокарта не поднялась, считаю на процессоре.', 'The video card did not start, running on the processor.')
           : '';
@@ -767,7 +781,21 @@ export class DictationSession {
     if (!this.busy) await this.disposeRetired();
   }
 
+  /** The open recognizer was just used outside a take (a Hermes request): restart the idle delay. */
+  touchIdle(): void {
+    if (this.rec) this.idle.touch();
+  }
+
+  /** Nobody dictated for «Выгружать модели при простое» minutes: free the memory. The next key press loads it again. */
+  private unloadIdle(): void {
+    if (!this.rec || this.isBusy) return;
+    Log.write(`speech model idle for ${this.h.settings().IdleUnloadMinutes} min, releasing memory`);
+    this.retire();
+    this.push();
+  }
+
   private retire(): void {
+    this.idle.cancel();
     if (this.rec) this.retired.push(this.rec);
     this.rec = null;
     this.recKey = '';

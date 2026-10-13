@@ -28,6 +28,8 @@ export interface HermesTranscribeHooks {
   decode?: (audio: Uint8Array, label: string) => Promise<Float32Array>;
   /** Cut candidates for long audio (Silero VAD); undefined keeps the energy split. */
   pauses?: (samples16k: Float32Array) => Promise<number[] | undefined>;
+  /** A transcription request finished on the open recognizer (restarts the idle-unload delay). */
+  used?: () => void;
   /** How long a health probe waits for a load it started (the client's check gives up after 5 s). */
   healthWaitMs?: number;
 }
@@ -96,6 +98,7 @@ export function makeHermesTranscribe(h: HermesTranscribeHooks): ((audio: Uint8Ar
       };
     } finally {
       inFlight--;
+      h.used?.();
     }
   };
   return Object.assign(fn, { inFlight: () => inFlight });

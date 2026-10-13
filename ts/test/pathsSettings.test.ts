@@ -111,6 +111,18 @@ describe('settings', () => {
     expect(fromJsonObject({ VadEnabled: 'yes' }).settings.VadEnabled).toBe(true);
   });
 
+  it('IdleUnloadMinutes: 15 by default, round-trip, odd values snapped to a choice', () => {
+    const d = defaults();
+    expect(d.IdleUnloadMinutes).toBe(15);
+    const obj = toJsonObject({ ...d, IdleUnloadMinutes: 0 });
+    expect(obj).toMatchObject({ IdleUnloadMinutes: 0 });
+    expect(fromJsonObject(obj).settings.IdleUnloadMinutes).toBe(0);
+    expect(fromJsonObject({}).settings.IdleUnloadMinutes).toBe(15);
+    expect(fromJsonObject({ IdleUnloadMinutes: 7 }).settings.IdleUnloadMinutes).toBe(5);
+    expect(fromJsonObject({ IdleUnloadMinutes: 999 }).settings.IdleUnloadMinutes).toBe(60);
+    expect(fromJsonObject({ IdleUnloadMinutes: 'x' }).settings.IdleUnloadMinutes).toBe(15);
+  });
+
   it('never writes plaintext API keys without a protect hook', () => {
     const s = defaults();
     s.CleanupApiKey = 'sk-secret';

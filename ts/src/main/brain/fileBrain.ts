@@ -109,7 +109,11 @@ export function createAsk(s: SettingsData, targetKind: FileBrainTarget): AskFn {
         enable_thinking: false,
         chat_template_kwargs: { enable_thinking: false },
       };
-      answer = await cleanAsync(text, runtime.endpointUrl, runtime.apiKey, 'local', prompt, signal, extra, 240_000);
+      try {
+        answer = await cleanAsync(text, runtime.endpointUrl, runtime.apiKey, 'local', prompt, signal, extra, 240_000);
+      } finally {
+        runtime.touch?.();
+      }
     } else {
       answer = await cleanAsync(text, s.CleanupEndpointUrl, s.CleanupApiKey, s.CleanupModel, prompt, signal, null, 120_000);
     }

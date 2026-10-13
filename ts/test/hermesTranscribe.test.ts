@@ -63,6 +63,18 @@ describe('makeHermesTranscribe (App.HermesTranscribe)', () => {
     expect(tr.inFlight()).toBe(0);
   });
 
+  it('used() after every real request (restarts the idle unload), never on a health probe', async () => {
+    const rec = new Rec();
+    let used = 0;
+    const tr = makeHermesTranscribe({ current: () => rec, modelName: () => 'X', used: () => void used++ });
+    await tr(new Uint8Array(0));
+    expect(used).toBe(0);
+    await tr(wav(1));
+    expect(used).toBe(1);
+    await tr(new Uint8Array([1, 2, 3]));
+    expect(used).toBe(2);
+  });
+
   it('no model → not loaded (503); bad audio → error (400)', async () => {
     const none = makeHermesTranscribe({ current: () => null, load: async () => null, modelName: () => 'X' });
     expect((await none(wav(1))).modelLoaded).toBe(false);
