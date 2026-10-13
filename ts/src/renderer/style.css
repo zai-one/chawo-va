@@ -11,3 +11,22 @@ body { display: flex; }
 main { flex: 1; padding: 24px 32px; overflow: auto; }
 h1 { font-size: 20px; font-weight: 600; margin: 0 0 12px; }
 .muted { color: var(--muted); }
+.row { display: flex; gap: 8px; flex-wrap: wrap; margin: 0 0 12px; align-items: center; }
+button { background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 6px; padding: 6px 12px; font: inherit; cursor: pointer; }
+button:hover { border-color: var(--muted); }
+button.primary { background: var(--accent); border-color: var(--accent); color: #14161a; font-weight: 600; }
+button.link { background: none; border: none; color: var(--muted); padding: 2px 6px; }
+button.link:hover { color: var(--text); }
+.queue { border: 1px solid var(--line); border-radius: 8px; background: var(--panel); min-height: 96px; max-height: 300px; overflow: auto; margin-bottom: 12px; }
+.queue .empty { padding: 32px 16px; text-align: center; }
+.item { display: grid; grid-template-columns: minmax(0, 2fr) 96px minmax(0, 3fr) auto auto; gap: 8px; align-items: center; padding: 6px 12px; border-bottom: 1px solid var(--line); }
+.item:last-child { border-bottom: none; }
+.item .name, .item .note { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.item.running .state { color: var(--accent); }
+.item.done .state { color: #7fd18b; }
+.item.failed .state { color: #ff8a7a; }
+.status { min-height: 1.45em; word-break: break-all; }
+fieldset { border: 1px solid var(--line); border-radius: 8px; margin: 0 0 12px; padding: 8px 16px 12px; display: flex; flex-direction: column; gap: 6px; }
+legend { color: var(--muted); padding: 0 4px; }
+select { background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 6px; padding: 4px 8px; font: inherit; }
+input[type=checkbox] { accent-color: var(--accent); }

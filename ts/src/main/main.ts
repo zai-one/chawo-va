@@ -3,12 +3,16 @@
 
 import { app, BrowserWindow, Menu, Tray, nativeImage, nativeTheme, session } from 'electron';
 import { join } from 'node:path';
+import { registerFileIpc } from './fileIpc';
+import * as Settings from './settings';
+import { applyLanguage } from '../core/strings';
 
 const APP_NAME = 'Chawo Voice Assistant';
 const BG = '#14161a';
 
 let win: BrowserWindow | null = null;
 let tray: Tray | null = null;
+let settings: Settings.SettingsData = Settings.defaults();
 
 function iconPath(set: 'app' | 'tray-dark' | 'tray-light', size: number): string {
   return join(__dirname, '..', 'assets', 'iconset', set, `icon_${size}.png`);
@@ -87,6 +91,9 @@ if (!app.requestSingleInstanceLock()) {
       cb({ cancel: !details.url.startsWith('file://') && !details.url.startsWith('devtools://') });
     });
     session.defaultSession.setPermissionRequestHandler((_wc, permission, cb) => cb(permission === 'media'));
+    settings = Settings.load();
+    applyLanguage(settings.Language, app.getLocale());
+    registerFileIpc(() => win, { get: () => settings });
     win = createWindow();
     tray = createTray();
   });

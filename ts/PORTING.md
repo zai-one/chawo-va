@@ -33,7 +33,8 @@ Re-align folder names and tooling with taptain-desktop once its layout is readab
 | App/HermesServer.cs, HermesFirewall.cs, RemoteSpeech.cs | src/main/network/ | ⏳ |
 | App/Sales*.cs | src/main/sales/ | ⏳ |
 | App/Updater.cs, Autostart.cs, KeepAwake.cs | src/main/system/ | ⏳ |
-| SettingsWindow, OverlayWindow, SalesCardWindow, Download/Update windows, BrainServerPanel | src/renderer/ pages | ⏳ (shell with 4 sections exists) |
+| SettingsWindow, OverlayWindow, SalesCardWindow, Download/Update windows, BrainServerPanel | src/renderer/ pages | 🟡 «Расшифровка файла» page works; other sections are placeholders |
+| App.RunFileQueueAsync / RunQueue / RunOneFile / TranscribeLocal | src/main/file/fileRunner.ts, localTranscriber.ts, src/main/fileIpc.ts | ✅ local path ported (remote host + Brain pending) |
 | App/Strings.cs | src/core/strings.ts (ru/en `t()`) | ✅ ported |
 
 ## Notes
@@ -89,3 +90,20 @@ Re-align folder names and tooling with taptain-desktop once its layout is readab
   `zip.ts` extractor, `-version` smoke, stdout PCM decode with 3 h cap). 69 tests green.
   Next: file runner (queue → FileJob → transcript format → .txt, decode-ahead), Chromium platform
   decoder, and IPC + renderer for the «Расшифровка файла» page.
+
+- 2026-10-13 tick 5: file transcription is usable end to end in the Electron shell. `fileRunner.ts`
+  (queue loop with decode-ahead of the next file, per-file skip on error, Stop → running row
+  Stopped and the rest stays queued, .txt/.srt beside the source, «Готово N, пропуск M», tray
+  notification after runs ≥ 60 s). `localTranscriber.ts` opens a FileJob per file from the model
+  on disk (never downloads) and streams the WPF progress line. `fileIpc.ts` + preload bridge:
+  pick files/folder, drag-and-drop (via `webUtils.getPathForFile`), remove/clear, run/stop,
+  reveal in folder, options (timestamps, .srt, «Скорость длинных записей»), ffmpeg status and
+  Windows-only download. Renderer page follows the main-process UI language (Auto = OS locale).
+  `scripts/smoke-shot.cjs` boots the built app under xvfb and saves a screenshot. Brain post-edit
+  and the remote host path are not ported yet: with «через мозг» on, the row says so and the raw
+  .txt is still written. 74 tests green.
+  Found: the real GigaAM v3 int8 model on the box returns an empty transcript for
+  `bench_3min.wav`; that clip may not contain speech, so the recognizer still needs a check on a
+  real Russian voice sample before trusting the port. Next: that check, then the Chromium platform
+  decoder (hidden renderer `decodeAudioData`) and the «Диктовка» page (model download + status).
+
