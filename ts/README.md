@@ -23,6 +23,22 @@ Without `ChawoNative.exe` the app still runs on Windows; only the global hold ke
 into other apps are off (the page says so). `scripts/smoke-native-wine.cjs` runs the helper under
 Wine + Xvfb on Linux against a test window (`native/win/test/InsertTarget`).
 
+## Command line
+
+File transcription without the window, same model and parallel plan as the app:
+
+```
+npm run build
+node dist/cli.js transcribe talk.m4a ./recordings -f txt,srt -o ./out    # or `chawo-va` after npm link
+node dist/cli.js transcribe call.wav --stdout --no-timestamps -q | less
+node dist/cli.js --help
+```
+
+Local only: settings.json is read (model, device, parallelism, timestamps, language) and never
+written, the model is never downloaded (use the app or `--model-dir`), WAV/Ogg-Opus are decoded
+natively and everything else through ffmpeg on PATH. Exit codes: 0 done, 1 some files failed,
+2 bad arguments, 3 no model, 130 Ctrl+C.
+
 Rules carried over from the WPF app: dark theme only, no telemetry, no keys in the repo,
 local by default (the renderer cannot reach the network), short menus.
 Progress and the module map live in [PORTING.md](PORTING.md).

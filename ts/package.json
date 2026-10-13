@@ -7,6 +7,9 @@
   "private": true,
   "type": "commonjs",
   "main": "dist/main/main.js",
+  "bin": {
+    "chawo-va": "dist/cli.js"
+  },
   "engines": {
     "node": ">=20"
   },
@@ -15,6 +18,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
     "start": "npm run build && electron .",
+    "cli": "node dist/cli.js",
     "build:native": "dotnet build native/win/ChawoNative.csproj -c Release -o native/win/bin/out"
   },
   "devDependencies": {
