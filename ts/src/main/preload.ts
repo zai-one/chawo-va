@@ -50,6 +50,29 @@ const api = {
     suggest: () => ipcRenderer.invoke('dict:suggest'),
     addSuggestion: (heard: string, written: string) => ipcRenderer.invoke('dict:addSuggestion', heard, written),
   },
+  brain: {
+    state: (rebind = false) => ipcRenderer.invoke('brain:state', rebind),
+    setSource: (v: string) => ipcRenderer.invoke('brain:source', v),
+    setEveryTake: (v: boolean) => ipcRenderer.invoke('brain:everyTake', v),
+    setInstruction: (v: string) => ipcRenderer.invoke('brain:instruction', v),
+    setSelection: (v: boolean) => ipcRenderer.invoke('brain:selection', v),
+    setDevice: (v: string) => ipcRenderer.invoke('brain:device', v),
+    setLocalModel: (v: string) => ipcRenderer.invoke('brain:localModel', v),
+    setCustomUrl: (v: string) => ipcRenderer.invoke('brain:customUrl', v),
+    setProvider: (id: string) => ipcRenderer.invoke('brain:provider', id),
+    setKey: (key: string) => ipcRenderer.invoke('brain:key', key),
+    setUrl: (url: string) => ipcRenderer.invoke('brain:url', url),
+    setModel: (model: string) => ipcRenderer.invoke('brain:model', model),
+    refresh: () => ipcRenderer.invoke('brain:refresh'),
+    openKeysLink: () => ipcRenderer.invoke('brain:keysLink'),
+    deleteGguf: (path: string) => ipcRenderer.invoke('brain:deleteGguf', path),
+    close: () => ipcRenderer.invoke('brain:close'),
+    onState: (fn: (s: unknown) => void) => {
+      const h = (_e: unknown, s: unknown) => fn(s);
+      ipcRenderer.on('brain:state', h);
+      return () => ipcRenderer.removeListener('brain:state', h);
+    },
+  },
 };
 
 contextBridge.exposeInMainWorld('chawo', api);

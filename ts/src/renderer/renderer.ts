@@ -1,4 +1,4 @@
-// Sidebar navigation plus the «Расшифровка файла», «Распознавание» and «Словарь» pages. Other pages get real content as the
+// Sidebar navigation plus the «Расшифровка файла», «Распознавание», «Словарь» and «Мозг» pages. Other pages get real content as the
 // WPF SettingsWindow is ported. Plain DOM, no framework; paths are set via textContent only.
 
 interface FileItem { id: number; path: string; state: 'Queued' | 'Running' | 'Done' | 'Failed' | 'Stopped'; note: string; outputPath?: string }
@@ -75,7 +75,63 @@ interface DictApi {
   suggest(): Promise<DictState>;
   addSuggestion(heard: string, written: string): Promise<DictState>;
 }
-const bridge = (window as unknown as { chawo: { file: FileApi; speech: SpeechApi; dict: DictApi } }).chawo;
+interface BrainRow { kind: string | null; label: string; selected: boolean; onDisk: boolean; path: string | null }
+interface BrainState {
+  ru: boolean;
+  heading: string;
+  hint: string;
+  source: string;
+  sourceChoices: { value: string; label: string }[];
+  status: string;
+  server: {
+    visible: boolean;
+    providers: { id: string; label: string }[];
+    providerId: string;
+    custom: boolean;
+    url: string;
+    keySaved: boolean;
+    keyPlaceholder: string;
+    keysLink: string;
+    keysLinkEnabled: boolean;
+    model: string;
+    models: string[];
+    loading: boolean;
+    status: string;
+  };
+  local: {
+    visible: boolean;
+    rows: BrainRow[];
+    device: string;
+    deviceChoices: { value: string; label: string }[];
+    deviceHint: string;
+    customUrlVisible: boolean;
+    customUrl: string;
+    fileStatus: string;
+  };
+  everyTake: { visible: boolean; on: boolean; hint: string };
+  instruction: { visible: boolean; text: string; hint: string };
+  selection: { visible: boolean; on: boolean; hint: string };
+}
+interface BrainApi {
+  state(rebind?: boolean): Promise<BrainState>;
+  setSource(v: string): Promise<BrainState>;
+  setEveryTake(v: boolean): Promise<BrainState>;
+  setInstruction(v: string): Promise<BrainState>;
+  setSelection(v: boolean): Promise<BrainState>;
+  setDevice(v: string): Promise<BrainState>;
+  setLocalModel(v: string): Promise<BrainState>;
+  setCustomUrl(v: string): Promise<BrainState>;
+  setProvider(id: string): Promise<BrainState>;
+  setKey(key: string): Promise<BrainState>;
+  setUrl(url: string): Promise<BrainState>;
+  setModel(model: string): Promise<BrainState>;
+  refresh(): Promise<BrainState>;
+  openKeysLink(): Promise<boolean>;
+  deleteGguf(path: string): Promise<BrainState>;
+  close(): Promise<boolean>;
+  onState(fn: (s: BrainState) => void): () => void;
+}
+const bridge = (window as unknown as { chawo: { file: FileApi; speech: SpeechApi; dict: DictApi; brain: BrainApi } }).chawo;
 
 const titlesEn: Record<string, string> = {
   dictation: 'Dictation',
@@ -101,6 +157,7 @@ let current = 'dictation';
 let fileState: FileState | null = null;
 let speechState: SpeechState | null = null;
 let dictState: DictState | null = null;
+let brainState: BrainState | null = null;
 let ru = true;
 const L = (r: string, e: string) => (ru ? r : e);
 
@@ -156,12 +213,151 @@ const applyDict = (s: DictState, focusId?: number) => {
   else if (current === 'dictionary') renderDictionary(focusId);
 };
 
+const applyBrain = (st: BrainState) => {
+  brainState = st;
+  if (st.ru !== ru) setLanguage(st.ru);
+  else if (current === 'brain') renderBrain();
+};
+
+/** Status lines from async work (model list, probe) update in place so typing is not interrupted. */
+const applyBrainPush = (st: BrainState) => {
+  const prev = brainState;
+  brainState = st;
+  if (current !== 'brain') return;
+  const active = document.activeElement as HTMLElement | null;
+  const typing = active && page.contains(active) && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA');
+  if (typing && prev && prev.source === st.source && prev.server.providerId === st.server.providerId) {
+    const line = page.querySelector<HTMLElement>('[data-brain="server-status"]');
+    if (line) line.textContent = st.server.status;
+    const model = page.querySelector<HTMLInputElement>('[data-brain="model"]');
+    if (model && model !== active) model.value = st.server.model;
+    const list = page.querySelector<HTMLDataListElement>('#brain-models');
+    if (list) list.replaceChildren(...st.server.models.map((m) => el('option', { value: m })));
+    const reload = page.querySelector<HTMLButtonElement>('[data-brain="reload"]');
+    if (reload) reload.disabled = st.server.loading;
+    return;
+  }
+  renderBrain();
+};
+
+function selectOf(choices: { value: string; label: string }[], value: string, onChange: (v: string) => void): HTMLSelectElement {
+  const sel = el('select');
+  for (const c of choices) sel.append(el('option', { value: c.value, textContent: c.label, selected: c.value === value }));
+  sel.addEventListener('change', () => onChange(sel.value));
+  return sel;
+}
+
+function renderBrain(): void {
+  const s = brainState;
+  page.replaceChildren(el('h1', { textContent: title('brain') }));
+  if (!s) return;
+  page.append(el('p', { className: 'muted', textContent: s.hint }));
+
+  page.append(el('div', { className: 'row' },
+    el('span', { textContent: L('Где думает', 'Runs on') }),
+    selectOf(s.sourceChoices, s.source, (v) => void bridge.brain.setSource(v).then(applyBrain)),
+  ));
+  if (s.status) page.append(el('p', { className: 'muted hint', textContent: s.status }));
+
+  if (s.server.visible) {
+    const v = s.server;
+    const grid = el('div', { className: 'form' });
+    grid.append(el('span', { textContent: L('Сервис', 'Service') }),
+      selectOf(v.providers.map((p) => ({ value: p.id, label: p.label })), v.providerId, (id) => void bridge.brain.setProvider(id).then(applyBrain)));
+    const key = el('input', { type: 'password', placeholder: v.keyPlaceholder, spellcheck: false, autocomplete: 'off' });
+    key.addEventListener('input', () => void bridge.brain.setKey(key.value).then((st) => {
+      // A pasted key may switch the service; redraw only then, so the caret stays put.
+      if (brainState && st.server.providerId !== brainState.server.providerId) { key.blur(); applyBrain(st); }
+      else applyBrainPush(st);
+    }));
+    const link = button(v.keysLink, () => void bridge.brain.openKeysLink(), 'link');
+    link.disabled = !v.keysLinkEnabled;
+    grid.append(el('span', { textContent: L('Ключ API', 'API key') }), el('div', {}, key, link));
+    if (v.custom) {
+      const url = el('input', { type: 'text', value: v.url, spellcheck: false, placeholder: 'http://localhost:11434/v1' });
+      url.title = L('OpenAI-совместимый API, например http://localhost:1234/v1 (LM Studio) или http://localhost:11434/v1 (Ollama)',
+        'An OpenAI-compatible API, e.g. http://localhost:1234/v1 (LM Studio) or http://localhost:11434/v1 (Ollama)');
+      url.addEventListener('change', () => void bridge.brain.setUrl(url.value).then(applyBrainPush));
+      grid.append(el('span', { textContent: L('Адрес', 'Address') }), url);
+    }
+    const model = el('input', { type: 'text', value: v.model, spellcheck: false });
+    const listId = 'brain-models';
+    model.setAttribute('list', listId);
+    model.dataset.brain = 'model';
+    const list = el('datalist', { id: listId });
+    for (const m of v.models) list.append(el('option', { value: m }));
+    model.addEventListener('change', () => void bridge.brain.setModel(model.value).then(applyBrainPush));
+    const refresh = button(L('Обновить', 'Reload'), () => void bridge.brain.refresh().then(applyBrain));
+    refresh.disabled = v.loading;
+    refresh.dataset.brain = 'reload';
+    grid.append(el('span', { textContent: L('Модель', 'Model') }), el('div', { className: 'inline' }, model, list, refresh));
+    page.append(grid);
+    page.append(el('p', { className: 'muted hint line', textContent: v.status }));
+    page.lastElementChild?.setAttribute('data-brain', 'server-status');
+  }
+
+  if (s.local.visible) {
+    const v = s.local;
+    page.append(el('label', { className: 'block', textContent: L('Модель на компьютере', 'Model on this computer') }));
+    const rows = el('div', { className: 'models' });
+    for (const r of v.rows) {
+      const row = el('div', { className: 'model' });
+      if (r.kind) {
+        const radio = el('input', { type: 'radio', name: 'brain-model', checked: r.selected });
+        const kind = r.kind;
+        radio.addEventListener('change', () => void bridge.brain.setLocalModel(kind).then(applyBrain));
+        row.append(el('label', {}, radio, ' ', r.label));
+      } else {
+        row.append(el('label', { textContent: r.label }));
+      }
+      if (r.onDisk) row.append(el('span', { className: 'disk', textContent: L('на диске', 'on disk') }));
+      if (r.path) {
+        const path = r.path;
+        row.append(button(L('Удалить', 'Delete'), () => void bridge.brain.deleteGguf(path).then(applyBrain)));
+      }
+      rows.append(row);
+    }
+    page.append(rows);
+    if (v.customUrlVisible) {
+      page.append(el('label', { className: 'block', textContent: L('Ссылка Hugging Face', 'Hugging Face link') }));
+      const url = el('input', { type: 'text', value: v.customUrl, spellcheck: false });
+      url.title = L('Страница файла .gguf или прямая ссылка resolve. Скачивается только по кнопке ниже.', 'A .gguf file page or a resolve link. Downloaded only by the button below.');
+      url.addEventListener('change', () => void bridge.brain.setCustomUrl(url.value).then(applyBrain));
+      page.append(url);
+    }
+    if (v.fileStatus) page.append(el('p', { className: 'muted hint line', textContent: v.fileStatus }));
+    page.append(el('label', { className: 'block', textContent: L('Где считает', 'Where it runs') }),
+      selectOf(v.deviceChoices, v.device, (d) => void bridge.brain.setDevice(d).then(applyBrain)),
+      el('p', { className: 'muted hint', textContent: v.deviceHint }));
+  }
+
+  if (s.everyTake.visible) {
+    page.append(el('label', { className: 'block', textContent: L('Переписывать фразу', 'Rewrite the phrase') }),
+      selectOf([{ value: 'off', label: L('Выключено', 'Off') }, { value: 'on', label: L('Переписывать каждую фразу', 'Rewrite each phrase') }],
+        s.everyTake.on ? 'on' : 'off', (v) => void bridge.brain.setEveryTake(v === 'on').then(applyBrain)),
+      el('p', { className: 'muted hint', textContent: s.everyTake.hint }));
+  }
+  if (s.instruction.visible) {
+    const box = el('textarea', { value: s.instruction.text, spellcheck: false, rows: 4 });
+    box.addEventListener('change', () => void bridge.brain.setInstruction(box.value).then((st) => { brainState = st; }));
+    page.append(el('label', { className: 'block', textContent: L('Как переписывать', 'How to rewrite') }), box,
+      el('p', { className: 'muted hint', textContent: s.instruction.hint }));
+  }
+  if (s.selection.visible) {
+    const cb = el('input', { type: 'checkbox', checked: s.selection.on });
+    cb.addEventListener('change', () => void bridge.brain.setSelection(cb.checked).then(applyBrain));
+    page.append(el('label', { className: 'check' }, cb, ' ', L('Править выделенный текст голосом', 'Edit selected text by voice')),
+      el('p', { className: 'muted hint indent', textContent: s.selection.hint }));
+  }
+}
+
 function setLanguage(r: boolean): void {
   ru = r;
   document.documentElement.lang = r ? 'ru' : 'en';
   for (const b of Array.from(document.querySelectorAll<HTMLButtonElement>('.nav button'))) b.textContent = title(b.dataset.page ?? '');
   if (current === 'speech') renderSpeech();
   else if (current === 'dictionary') renderDictionary();
+  else if (current === 'brain') renderBrain();
   else if (current !== 'file') show(current);
 }
 
@@ -346,6 +542,7 @@ function renderFile(): void {
 }
 
 function show(name: string): void {
+  if (current === 'brain' && name !== 'brain') void bridge.brain.close();
   current = name;
   if (name === 'file') {
     renderFile();
@@ -360,6 +557,11 @@ function show(name: string): void {
   if (name === 'dictionary') {
     renderDictionary();
     void bridge.dict.state().then((st) => applyDict(st));
+    return;
+  }
+  if (name === 'brain') {
+    renderBrain();
+    void bridge.brain.state(true).then(applyBrain);
     return;
   }
   page.replaceChildren(
@@ -378,6 +580,7 @@ for (const btn of Array.from(document.querySelectorAll<HTMLButtonElement>('.nav 
 
 bridge.file.onState(apply);
 bridge.speech.onState(applySpeech);
+bridge.brain.onState(applyBrainPush);
 bridge.file.onToast((msg) => {
   if (fileState) apply({ ...fileState, status: msg });
 });

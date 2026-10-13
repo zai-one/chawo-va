@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { registerFileIpc } from './fileIpc';
 import { registerSpeechIpc } from './speechIpc';
 import { registerDictionaryIpc } from './dictionaryIpc';
+import { registerBrainIpc } from './brainIpc';
 import { chromiumDecode, disposeChromiumDecoder } from './chromiumDecoder';
 import { setPlatformDecoder } from './file';
 import * as Settings from './settings';
@@ -102,6 +103,7 @@ if (!app.requestSingleInstanceLock()) {
     const files = registerFileIpc(() => win, { get: () => settings });
     registerSpeechIpc(() => win, { get: () => settings }, { busy: files.busy });
     registerDictionaryIpc({ get: () => settings });
+    registerBrainIpc(() => win, { get: () => settings });
     win = createWindow();
     tray = createTray();
   });

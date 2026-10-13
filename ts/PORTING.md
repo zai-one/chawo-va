@@ -34,9 +34,10 @@ Re-align folder names and tooling with taptain-desktop once its layout is readab
 | App/SalesRag.cs | src/main/sales/salesRag.ts | 🟡 SuggestDictionary + helpers ported + tests; FindSnippet waits for the sales card |
 | App/Sales*.cs (catalog, card, rest) | src/main/sales/ | ⏳ |
 | App/Updater.cs, Autostart.cs, KeepAwake.cs | src/main/system/ | ⏳ |
-| SettingsWindow, OverlayWindow, SalesCardWindow, Download/Update windows, BrainServerPanel | src/renderer/ pages | 🟡 «Расшифровка файла», «Распознавание» and «Словарь» pages work (DownloadWindow folded into the page as a progress card); sidebar has all 7 WPF sections, the rest are placeholders |
+| SettingsWindow, OverlayWindow, SalesCardWindow, Download/Update windows, BrainServerPanel | src/renderer/ pages | 🟡 «Расшифровка файла», «Распознавание» and «Словарь» pages work (DownloadWindow folded into the page as a progress card); «Мозг» page works too; sidebar has all 7 WPF sections, the rest are placeholders |
 | SettingsWindow speech page, App.SpeechStatusText / DownloadSpeechAsync / DeleteSpeechModelAsync | src/main/speech/speechPage.ts (SpeechController), src/main/speechIpc.ts | ✅ ported + tests (GPU warmup and live session line wait for dictation) |
 | SettingsWindow dictionary page (FillDictionaryRows / PersistDictionary / SuggestDictionary_Click / AddSuggestion_Click) | src/main/dictionary/dictionaryPage.ts (DictionaryController), src/main/dictionaryIpc.ts | ✅ ported + tests |
+| SettingsWindow brain page (Localize brain part / UpdateBrainTexts / FillBrainModelRows), BrainServerPanel, App.SelectBrainAsync | src/main/brain/brainPage.ts (BrainController), src/main/brainIpc.ts | ✅ ported + tests; local download/engine start 🟡 |
 | App.RunFileQueueAsync / RunQueue / RunOneFile / TranscribeLocal | src/main/file/fileRunner.ts, localTranscriber.ts, src/main/fileIpc.ts | ✅ local path + Brain hook (cloud FileBrain; local process 🟡) |
 | App/Strings.cs | src/core/strings.ts (ru/en `t()`) | ✅ ported |
 
@@ -163,3 +164,23 @@ Re-align folder names and tooling with taptain-desktop once its layout is readab
   deferred). Compatibility re-export from `brainProviders.ts`. fileRunner writes `.brain.txt`
   via optional `runBrain`; fileIpc wires cloud FileBrain.RunAsync. 128 tests green (102 before).
   Next: mic capture / hold-to-talk design, or Brain page UI, or LocalBrain process start.
+
+- 2026-10-13 tick 10: «Мозг» page. `BrainController` (no Electron imports, fake fetch + fake timer
+  in tests) ports the Brain part of SettingsWindow, the whole BrainServerPanel and
+  App.SelectBrainAsync: source Off / На компьютере / В облаке (leaving Local stops the engine hook),
+  every-take, instruction (shown only when rewriting), edit-selection, local model rows with on-disk
+  badge and stray .gguf rows, custom Hugging Face link with the WPF error text, CPU/Vulkan device,
+  .gguf delete behind a native confirm (only files listed in the brain folder). Server panel: each
+  service keeps its own key and model, a pasted key picks its service, model list loads after a
+  600 ms pause, chat models only, default model picked, saved only as a usable set, then a one-word
+  probe; rejected key / no answer / http-outside-home-network texts match WPF (the http warning is
+  now kept after a good probe instead of being overwritten). The saved key never goes to the
+  renderer, only «ключ сохранён»; «Где взять ключ» opens only the fixed https provider page.
+  Fixed a port bug: `getModelsAsync` asked `/v1/chat/models`; now `/v1/models` like C#
+  `new Uri(completions, "../models")`. End-to-end check under xvfb against a fake local
+  OpenAI-compatible server: «Свой сервер» + address → GET /v1/models → model picked → POST
+  /v1/chat/completions → «Всё работает, сохранено», settings.json updated. While the local
+  download is not ported, the not-on-disk line says to download in the WPF app or drop a .gguf in.
+  139 tests green (128 before). Next: microphone capture (getUserMedia → AudioWorklet → main) and
+  the hold-to-talk hotkey design, or LocalBrain download + llama-server start.
+

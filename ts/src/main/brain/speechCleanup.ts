@@ -375,7 +375,8 @@ export async function getModelsAsync(
   if (!completionsUrl) throw new Error('Invalid cleanup endpoint URL');
   const deadline = withTimeout(signal, 20_000);
   try {
-    const modelsUrl = new URL('../models', completionsUrl.endsWith('/') ? completionsUrl : completionsUrl + '/');
+    // Same as C# `new Uri(completionsUrl, "../models")`: …/v1/chat/completions → …/v1/models.
+    const modelsUrl = new URL('../models', completionsUrl);
     const headers: Record<string, string> = {};
     if (apiKey.trim()) {
       headers.Authorization = `Bearer ${apiKey.trim()}`;

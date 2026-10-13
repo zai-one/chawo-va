@@ -51,3 +51,10 @@ label.block { display: block; font-weight: 600; margin: 14px 0 4px; }
 .dict-row .cell { overflow-wrap: anywhere; }
 input[type=text] { background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 6px; padding: 5px 7px; font: inherit; min-width: 0; width: 100%; }
 input[type=text]:focus { outline: none; border-color: var(--accent); }
+input[type=password] { background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 6px; padding: 5px 7px; font: inherit; min-width: 0; width: 100%; }
+input[type=password]:focus, textarea:focus { outline: none; border-color: var(--accent); }
+textarea { background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 6px; padding: 7px; font: inherit; width: 100%; resize: vertical; }
+.form { display: grid; grid-template-columns: 110px minmax(0, 1fr); gap: 10px 8px; align-items: center; max-width: 620px; margin: 10px 0 0; }
+.form .inline { display: flex; gap: 8px; }
+label.check { display: block; margin: 14px 0 0; }
+.hint.indent { margin-left: 22px; }

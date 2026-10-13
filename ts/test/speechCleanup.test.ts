@@ -130,3 +130,21 @@ describe('SpeechCleanup.CleanAsync', () => {
     ).rejects.toBeInstanceOf(BrainException);
   });
 });
+
+describe('getModelsAsync URL', () => {
+  it('asks <base>/models like the C# Uri(completions, "../models")', async () => {
+    const { getModelsAsync } = await import('../src/main/brain/speechCleanup');
+    const seen: string[] = [];
+    const f = (async (u: string | URL) => {
+      seen.push(String(u));
+      return new Response(JSON.stringify({ data: [{ id: 'm' }] }));
+    }) as unknown as typeof fetch;
+    for (const base of ['https://api.deepseek.com/v1', 'https://api.groq.com/openai/v1/', 'http://localhost:11434/v1'])
+      await getModelsAsync(base, 'k', new AbortController().signal, f);
+    expect(seen).toEqual([
+      'https://api.deepseek.com/v1/models',
+      'https://api.groq.com/openai/v1/models',
+      'http://localhost:11434/v1/models',
+    ]);
+  });
+});
