@@ -60,7 +60,7 @@ export interface InputDevice {
   label: string;
 }
 
-const MONITOR = /^(monitor of|монитор)\b/i;
+const MONITOR = /^(monitor of|монитор)\s/i;
 
 /** The input that carries the computer sound: the default output's monitor, else the first monitor. */
 export function pickMonitor(devices: readonly InputDevice[], preferredLabel: string): InputDevice | null {
