@@ -51,6 +51,8 @@ export interface SettingsData {
   FileTimestamps: boolean;
   FileSrt: boolean;
   FileUseBrain: boolean;
+  /** Opt-in local speaker diarization after file transcription. */
+  FileDiarize: boolean;
   StartHintDismissed: boolean;
   MicrophoneId: string;
   BrainDevice: BrainDeviceKind;
@@ -100,6 +102,7 @@ export function defaults(): SettingsData {
     FileTimestamps: true,
     FileSrt: false,
     FileUseBrain: false,
+    FileDiarize: false,
     StartHintDismissed: false,
     MicrophoneId: '',
     BrainDevice: 'Cpu',
@@ -327,6 +330,7 @@ export function fromJsonObject(raw: Record<string, unknown>): { settings: Settin
   d.FileTimestamps = asBool(raw.FileTimestamps, d.FileTimestamps);
   d.FileSrt = asBool(raw.FileSrt, d.FileSrt);
   d.FileUseBrain = asBool(raw.FileUseBrain, d.FileUseBrain);
+  d.FileDiarize = asBool(raw.FileDiarize, d.FileDiarize);
   d.StartHintDismissed = asBool(raw.StartHintDismissed, d.StartHintDismissed);
   d.MicrophoneId = asString(raw.MicrophoneId, d.MicrophoneId);
   d.BrainDevice = asEnum(raw.BrainDevice, ['Cpu', 'Gpu'] as const, d.BrainDevice);
@@ -402,6 +406,7 @@ export function toJsonObject(s: SettingsData): Record<string, unknown> {
     FileTimestamps: s.FileTimestamps,
     FileSrt: s.FileSrt,
     FileUseBrain: s.FileUseBrain,
+    FileDiarize: s.FileDiarize,
     StartHintDismissed: s.StartHintDismissed,
     MicrophoneId: s.MicrophoneId,
     BrainDevice: s.BrainDevice,

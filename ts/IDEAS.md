@@ -79,10 +79,11 @@ GPL-проекты — только как источник идей, код н�
 - Реализация: Electron `desktopCapturer` + `setDisplayMediaRequestHandler({audio:'loopback'})` на Windows; микс mic+loopback в renderer; запись в файл → существующая файловая очередь, либо чанки по VAD в реальном времени.
 - Тесты: ручные (Zoom/YouTube); unit микшера.
 
-### 11. Диаризация спикеров (L)
+### 11. ✅ DONE — Диаризация спикеров (L)
 - Источник: [OpenWhispr](https://github.com/OpenWhispr/openwhispr), [vibe](https://github.com/thewh1teagle/vibe), [Buzz](https://github.com/chidiwilliams/buzz).
-- Реализация: sherpa-onnx модели (pyannote segmentation ONNX + speaker embedding, напр. 3D-Speaker/WeSpeaker) через onnxruntime-node; кластеризация эмбеддингов; поле `speaker` в сегментах → «Спикер 1:» в txt/srt.
-- Тесты: фикстура с 2 голосами; DER-грубая проверка.
+- Реализация (ветка `ts/feat-diarization`): `src/core/diarize.ts` — `assignSpeakers` по максимальному пересечению во времени + remap id по первому появлению; `TranscriptSegment.speaker?`; `toTxt`/`toSrt` префиксуют «Спикер N:» (1-based), когда хоть у одного сегмента есть speaker. Runtime: `sherpa-onnx-node` `OfflineSpeakerDiarization` (lazy require), модели pyannote segmentation + 3D-Speaker embedding в `%LOCALAPPDATA%/…/models/diarization/` (скачивание по кнопке, не в репо). Настройка `FileDiarize` (default false), чекбокс «Разделять спикеров» на «Расшифровка файла», после локальной расшифровки — diarize PCM → assign → запись; без моделей очередь не падает.
+- Тесты: assignSpeakers/formats/settings/fileRunner (fake diarizer); smoke `scripts/smoke-diarize.cjs` (четыре спикера wav).
+
 
 ### 12. Импорт по URL (YouTube и т.п.) (M)
 - Источник: [vibe](https://github.com/thewh1teagle/vibe), [OpenWhispr](https://github.com/OpenWhispr/openwhispr).

@@ -1,11 +1,15 @@
 // Plain text and SubRip output for a transcribed file. Port of src/Core/TranscriptFormat.cs.
 // The segment shape (start, end, text) is what a server backend would store per chunk.
 
+import { hasSpeakerLabels, speakerPrefix } from './diarize';
+
 /** One recognized piece. start/end are seconds in the source recording. */
 export interface TranscriptSegment {
   start: number;
   end: number;
   text: string;
+  /** 0-based speaker id after diarization; omitted when unknown / diarization off. */
+  speaker?: number;
 }
 
 const p2 = (n: number) => String(n).padStart(2, '0');
@@ -27,11 +31,19 @@ export function srtTime(seconds: number): string {
   return `${p2(Math.floor(s / 3600))}:${p2(Math.floor(s / 60) % 60)}:${p2(s % 60)},${String(ms % 1000).padStart(3, '0')}`;
 }
 
+function lineText(seg: TranscriptSegment, withSpeakers: boolean): string {
+  const text = (seg.text ?? '').trim();
+  if (!text) return '';
+  if (!withSpeakers) return text;
+  return speakerPrefix(seg.speaker) + text;
+}
+
 /** One line per non-empty piece; with timestamps each line starts with [hh:mm:ss]. */
 export function toTxt(segments: readonly TranscriptSegment[], timestamps: boolean): string {
+  const withSpeakers = hasSpeakerLabels(segments);
   const lines: string[] = [];
   for (const seg of segments) {
-    const text = (seg.text ?? '').trim();
+    const text = lineText(seg, withSpeakers);
     if (!text) continue;
     lines.push(timestamps ? `[${clock(seg.start)}] ${text}` : text);
   }
@@ -40,10 +52,11 @@ export function toTxt(segments: readonly TranscriptSegment[], timestamps: boolea
 
 /** SubRip: index, start --> end, text, blank line. Empty pieces skipped, numbering continuous. */
 export function toSrt(segments: readonly TranscriptSegment[]): string {
+  const withSpeakers = hasSpeakerLabels(segments);
   let out = '';
   let n = 0;
   for (const seg of segments) {
-    const text = (seg.text ?? '').trim();
+    const text = lineText(seg, withSpeakers);
     if (!text) continue;
     n++;
     const end = Math.max(seg.end, seg.start + 0.5);

@@ -24,6 +24,7 @@
   },
   "dependencies": {
     "onnxruntime-node": "^1.30.0",
-    "opus-decoder": "^0.7.12"
+    "opus-decoder": "^0.7.12",
+    "sherpa-onnx-node": "^1.13.8"
   }
 }

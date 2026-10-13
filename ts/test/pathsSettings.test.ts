@@ -93,6 +93,7 @@ describe('settings', () => {
     expect(loaded.SalesCatalog).toEqual(s.SalesCatalog);
     expect(loaded.OverlayX).toBe(10);
     expect(loaded.CheckUpdates).toBe(false);
+    expect(loaded.FileDiarize).toBe(false);
     expect(loaded.KeepAwakeWhileListening).toBe(false);
     const disk = JSON.parse(readFileSync(settingsPath(), 'utf8')) as Record<string, unknown>;
     expect(disk.CleanupApiKey).toBeUndefined();
@@ -141,6 +142,17 @@ describe('settings', () => {
     saveDictionary(s, []);
     expect(s.WordReplacementRules).toBe('#');
     expect(dictionaryRows(s)).toEqual([]);
+  });
+
+
+  it('FileDiarize round-trips default false', () => {
+    const s = defaults();
+    expect(s.FileDiarize).toBe(false);
+    s.FileDiarize = true;
+    save(s);
+    expect(load().FileDiarize).toBe(true);
+    const { settings } = fromJsonObject({});
+    expect(settings.FileDiarize).toBe(false);
   });
 
   it('forces CheckUpdates and KeepAwakeWhileListening off on load', () => {

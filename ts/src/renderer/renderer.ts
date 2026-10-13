@@ -7,8 +7,9 @@ interface FileState {
   items: FileItem[];
   status: string;
   busy: boolean;
-  options: { timestamps: boolean; srt: boolean; parallelism: string };
+  options: { timestamps: boolean; srt: boolean; parallelism: string; diarize: boolean };
   ffmpeg: { line: string; canDownload: boolean; installed: boolean };
+  diarization: { onDisk: boolean; ready: boolean; downloading: boolean; line: string; canDownload: boolean };
   lastOutput: string | null;
   ru: boolean;
 }
@@ -23,6 +24,7 @@ interface FileApi {
   reveal(path?: string): Promise<boolean>;
   setOptions(o: Partial<FileState['options']>): Promise<FileState>;
   downloadFfmpeg(): Promise<FileState>;
+  downloadDiarize(): Promise<FileState>;
   onState(fn: (s: FileState) => void): () => void;
   onToast(fn: (s: string) => void): () => void;
 }
@@ -1039,6 +1041,8 @@ function renderFile(): void {
   ts.addEventListener('change', () => void bridge.file.setOptions({ timestamps: ts.checked }).then(apply));
   const srt = el('input', { type: 'checkbox', checked: s.options.srt });
   srt.addEventListener('change', () => void bridge.file.setOptions({ srt: srt.checked }).then(apply));
+  const diar = el('input', { type: 'checkbox', checked: s.options.diarize });
+  diar.addEventListener('change', () => void bridge.file.setOptions({ diarize: diar.checked }).then(apply));
   const speed = el('select');
   for (const [v, label] of SPEED.map(([v, r]) => [v, ru ? r : SPEED_EN[v]] as [string, string])) speed.append(el('option', { value: v, textContent: label, selected: v === s.options.parallelism }));
   speed.addEventListener('change', () => void bridge.file.setOptions({ parallelism: speed.value }).then(apply));
@@ -1048,6 +1052,7 @@ function renderFile(): void {
       el('legend', { textContent: L('Вывод', 'Output') }),
       el('label', {}, ts, L(' Метки времени [чч:мм:сс] в .txt', ' Timestamps [hh:mm:ss] in .txt')),
       el('label', {}, srt, L(' Ещё и субтитры .srt', ' Also .srt subtitles')),
+      el('label', {}, diar, L(' Разделять спикеров', ' Separate speakers')),
       el('label', {}, L('Скорость длинных записей ', 'Long recording speed '), speed),
     ),
   );
@@ -1055,6 +1060,14 @@ function renderFile(): void {
   const ff = el('fieldset', {}, el('legend', { textContent: 'ffmpeg' }), el('p', { className: 'muted', textContent: s.ffmpeg.line }));
   if (!s.ffmpeg.installed && s.ffmpeg.canDownload) ff.append(button(L('Скачать ffmpeg', 'Download ffmpeg'), () => void bridge.file.downloadFfmpeg().then(apply)));
   page.append(ff);
+
+  const d = s.diarization ?? { onDisk: false, ready: false, downloading: false, line: '', canDownload: true };
+  const diarFs = el('fieldset', {},
+    el('legend', { textContent: L('Спикеры', 'Speakers') }),
+    el('p', { className: 'muted', textContent: d.line }),
+  );
+  if (d.canDownload) diarFs.append(button(L('Скачать модели (~47 МБ)', 'Download models (~47 MB)'), () => void bridge.file.downloadDiarize().then(apply)));
+  page.append(diarFs);
 }
 
 function show(name: string): void {

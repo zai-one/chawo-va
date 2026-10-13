@@ -16,6 +16,7 @@ const api = {
     reveal: (path?: string) => ipcRenderer.invoke('file:reveal', path),
     setOptions: (o: Record<string, unknown>) => ipcRenderer.invoke('file:options', o),
     downloadFfmpeg: () => ipcRenderer.invoke('file:ffmpegDownload'),
+    downloadDiarize: () => ipcRenderer.invoke('file:diarizeDownload'),
     onState: (fn: (s: unknown) => void) => {
       const h = (_e: unknown, s: unknown) => fn(s);
       ipcRenderer.on('file:state', h);

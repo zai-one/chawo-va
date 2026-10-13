@@ -99,7 +99,7 @@ describe('file transcription in the Client role', () => {
         if (n === 2) throw new RemoteHostException('Хост не отвечает. Проверьте адрес и порт. Модель на этом компьютере не скачивается.', 'The host did not answer.');
         return 'готово';
       }),
-      options: () => ({ timestamps: false, srt: false, useBrain: false }),
+      options: () => ({ timestamps: false, srt: false, useBrain: false, diarize: false }),
       status: (l) => statuses.push(l),
       fatal: remoteFatal,
       prefetch: () => false,

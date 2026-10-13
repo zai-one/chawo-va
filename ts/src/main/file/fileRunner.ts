@@ -7,6 +7,7 @@
 
 import { existsSync, statSync, writeFileSync } from 'node:fs';
 import { basename } from 'node:path';
+import { assignSpeakers, type DiarSpan } from '../../core/diarize';
 import { clock, toSrt, toTxt, type TranscriptSegment } from '../../core/transcriptFormat';
 import { t } from '../../core/strings';
 import { FileQueue, type FileQueueItem } from './fileQueue';
@@ -19,6 +20,8 @@ export interface FileRunOptions {
   srt: boolean;
   /** When true, try Brain post-edit after the raw .txt (via runBrain when provided). */
   useBrain: boolean;
+  /** When true, run local speaker diarization after transcription (via runDiarize when ready). */
+  diarize: boolean;
 }
 
 /** Turns 16 kHz samples into segments. status() shows a progress line for the current file. */
@@ -40,6 +43,16 @@ export type FileBrainHook = (
   signal: AbortSignal,
 ) => Promise<{ note: string; text?: string }>;
 
+/**
+ * Optional local speaker diarization after transcription.
+ * Return spans to assign; return null when models are missing (queue continues, status noted).
+ */
+export type FileDiarizeHook = (
+  pcm: Float32Array,
+  status: (line: string) => void,
+  signal: AbortSignal,
+) => Promise<DiarSpan[] | null>;
+
 export interface FileRunnerDeps {
   queue: FileQueue;
   load16k: (path: string, signal?: AbortSignal) => Promise<Float32Array>;
@@ -52,6 +65,8 @@ export interface FileRunnerDeps {
   now?: () => number;
   /** When useBrain is true, call this after writing the raw .txt. */
   runBrain?: FileBrainHook;
+  /** When diarize is true, call this after local transcription and before writing .txt/.srt. */
+  runDiarize?: FileDiarizeHook;
   /**
    * Errors that end the whole run (a dead remote host): returns the status line, else null. The file
    * is marked failed, the rest stays queued.
@@ -226,10 +241,35 @@ export class FileRunner {
     if (signal.aborted) throw abortError();
     if (samples.length === 0) throw new Error(t('В файле нет звука.', 'The file has no audio.'));
 
-    const segments = await tr(item.path, samples, (line) => this.say(prefix + line), signal);
+    let segments = await tr(item.path, samples, (line) => this.say(prefix + line), signal);
     if (signal.aborted) throw abortError();
-    writeFileSync(out, toTxt(segments, opts.timestamps), 'utf8');
+
     const notes = [clock(samples.length / 16000)];
+    if (opts.diarize) {
+      if (this.d.runDiarize) {
+        try {
+          const spans = await this.d.runDiarize(samples, (line) => this.say(prefix + line), signal);
+          if (signal.aborted) throw abortError();
+          if (spans === null) {
+            notes.push(t('спикеры: модели не скачаны', 'speakers: models not downloaded'));
+          } else if (spans.length > 0) {
+            segments = assignSpeakers(segments, spans);
+            notes.push(t('спикеры', 'speakers'));
+          } else {
+            notes.push(t('спикеры: нет сегментов', 'speakers: no segments'));
+          }
+        } catch (e) {
+          if (isAbort(e, signal)) throw e;
+          const msg = message(e);
+          Log.write(`file diarize ${item.path}: ${msg}`);
+          notes.push(t(`спикеры: ${msg}`, `speakers: ${msg}`));
+        }
+      } else {
+        notes.push(t('спикеры: модели не скачаны', 'speakers: models not downloaded'));
+      }
+    }
+
+    writeFileSync(out, toTxt(segments, opts.timestamps), 'utf8');
     if (opts.srt) {
       writeFileSync(out.replace(/\.txt$/i, '.srt'), toSrt(segments), 'utf8');
       notes.push('.srt');
