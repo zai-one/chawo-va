@@ -30,7 +30,7 @@ export interface FileStateDto {
 
 const PARALLELISM: readonly SettingsFileParallelism[] = ['Auto', 'Gentle1', 'Two', 'Four', 'Max'];
 
-export function registerFileIpc(getWindow: () => BrowserWindow | null, settings: { get: () => SettingsData }): { busy: () => boolean } {
+export function registerFileIpc(getWindow: () => BrowserWindow | null, settings: { get: () => SettingsData }): { busy: () => boolean; enqueue: (path: string) => void } {
   const queue = new FileQueue();
   let ffmpegBusy = false;
   let ffmpegStatus = '';
@@ -183,5 +183,15 @@ export function registerFileIpc(getWindow: () => BrowserWindow | null, settings:
       });
     return state();
   });
-  return { busy: () => runner.busy };
+  return {
+    busy: () => runner.busy,
+    /** A finished meeting recording: queue it and start (or join) the run. */
+    enqueue: (path: string) => {
+      queue.add([path], false);
+      if (!runner.busy && !ffmpegBusy) {
+        ffmpegStatus = '';
+        void runner.run().catch((e) => Log.write(`file run: ${e instanceof Error ? e.message : String(e)}`));
+      }
+    },
+  };
 }
