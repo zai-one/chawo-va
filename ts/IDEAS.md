@@ -64,6 +64,7 @@ GPL-проекты — только как источник идей, код н�
 - Тесты: unit расчёта уровня/троттлинга; `overlayModel.test.ts` — состояние уровня.
 
 ### 8. ⭐ DO NEXT — CLI для файловой транскрипции (S)
+- ✅ Сделано 2026-10-13 (ветка `ts/feat-cli`): `chawo-va transcribe <файлы|папки> -f txt,srt -o dir -t -j N --stdout --skip-existing`, настройки приложения только читаются, коды выхода 0/1/2/3/130. Форматы .vtt/.json/.md/.docx добавятся в CLI после слияния `ts/feat-export-formats`.
 - Источник: [vibe](https://github.com/thewh1teagle/vibe) (`--help`), [Buzz](https://github.com/chidiwilliams/buzz), [voxtype](https://github.com/peteonrails/voxtype).
 - Зачем: пакетная обработка, скрипты, CI-проверка качества распознавания.
 - Реализация: `src/cli.ts` поверх `core/fileJob.ts` + `fileParallel.ts` (ядро уже без Electron): `chawo-va transcribe <files…> --format srt,txt --out dir --threads N`. Декодирование: ffmpeg при наличии, иначе ограничиться wav/ogg (встроенный декодер завязан на Chromium). `bin` в package.json.

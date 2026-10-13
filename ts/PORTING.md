@@ -369,3 +369,27 @@ Re-align folder names and tooling with taptain-desktop once its layout is readab
   unit-tested with a fake spawn only (needs a Windows run). Next: the Windows native helper (hold
   key, TextInserter, SelectionReader, caret placement, job object), the «Продажи» card, then
   Updater/Autostart.
+- 2026-10-13 tick (branch `ts/feat-cli`, IDEAS.md №8): `chawo-va transcribe` — the file queue without
+  the window. `src/cli/args.ts` parses (`-f/--format txt,srt`, `-o/--out`, `-t/--timestamps` /
+  `--no-timestamps`, `--model v3|ctc`, `--device cpu|gpu`, `-j/--threads auto|1|2|4|max`,
+  `--script auto|ru|en`, `--model-dir`, `--stdout`, `--skip-existing`, `--lang ru|en`, `-q`,
+  `--help`, `--version`; `--opt=value` too; `--` ends options; stdin refused) and holds the bilingual
+  help. `src/cli/run.ts` (`runCli`, everything injected): folders expand without recursion like the
+  app, duplicates drop, missing inputs fail only themselves; output collisions under `--out` and
+  `--skip-existing` are settled before any model loads (nothing left → no model load); the model is
+  looked up the app's way (`findComplete`, `CHAWO_MODEL_DIR`) or taken from `--model-dir` if it
+  looks complete, never downloaded (exit 3 otherwise); one FileJob for the whole run (the app opens
+  one per file); progress redraws one stderr line with the app's `progressLine` only on a TTY;
+  per-file «Готово: path (00:05:00 · .srt · 17.2 с)»; `--stdout` prints the txt (`==> file <==`
+  headers for several); Ctrl+C aborts the job (second Ctrl+C exits) → «Прервано.», 130, nothing
+  half-written. `src/cli.ts` is the `bin` (`#!/usr/bin/env node`): settings.json is read with
+  `fromJsonObject` only (settings `load()` may migrate and save — the CLI must not touch the app's
+  file), WAV/Ogg-Opus natively, the rest via ffmpeg (no Chromium decoder outside Electron).
+  Tests: cliArgs (11), cli (19 incl. readDefaults leaves settings.json byte-identical), opt-in
+  cli.speech (real model). 340 green (309 on ts-port). Real runs on the box (v3_e2e_rnnt, CPU,
+  8 cores): a folder with two WAVs and an MP3 → `-f txt,srt -o out` six files, 1.4–1.6 s per 30 s
+  file, text matches the app; 5-min WAV in 17.2 s («Авто → 4× CPU»); `--stdout -q` pipes 707 bytes;
+  `--skip-existing` skips all three without loading the model; SIGINT 4 s into a 5-min file → 130,
+  no output; no model → 3 with the Russian hint; `--format pdf` → 2. Gaps: .vtt/.json/.md/.docx in
+  the CLI once `ts/feat-export-formats` lands; the packaged app has no CLI entry yet (run with
+  Node, or `ELECTRON_RUN_AS_NODE=1` against the app's `dist/cli.js`); no remote `--host` mode.
