@@ -1,9 +1,12 @@
 #!/usr/bin/env node
-// chawo-va CLI entry: `chawo-va transcribe <files…>` (and brief / translate / history). Plain Node (no Electron window, no
+// chawo-va CLI entry: `chawo-va transcribe <files, folders or links…>` (and brief / translate / history). Plain Node (no Electron window, no
 // Chromium decoder). Settings are read, never written. See src/cli/run.ts.
 
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { homedir } from 'node:os';
+import { downloadsFolder } from './core/mediaUrl';
+import * as YtDlp from './main/file/ytDlpTool';
 import { FileJob } from './core/fileJob';
 import { applyLanguage, t } from './core/strings';
 import { scriptCommand } from './core/postScript';
@@ -58,6 +61,15 @@ export function readDefaults(): CliDefaults {
     brain: s.FileUseBrain,
     brief: s.MeetingBriefEnabled,
   };
+}
+
+/** ~/.config/user-dirs.dirs (Linux XDG Downloads), or null. */
+function userDirs(): string | null {
+  try {
+    return readFileSync(join(process.env.XDG_CONFIG_HOME || join(homedir(), '.config'), 'user-dirs.dirs'), 'utf8');
+  } catch {
+    return null;
+  }
 }
 
 async function openEngine(cfg: EngineConfig): Promise<Engine> {
@@ -123,6 +135,9 @@ export function realDeps(signal: AbortSignal): CliDeps {
         ask: FileBrain.createAsk(s, target === 'None' ? 'Local' : target),
       };
     },
+    findYtDlp: () => YtDlp.find(),
+    fetchAudio: (url, outDir, progress, signal) => YtDlp.fetchAudio(url, outDir, { progress, signal }),
+    urlFolder: () => join(downloadsFolder(process.platform, homedir(), userDirs(), join), 'Chawo'),
     historyPath: historyFilePath,
     clock: () => Date.now(),
     log: (line) => Log.write(line),

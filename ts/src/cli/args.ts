@@ -291,10 +291,10 @@ export function parseArgs(argv: readonly string[]): ParseResult {
 
 export function helpText(t: (ru: string, en: string) => string): string {
   return t(
-    `Chawo Voice Assistant — расшифровка файлов, «Кратко и задачи», перевод и история диктовки из командной строки. Всё локально, ничего не отправляется.
+    `Chawo Voice Assistant — расшифровка файлов, «Кратко и задачи», перевод и история диктовки из командной строки. Всё локально, ничего не отправляется (по ссылке — только скачивание).
 
 Использование:
-  chawo-va transcribe <файлы или папки…> [параметры]
+  chawo-va transcribe <файлы, папки или ссылки…> [параметры]
   chawo-va brain <расшифровки.txt…> [параметры]
   chawo-va brief <расшифровки.txt…> [параметры]
   chawo-va translate <тексты.txt…> [--to язык] [параметры]
@@ -365,16 +365,19 @@ export function helpText(t: (ru: string, en: string) => string): string {
 Модели не скачиваются (речь, VAD, спикеры): сначала скачайте их в приложении.
 WAV и Ogg/Opus читаются сами, остальные форматы (MP3, M4A, FLAC, …) — через ffmpeg.
 Папки — без подпапок, как в приложении.
+Ссылки http(s)://… (YouTube и другие сайты) скачиваются через yt-dlp, как «По ссылке» в приложении:
+звук — в «Загрузки/Chawo» (или в -o), дальше обычная локальная расшифровка. Через сеть идёт только
+скачивание. yt-dlp CLI не скачивает: кнопка «Скачать yt-dlp» в приложении или yt-dlp в PATH.
 brain читает готовый .txt и пишет .brain.txt: абзацы без слов-паразитов и «Кратко».
 brief читает готовый .txt (рядом с записью или .brain.txt) и пишет .brief.txt через Мозг.
 translate переводит готовый .txt через Мозг (локальный по умолчанию) и пишет .translate.txt.
 
 Коды выхода: 0 — всё готово, 1 — часть файлов не удалась, 2 — ошибка параметров,
-3 — нет модели / Мозга, 130 — прервано (Ctrl+C).`,
-    `Chawo Voice Assistant — file transcription, «Brief and tasks», translation and dictation history from the command line. Everything is local; nothing is uploaded.
+3 — нет модели / Мозга / yt-dlp, 130 — прервано (Ctrl+C).`,
+    `Chawo Voice Assistant — file transcription, «Brief and tasks», translation and dictation history from the command line. Everything is local; nothing is uploaded (links only download).
 
 Usage:
-  chawo-va transcribe <files or folders…> [options]
+  chawo-va transcribe <files, folders or links…> [options]
   chawo-va brain <transcript.txt…> [options]
   chawo-va brief <transcript.txt…> [options]
   chawo-va translate <text.txt…> [--to language] [options]
@@ -445,11 +448,14 @@ Anything not given falls back to the app's settings (settings.json, read-only).
 No model is downloaded (speech, VAD, speakers): download them in the app first.
 WAV and Ogg/Opus are read natively; other formats (MP3, M4A, FLAC, …) need ffmpeg.
 Folders are not searched recursively, same as in the app.
+http(s)://… links (YouTube and other sites) are downloaded with yt-dlp, like «By link» in the app:
+the audio goes to Downloads/Chawo (or -o), then it is transcribed locally. Only the download uses
+the network. The CLI does not fetch yt-dlp: use «Download yt-dlp» in the app or have yt-dlp on PATH.
 brain reads a finished .txt and writes .brain.txt: paragraphs without filler words plus «Summary».
 brief reads a finished .txt (beside the recording or .brain.txt) and writes .brief.txt via the Brain.
 translate translates a finished .txt via the Brain (local by default) and writes .translate.txt.
 
-Exit codes: 0 all done, 1 some files failed, 2 bad arguments, 3 no model/Brain, 130 interrupted (Ctrl+C).`,
+Exit codes: 0 all done, 1 some files failed, 2 bad arguments, 3 no model/Brain/yt-dlp, 130 interrupted (Ctrl+C).`,
   );
 }
 

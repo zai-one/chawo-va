@@ -100,6 +100,7 @@ GPL-проекты — только как источник идей, код н�
 
 ### 12. ✅ DONE — Импорт по URL (YouTube и т.п.) (M)
 - ✅ Сделано 2026-10-13 (ветка `ts/feat-url-transcribe`, approved batch 2 п.4): блок «По ссылке» на «Расшифровке файла» — поле ссылки + «Скачать и расшифровать». yt-dlp не входит в программу: кнопка «Скачать yt-dlp» берёт официальную сборку с GitHub (Windows/macOS/Linux x64/arm64) и сверяет sha256 с SHA2-256SUMS того же релиза; «Обновить yt-dlp» — то же поверх. yt-dlp из PATH тоже подходит. Только http(s), без плейлистов, без cookies и чужого конфига; звук в «Загрузки/Chawo», дальше обычная локальная очередь, .txt рядом. Через сеть идёт только скачивание (так и написано под полем). Для YouTube в роли JS-рантайма yt-dlp используется сам Electron (ELECTRON_RUN_AS_NODE), ставить deno/node не нужно.
+- ✅ CLI-паритет 2026-10-13 (ветка `ts/feat-cli-url`): ссылка http(s)://… прямо в `chawo-va transcribe` (можно вперемешку с файлами и папками) — тот же `YtDlp.fetchAudio`, звук в «Загрузки/Chawo» (или `-o`), затем .txt и все остальные флаги (`-f`, `--brain`, `--diarize`, …). Модель и yt-dlp проверяются до скачивания; yt-dlp CLI не скачивает — кнопка в приложении или PATH. В лог — только хост, не ссылка.
 - Источник: [vibe](https://github.com/thewh1teagle/vibe), [OpenWhispr](https://github.com/OpenWhispr/openwhispr).
 - Реализация: опциональный yt-dlp (скачивается по запросу, как модели) → файл в очередь. Явное предупреждение о сети.
 
@@ -140,5 +141,6 @@ CLI-паритет уже сделанного (правило пользова�
 - ✅ VAD: длинные файлы режутся по паузам Silero, как на странице (`fileRanges`), `--vad` / `--no-vad`, без флага — `VadEnabled`; модель VAD CLI не скачивает — `ts/feat-cli-diarize`;
 - ✅ диаризация: `--diarize` / `--no-diarize`, без флага — «Разделять спикеров» (`FileDiarize`) — `ts/feat-cli-diarize`;
 - ✅ проход Мозга и сводка для файлов: `chawo-va brain <txt…>` → .brain.txt (тот же `FileBrain.runWithAsk`, что у «Прогнать через мозг»), `transcribe --brain` / `--no-brain` (без флага — `FileUseBrain`) и `--brief` / `--no-brief` (без флага — `MeetingBriefEnabled`, `--instruction` — свой формат) — `ts/feat-cli-brain`;
-- ⏳ по ссылке (yt-dlp); голосовая пунктуация/числа — только для диктовки, в CLI пока не нужно (решить, если появится `chawo-va dictate`).
+- ✅ по ссылке (yt-dlp): `chawo-va transcribe <http(s)://…>` — та же команда yt-dlp, что у «По ссылке» (`fetchAudio`), звук в «Загрузки/Chawo» (или `-o`), дальше обычная расшифровка; yt-dlp CLI не скачивает (код 3 без него) — `ts/feat-cli-url`;
+- голосовая пунктуация/числа — только для диктовки, в CLI пока не нужно (решить, если появится `chawo-va dictate`).
 

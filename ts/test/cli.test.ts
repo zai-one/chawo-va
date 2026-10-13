@@ -17,6 +17,7 @@ interface Harness {
   disposed: number;
   logs: string[];
   ac: AbortController;
+  fetched: { url: string; outDir: string }[];
 }
 
 const SEGMENTS: TranscriptSegment[] = [
@@ -50,9 +51,13 @@ function harness(opts: {
   fileBrainTarget?: 'None' | 'Local' | 'Cloud';
   fileBrainCloud?: string | null;
   fileBrainAsk?: (prompt: string, text: string) => Promise<string>;
+  /** yt-dlp path for links; undefined = '/tools/yt-dlp', null = none. */
+  ytDlp?: string | null;
+  /** Fake yt-dlp run; default saves «<last path part> [id].m4a» into outDir. */
+  fetch?: (url: string, outDir: string, progress: (p: number) => void, signal: AbortSignal) => Promise<string>;
 } = {}): Harness {
   let lang: 'ru' | 'en' = 'en';
-  const h = { out: [], err: [], files: new Map(), opened: [], disposed: 0, logs: [], ac: new AbortController() } as unknown as Harness;
+  const h = { out: [], err: [], files: new Map(), opened: [], disposed: 0, logs: [], ac: new AbortController(), fetched: [] } as unknown as Harness;
   const existing = new Set(opts.existing ?? []);
   let clock = 1000;
   h.deps = {
@@ -125,6 +130,16 @@ function harness(opts: {
       cloud: opts.fileBrainCloud ?? null,
       ask: async (prompt, text) => (opts.fileBrainAsk ? opts.fileBrainAsk(prompt, text) : defaultFileBrainAsk(prompt, text)),
     }),
+    findYtDlp: () => (opts.ytDlp === undefined ? '/tools/yt-dlp' : opts.ytDlp),
+    fetchAudio: async (url, outDir, progress, signal) => {
+      h.fetched.push({ url, outDir });
+      const p = opts.fetch
+        ? await opts.fetch(url, outDir, progress, signal)
+        : (progress(42), `${outDir}/${new URL(url).pathname.split('/').filter(Boolean).pop() ?? 'clip'} [id].m4a`);
+      existing.add(p);
+      return p;
+    },
+    urlFolder: () => '/home/u/Downloads/Chawo',
     log: (l) => h.logs.push(l),
     now: () => (clock += 1500),
     signal: h.ac.signal,
@@ -928,3 +943,92 @@ describe('cli history', () => {
   });
 });
 
+
+describe('runCli transcribe <link> (CLI parity: «По ссылке» via yt-dlp)', () => {
+  it('downloads to Downloads/Chawo, then transcribes it like a file; only the host is logged', async () => {
+    const h = harness();
+    expect(await run(h, 'transcribe', 'https://video.test/talks/lecture?id=7&token=secret')).toBe(EXIT_OK);
+    expect(h.fetched).toEqual([{ url: 'https://video.test/talks/lecture?id=7&token=secret', outDir: '/home/u/Downloads/Chawo' }]);
+    expect(h.files.has('/home/u/Downloads/Chawo/lecture [id].txt')).toBe(true);
+    const err = h.err.join('');
+    expect(err).toContain('only the audio download (to /home/u/Downloads/Chawo) uses the network');
+    expect(err).toContain('Downloading audio from video.test…');
+    expect(err).toContain('Downloaded: /home/u/Downloads/Chawo/lecture [id].m4a');
+    expect(h.logs.join('\n')).toContain('cli url video.test → /home/u/Downloads/Chawo/lecture [id].m4a');
+    expect(h.logs.join('\n')).not.toContain('secret');
+    expect(h.opened).toHaveLength(1);
+  });
+
+  it('files first, then links; duplicate links once; -o takes the audio and the .txt; no scheme = a file', async () => {
+    const h = harness({ existing: ['/a/one.wav'] });
+    const code = await run(h, 'transcribe', 'https://v.test/x', '/a/one.wav', 'HTTPS://v.test/x', '<https://v.test/y>', 'youtube.com/watch', '-o', '/out', '--lang', 'ru');
+    expect(code).toBe(EXIT_FAILED);
+    expect(h.fetched.map((f) => f.url)).toEqual(['https://v.test/x', 'https://v.test/y']);
+    expect(h.fetched.every((f) => f.outDir === '/out')).toBe(true);
+    expect([...h.files.keys()].sort()).toEqual(['/out/one.txt', '/out/x [id].txt', '/out/y [id].txt']);
+    const err = h.err.join('');
+    expect(err).toContain('такого файла нет: youtube.com/watch');
+    expect(err).toMatch(/\[1\/3\] \/a\/one\.wav[\s\S]*\[2\/3\] \/out\/x \[id\]\.m4a/);
+    expect(err).toContain('[1/2] Скачиваю звук с v.test…');
+  });
+
+  it('no yt-dlp or no model → 3 before anything is downloaded', async () => {
+    const h = harness({ ytDlp: null });
+    expect(await run(h, 'transcribe', 'https://v.test/x', '--lang', 'ru')).toBe(EXIT_NO_MODEL);
+    expect(h.err.join('')).toContain('для ссылок нужен yt-dlp');
+    expect(h.fetched).toHaveLength(0);
+    const m = harness({ model: null });
+    expect(await run(m, 'transcribe', 'https://v.test/x')).toBe(EXIT_NO_MODEL);
+    expect(m.err.join('')).toContain('the model is not on disk');
+    expect(m.fetched).toHaveLength(0);
+    expect(m.opened).toHaveLength(0);
+  });
+
+  it('a failed download or a bad link fails only that one; the rest is transcribed, exit 1', async () => {
+    const h = harness({
+      fetch: async (url, outDir) => {
+        if (url.includes('gone')) throw new Error('[youtube] abc: Video unavailable');
+        return `${outDir}/ok [1].webm`;
+      },
+    });
+    expect(await run(h, 'transcribe', 'https://v.test/gone', 'https://', 'https://v.test/ok')).toBe(EXIT_FAILED);
+    const err = h.err.join('');
+    expect(err).toContain('Error: not a valid link: https://');
+    expect(err).toContain('Error: download failed: https://v.test/gone: [youtube] abc: Video unavailable');
+    expect(h.files.has('/home/u/Downloads/Chawo/ok [1].txt')).toBe(true);
+    // All links failing → 1 without loading a model.
+    const all = harness({ fetch: async () => Promise.reject(new Error('HTTP Error 404')) });
+    expect(await run(all, 'transcribe', 'https://v.test/a')).toBe(EXIT_FAILED);
+    expect(all.opened).toHaveLength(0);
+  });
+
+  it('progress redraws one line on a terminal; --stdout prints the text and keeps the audio', async () => {
+    const h = harness({
+      isTTY: true,
+      fetch: async (_url, outDir, progress) => {
+        for (const p of [0, 12.5, 12.9, 100]) progress(p);
+        return `${outDir}/clip [z].m4a`;
+      },
+    });
+    expect(await run(h, 'transcribe', 'https://v.test/clip', '--stdout', '--no-timestamps')).toBe(EXIT_OK);
+    const err = h.err.join('');
+    expect(err).toContain('\r\x1b[2KDownloading audio from v.test… 12%');
+    expect(err.match(/12%/g)).toHaveLength(1);
+    expect(err).toContain('… 100%');
+    expect(h.out.join('')).toContain('Привет.');
+    expect(h.files.size).toBe(0);
+  });
+
+  it('Ctrl+C during the download → 130, no model opened', async () => {
+    const h = harness({
+      fetch: (_url, _dir, _p, signal) =>
+        new Promise((_, reject) => {
+          signal.addEventListener('abort', () => reject(new Error('aborted')));
+          setTimeout(() => h.ac.abort(), 5);
+        }),
+    });
+    expect(await run(h, 'transcribe', 'https://v.test/long', '/nope.wav')).toBe(EXIT_INTERRUPTED);
+    expect(h.err.join('')).toContain('Interrupted.');
+    expect(h.opened).toHaveLength(0);
+  });
+});

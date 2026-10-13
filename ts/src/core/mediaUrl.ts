@@ -106,3 +106,29 @@ export function ytDlpError(stderr: string): string {
   const s = err.replace(/^ERROR:\s*/, '');
   return s.length > 300 ? s.slice(0, 297) + '…' : s;
 }
+
+/**
+ * A CLI argument that is meant as a link (`chawo-va transcribe https://…`): only an explicit
+ * http(s):// prefix, so a file named «youtube.com.mp3» stays a file.
+ */
+export function isLinkInput(arg: string): boolean {
+  return /^\s*<?https?:\/\//i.test(arg ?? '');
+}
+
+/**
+ * The user's Downloads folder without Electron (the page uses app.getPath('downloads')): Linux reads
+ * XDG_DOWNLOAD_DIR from ~/.config/user-dirs.dirs (`"$HOME/…"` or an absolute path), else ~/Downloads;
+ * Windows and macOS use <home>/Downloads.
+ */
+export function downloadsFolder(platform: string, home: string, userDirs: string | null, join: (...p: string[]) => string): string {
+  if (platform === 'linux' && userDirs) {
+    for (const raw of userDirs.split('\n')) {
+      const m = /^\s*XDG_DOWNLOAD_DIR\s*=\s*"([^"]*)"\s*$/.exec(raw);
+      if (!m) continue;
+      const v = m[1]!.replace(/^\$HOME(?=\/|$)/, home);
+      // «$HOME/» alone means the desktop is off for this folder; relative or odd values are ignored.
+      if (v.startsWith('/') && v.replace(/\/+$/, '') !== home.replace(/\/+$/, '')) return v.replace(/\/+$/, '');
+    }
+  }
+  return join(home, 'Downloads');
+}

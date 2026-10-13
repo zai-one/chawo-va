@@ -122,7 +122,7 @@ export interface FetchAudioOptions {
   signal?: AbortSignal;
   exe?: string | null;
   ffmpeg?: string | null;
-  /** Electron's own binary runs as node for YouTube's JS challenge (no deno/node install needed). */
+  /** Electron's own binary (or node in the CLI) runs YouTube's JS challenge (no deno install needed). */
   jsRuntime?: string | null;
   timeoutMs?: number;
 }
@@ -133,7 +133,8 @@ export function fetchAudio(url: string, outDir: string, o: FetchAudioOptions = {
   if (!exe) return Promise.reject(new Error(t('yt-dlp не найден', 'yt-dlp not found')));
   mkdirSync(outDir, { recursive: true });
   const ffmpeg = o.ffmpeg === undefined ? Ffmpeg.find() : o.ffmpeg;
-  const jsRuntime = o.jsRuntime === undefined ? (process.versions.electron ? process.execPath : null) : o.jsRuntime;
+  // Electron (with ELECTRON_RUN_AS_NODE) in the app, plain node in the CLI: both pass yt-dlp's JS challenges.
+  const jsRuntime = o.jsRuntime === undefined ? process.execPath : o.jsRuntime;
   const args = ytDlpArgs({ url, outDir, ffmpeg, jsRuntime });
   const env = { ...process.env, PYTHONIOENCODING: 'utf-8', PYTHONUTF8: '1' } as NodeJS.ProcessEnv;
   if (jsRuntime) env.ELECTRON_RUN_AS_NODE = '1';
