@@ -7,6 +7,7 @@ import { t } from '../core/strings';
 import * as Settings from './settings';
 import type { SettingsData } from './settings';
 import { SPEECH_KINDS, SpeechController } from './speech/speechPage';
+import { getVadRuntime } from './vad/vadModel';
 
 export function registerSpeechIpc(
   getWindow: () => BrowserWindow | null,
@@ -36,6 +37,7 @@ export function registerSpeechIpc(
     busy: opts.busy,
     changed: opts.changed,
     session: opts.session,
+    vad: getVadRuntime(),
   });
   const kindOf = (k: unknown): SpeechModelKind | null =>
     typeof k === 'string' && (SPEECH_KINDS as readonly string[]).includes(k) ? (k as SpeechModelKind) : null;
@@ -52,6 +54,14 @@ export function registerSpeechIpc(
   });
   ipcMain.handle('speech:threads', (_e, n: unknown) => {
     if (typeof n === 'number') ctl.setThreads(n);
+    return ctl.state();
+  });
+  ipcMain.handle('speech:vad', (_e, on: unknown) => {
+    if (typeof on === 'boolean') ctl.setVad(on);
+    return ctl.state();
+  });
+  ipcMain.handle('speech:vadDownload', () => {
+    void ctl.downloadVad();
     return ctl.state();
   });
   ipcMain.handle('speech:download', (_e, k: unknown) => {

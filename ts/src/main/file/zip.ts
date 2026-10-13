@@ -93,7 +93,7 @@ export function extractEntry(path: string, entry: ZipEntry, dest: string): void 
   writeFileSync(dest, readEntry(path, entry));
 }
 
-/** Test helper: builds a zip in memory (deflate when `deflate` is true). */
+/** Builds a zip in memory (deflate when `deflate` is true): test fixtures and the .docx export. */
 export function buildZip(entries: { name: string; data: Buffer; deflate?: boolean }[]): Buffer {
   const crc = crc32Js;
   const locals: Buffer[] = [];

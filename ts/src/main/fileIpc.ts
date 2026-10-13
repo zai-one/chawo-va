@@ -8,13 +8,15 @@ import { getDiarizeRuntime } from './diarize';
 import * as FileBrain from './brain/fileBrain';
 import { BrainException } from './brain/speechCleanup';
 import * as Settings from './settings';
-import type { SettingsData, SettingsFileParallelism } from './settings';
+import { asExtraFormats, type FileExtraFormat, type SettingsData, type SettingsFileParallelism } from './settings';
 import { isRussian, t } from '../core/strings';
 import * as Log from './log';
 
 export interface FileOptionsDto {
   timestamps: boolean;
   srt: boolean;
+  /** vtt / json / md / docx */
+  extra: FileExtraFormat[];
   parallelism: SettingsFileParallelism;
   diarize: boolean;
 }
@@ -33,7 +35,7 @@ export interface FileStateDto {
 
 const PARALLELISM: readonly SettingsFileParallelism[] = ['Auto', 'Gentle1', 'Two', 'Four', 'Max'];
 
-export function registerFileIpc(getWindow: () => BrowserWindow | null, settings: { get: () => SettingsData }): { busy: () => boolean } {
+export function registerFileIpc(getWindow: () => BrowserWindow | null, settings: { get: () => SettingsData }): { busy: () => boolean; enqueue: (path: string) => void } {
   const queue = new FileQueue();
   let ffmpegBusy = false;
   let ffmpegStatus = '';
@@ -50,7 +52,7 @@ export function registerFileIpc(getWindow: () => BrowserWindow | null, settings:
       items: queue.snapshot(),
       status: ffmpegStatus || diarStatus || runner.status,
       busy: runner.busy || ffmpegBusy || diarBusy,
-      options: { timestamps: s.FileTimestamps, srt: s.FileSrt, parallelism: s.FileParallelism, diarize: s.FileDiarize },
+      options: { timestamps: s.FileTimestamps, srt: s.FileSrt, extra: [...s.FileExtraFormats], parallelism: s.FileParallelism, diarize: s.FileDiarize },
       ffmpeg: { line: Ffmpeg.statusLine(), canDownload: Ffmpeg.canDownload(), installed: Ffmpeg.isInstalled() },
       diarization: {
         onDisk: diar.onDisk,
@@ -86,7 +88,7 @@ export function registerFileIpc(getWindow: () => BrowserWindow | null, settings:
     prefetch: () => !client(),
     options: () => {
       const s = settings.get();
-      return { timestamps: s.FileTimestamps, srt: s.FileSrt, useBrain: s.FileUseBrain, diarize: s.FileDiarize };
+      return { timestamps: s.FileTimestamps, srt: s.FileSrt, extra: [...s.FileExtraFormats], useBrain: s.FileUseBrain, diarize: s.FileDiarize };
     },
     status: () => push(),
     notifyDone: (title, body, _ok, last) => {
@@ -183,6 +185,7 @@ export function registerFileIpc(getWindow: () => BrowserWindow | null, settings:
     if (typeof o?.timestamps === 'boolean') s.FileTimestamps = o.timestamps;
     if (typeof o?.srt === 'boolean') s.FileSrt = o.srt;
     if (typeof o?.diarize === 'boolean') s.FileDiarize = o.diarize;
+    if (Array.isArray(o?.extra)) s.FileExtraFormats = asExtraFormats(o.extra);
     if (typeof o?.parallelism === 'string' && PARALLELISM.includes(o.parallelism)) s.FileParallelism = o.parallelism;
     Settings.save(s);
     return state();
@@ -230,5 +233,15 @@ export function registerFileIpc(getWindow: () => BrowserWindow | null, settings:
     return state();
   });
 
-  return { busy: () => runner.busy || diarBusy };
+  return {
+    busy: () => runner.busy || diarBusy,
+    /** A finished meeting recording: queue it and start (or join) the run. */
+    enqueue: (path: string) => {
+      queue.add([path], false);
+      if (!runner.busy && !ffmpegBusy) {
+        ffmpegStatus = '';
+        void runner.run().catch((e) => Log.write(`file run: ${e instanceof Error ? e.message : String(e)}`));
+      }
+    },
+  };
 }

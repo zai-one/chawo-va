@@ -306,20 +306,21 @@ export class Recognizer {
     return this.execute(samples, rate, false, null);
   }
 
-  pieceRanges(samplesAtModelRate: Float32Array): Array<{ from: number; to: number }> {
-    return Recognizer.splitRanges(samplesAtModelRate, this.sampleRate);
+  pieceRanges(samplesAtModelRate: Float32Array, pauses?: readonly number[]): Array<{ from: number; to: number }> {
+    return Recognizer.splitRanges(samplesAtModelRate, this.sampleRate, pauses);
   }
 
   /**
    * Same pause split without a loaded model (client mode posts each piece to the host).
-   * Offsets are sample indices at `rate`.
+   * Offsets are sample indices at `rate`. `pauses` (seconds, e.g. VAD `pauseMidpoints`) replaces the
+   * energy `silences()` cut candidates when given; without it the split is the WPF one.
    */
-  static splitRanges(samplesAtModelRate: Float32Array, rate: number): Array<{ from: number; to: number }> {
+  static splitRanges(samplesAtModelRate: Float32Array, rate: number, pauses?: readonly number[]): Array<{ from: number; to: number }> {
     const n = samplesAtModelRate.length;
     if (n <= 0 || rate <= 0) return [];
     const total = n / rate;
     if (total <= MAX_CHUNK_SECONDS + 1) return [{ from: 0, to: n }];
-    const bounds = chunkBounds(total, silences(samplesAtModelRate, rate), MAX_CHUNK_SECONDS);
+    const bounds = chunkBounds(total, pauses ?? silences(samplesAtModelRate, rate), MAX_CHUNK_SECONDS);
     const ranges: Array<{ from: number; to: number }> = [];
     for (const [a, b] of bounds) {
       const from = Math.min(n, Math.trunc(a * rate));
