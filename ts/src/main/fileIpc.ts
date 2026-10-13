@@ -1,9 +1,9 @@
 // IPC for the «Расшифровка файла» page. The renderer never touches the filesystem: it asks the
 // main process to pick, add, run, stop and reveal, and receives queue/status pushes.
 
-import { BrowserWindow, Notification, dialog, ipcMain, shell } from 'electron';
-import { dirname } from 'node:path';
-import { FileQueue, FileRunner, Ffmpeg, OPEN_FILTERS, load16k, localPrepare, remoteFatal, remotePrepare } from './file';
+import { BrowserWindow, Notification, app, dialog, ipcMain, shell } from 'electron';
+import { dirname, join } from 'node:path';
+import { FileQueue, FileRunner, Ffmpeg, UrlImport, YtDlp, OPEN_FILTERS, load16k, localPrepare, remoteFatal, remotePrepare } from './file';
 import { getDiarizeRuntime } from './diarize';
 import * as FileBrain from './brain/fileBrain';
 import { BrainException } from './brain/speechCleanup';
@@ -27,6 +27,8 @@ export interface FileStateDto {
   busy: boolean;
   options: FileOptionsDto;
   ffmpeg: { line: string; canDownload: boolean; installed: boolean };
+  /** «По ссылке»: yt-dlp state, where the audio is saved, whether a link is downloading. */
+  url: { line: string; canDownload: boolean; installed: boolean; managed: boolean; busy: boolean; folder: string };
   diarization: { onDisk: boolean; ready: boolean; downloading: boolean; line: string; canDownload: boolean };
   lastOutput: string | null;
   /** UI language picked in main (Auto follows the OS locale), so the page matches status lines. */
@@ -51,9 +53,17 @@ export function registerFileIpc(getWindow: () => BrowserWindow | null, settings:
     return {
       items: queue.snapshot(),
       status: ffmpegStatus || diarStatus || runner.status,
-      busy: runner.busy || ffmpegBusy || diarBusy,
+      busy: runner.busy || ffmpegBusy || urlImport.busy || diarBusy,
       options: { timestamps: s.FileTimestamps, srt: s.FileSrt, extra: [...s.FileExtraFormats], parallelism: s.FileParallelism, diarize: s.FileDiarize },
       ffmpeg: { line: Ffmpeg.statusLine(), canDownload: Ffmpeg.canDownload(), installed: Ffmpeg.isInstalled() },
+      url: {
+        line: YtDlp.statusLine(),
+        canDownload: YtDlp.canDownload(),
+        installed: YtDlp.find() !== null,
+        managed: YtDlp.isManaged(),
+        busy: urlImport.busy || ytdlpBusy,
+        folder: urlFolder(),
+      },
       diarization: {
         onDisk: diar.onDisk,
         ready: diar.ready,
@@ -90,7 +100,11 @@ export function registerFileIpc(getWindow: () => BrowserWindow | null, settings:
       const s = settings.get();
       return { timestamps: s.FileTimestamps, srt: s.FileSrt, extra: [...s.FileExtraFormats], useBrain: s.FileUseBrain, diarize: s.FileDiarize };
     },
-    status: () => push(),
+    status: () => {
+      // The queue speaks again: its line replaces the last download/ffmpeg line.
+      if (!urlImport.busy && !ffmpegBusy && !ytdlpBusy) ffmpegStatus = '';
+      push();
+    },
     notifyDone: (title, body, _ok, last) => {
       const w = getWindow();
       if (w?.isVisible() && w.isFocused()) return;
@@ -125,6 +139,49 @@ export function registerFileIpc(getWindow: () => BrowserWindow | null, settings:
     },
   });
   queue.onChanged(push);
+
+  const urlFolder = () => join(app.getPath('downloads'), 'Chawo');
+  let ytdlpBusy = false;
+  const urlImport: UrlImport = new UrlImport({
+    findYtDlp: () => YtDlp.find(),
+    fetchAudio: (url, outDir, progress, signal) => YtDlp.fetchAudio(url, outDir, { progress, signal }),
+    outDir: urlFolder,
+    enqueue: (path) => void queue.add([path], false),
+    runQueue: () => {
+      if (runner.busy) return;
+      void runner.run().catch((e) => Log.write(`file run: ${e instanceof Error ? e.message : String(e)}`));
+    },
+    changed: () => {
+      ffmpegStatus = urlImport.status;
+      push();
+    },
+  });
+
+  ipcMain.handle('file:url', (_e, url: unknown) => {
+    if (ffmpegBusy || ytdlpBusy || typeof url !== 'string') return state();
+    void urlImport.start(url).then((p) => p && Log.write(`url → ${p}`));
+    return state();
+  });
+
+  ipcMain.handle('file:ytdlpDownload', () => {
+    if (urlImport.busy || ytdlpBusy || !YtDlp.canDownload()) return state();
+    ytdlpBusy = true;
+    ytdlpAbort = new AbortController();
+    ffmpegStatus = t('Скачиваю yt-dlp…', 'Downloading yt-dlp…');
+    push();
+    void YtDlp.downloadAsync((line) => {
+      ffmpegStatus = line;
+      push();
+    }, ytdlpAbort.signal)
+      .catch((e) => (ffmpegStatus = t(`yt-dlp не скачался: ${(e as Error).message}`, `yt-dlp download failed: ${(e as Error).message}`)))
+      .finally(() => {
+        ytdlpBusy = false;
+        ytdlpAbort = null;
+        push();
+      });
+    return state();
+  });
+  let ytdlpAbort: AbortController | null = null;
 
   ipcMain.handle('file:state', () => state());
 
@@ -168,7 +225,9 @@ export function registerFileIpc(getWindow: () => BrowserWindow | null, settings:
 
   ipcMain.handle('file:stop', () => {
     runner.stop();
+    urlImport.stop();
     ffmpegAbort?.abort();
+    ytdlpAbort?.abort();
     diarAbort?.abort();
     return state();
   });
@@ -192,7 +251,7 @@ export function registerFileIpc(getWindow: () => BrowserWindow | null, settings:
   });
 
   ipcMain.handle('file:ffmpegDownload', () => {
-    if (runner.busy || ffmpegBusy || !Ffmpeg.canDownload()) return state();
+    if (runner.busy || ffmpegBusy || urlImport.busy || ytdlpBusy || !Ffmpeg.canDownload()) return state();
     ffmpegBusy = true;
     ffmpegAbort = new AbortController();
     ffmpegStatus = t('Скачиваю ffmpeg…', 'Downloading ffmpeg…');
@@ -211,7 +270,7 @@ export function registerFileIpc(getWindow: () => BrowserWindow | null, settings:
   });
   ipcMain.handle('file:diarizeDownload', () => {
     const diar = getDiarizeRuntime();
-    if (runner.busy || ffmpegBusy || diarBusy || diar.onDisk) return state();
+    if (runner.busy || ffmpegBusy || urlImport.busy || ytdlpBusy || diarBusy || diar.onDisk) return state();
     diarBusy = true;
     diarAbort = new AbortController();
     diarStatus = t('Скачиваю модели спикеров…', 'Downloading speaker models…');
@@ -234,7 +293,7 @@ export function registerFileIpc(getWindow: () => BrowserWindow | null, settings:
   });
 
   return {
-    busy: () => runner.busy || diarBusy,
+    busy: () => runner.busy || urlImport.busy || diarBusy,
     /** A finished meeting recording: queue it and start (or join) the run. */
     enqueue: (path: string) => {
       queue.add([path], false);

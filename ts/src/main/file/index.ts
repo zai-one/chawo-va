@@ -5,4 +5,6 @@ export { listZip, readEntry, extractEntry } from './zip';
 export * from './fileRunner';
 export * from './localTranscriber';
 export * from './remoteTranscriber';
+export * as YtDlp from './ytDlpTool';
+export * from './urlImport';
 export * from './transcriptExport';

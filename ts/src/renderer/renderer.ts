@@ -15,6 +15,7 @@ interface FileState {
   busy: boolean;
   options: { timestamps: boolean; srt: boolean; extra: string[]; parallelism: string; diarize: boolean };
   ffmpeg: { line: string; canDownload: boolean; installed: boolean };
+  url: { line: string; canDownload: boolean; installed: boolean; managed: boolean; busy: boolean; folder: string };
   diarization: { onDisk: boolean; ready: boolean; downloading: boolean; line: string; canDownload: boolean };
   lastOutput: string | null;
   ru: boolean;
@@ -30,6 +31,8 @@ interface FileApi {
   reveal(path?: string): Promise<boolean>;
   setOptions(o: Partial<FileState['options']>): Promise<FileState>;
   downloadFfmpeg(): Promise<FileState>;
+  fromUrl(url: string): Promise<FileState>;
+  downloadYtDlp(): Promise<FileState>;
   downloadDiarize(): Promise<FileState>;
   onState(fn: (s: FileState) => void): () => void;
   onToast(fn: (s: string) => void): () => void;
@@ -1438,8 +1441,14 @@ function renderSpeech(): void {
   page.append(el('p', { className: 'muted line', textContent: s.status }));
 }
 
+/** The link field survives the page re-rendering on every queue push (text, focus, caret). */
+let urlDraft = '';
+
 function renderFile(): void {
   const s = fileState;
+  const prev = document.activeElement as HTMLInputElement | null;
+  const hadFocus = prev?.id === 'file-url';
+  const caret = hadFocus ? [prev!.selectionStart, prev!.selectionEnd] : null;
   page.replaceChildren(el('h1', { textContent: title('file') }));
   if (!s) return;
 
@@ -1505,6 +1514,37 @@ function renderFile(): void {
       el('label', {}, L('Скорость длинных записей ', 'Long recording speed '), speed),
     ),
   );
+
+  const link = el('input', { type: 'text', id: 'file-url', value: urlDraft, spellcheck: false, autocomplete: 'off', placeholder: 'https://www.youtube.com/watch?v=…' });
+  const go = () => {
+    if (!urlDraft.trim()) return;
+    void bridge.file.fromUrl(urlDraft).then((st) => {
+      if (st.url.busy) urlDraft = '';
+      apply(st);
+    });
+  };
+  link.addEventListener('input', () => (urlDraft = link.value));
+  link.addEventListener('keydown', (e) => e.key === 'Enter' && go());
+  const fetchBtn = button(L('Скачать и расшифровать', 'Download and transcribe'), go);
+  fetchBtn.disabled = s.url.busy || !s.url.installed;
+  const byUrl = el('fieldset', {},
+    el('legend', { textContent: L('По ссылке', 'From a link') }),
+    el('div', { className: 'row' }, link, fetchBtn),
+    el('p', { className: 'muted hint', textContent: L(
+      `Ссылку откроет yt-dlp — только этот шаг идёт через интернет. Звук сохранится в ${s.url.folder}, текст — рядом, расшифровка на этом компьютере.`,
+      `yt-dlp opens the link — only this step uses the internet. The audio is saved to ${s.url.folder} with the text beside it; transcription runs on this computer.`) }),
+    el('p', { className: 'muted', textContent: s.url.line }),
+  );
+  if (s.url.canDownload && (!s.url.installed || s.url.managed)) {
+    const b = button(s.url.managed ? L('Обновить yt-dlp', 'Update yt-dlp') : L('Скачать yt-dlp', 'Download yt-dlp'), () => void bridge.file.downloadYtDlp().then(apply), 'link');
+    b.disabled = s.busy;
+    byUrl.append(b);
+  }
+  page.append(byUrl);
+  if (hadFocus) {
+    link.focus();
+    if (caret) link.setSelectionRange(caret[0], caret[1]);
+  }
 
   const ff = el('fieldset', {}, el('legend', { textContent: 'ffmpeg' }), el('p', { className: 'muted', textContent: s.ffmpeg.line }));
   if (!s.ffmpeg.installed && s.ffmpeg.canDownload) ff.append(button(L('Скачать ffmpeg', 'Download ffmpeg'), () => void bridge.file.downloadFfmpeg().then(apply)));
