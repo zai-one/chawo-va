@@ -11,6 +11,7 @@ import * as Log from '../log';
 import * as RemoteSpeech from '../network/remoteSpeech';
 import { RemoteHostException, type FetchLike } from '../network/remoteSpeech';
 import type { SettingsData } from '../settings';
+import { filePauses } from '../vad/vadModel';
 import type { FileRunnerDeps, FileTranscriber } from './fileRunner';
 
 const RATE = 16000;
@@ -28,7 +29,10 @@ export function remoteTranscriber(settings: () => SettingsData, post?: RemotePos
       Log.write(`file remote whole ${text.length} chars <- ${path}`);
       return [{ start: 0, end: samples.length / RATE, text }];
     }
-    const ranges = Recognizer.splitRanges(samples, RATE);
+    const pauses = samples.length > (Recognizer.MaxChunkSeconds + 1) * RATE
+      ? await filePauses(s, samples, RATE, { signal, onStart: () => status(t('Ищу паузы в речи…', 'Finding pauses in speech…')) })
+      : undefined;
+    const ranges = Recognizer.splitRanges(samples, RATE, pauses);
     const texts: string[] = [];
     for (let i = 0; i < ranges.length; i++) {
       if (signal.aborted) {

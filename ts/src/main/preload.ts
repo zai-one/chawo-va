@@ -36,6 +36,8 @@ const api = {
     cancel: () => ipcRenderer.invoke('speech:cancel'),
     dismiss: () => ipcRenderer.invoke('speech:dismiss'),
     remove: (kind: string) => ipcRenderer.invoke('speech:delete', kind),
+    setVad: (on: boolean) => ipcRenderer.invoke('speech:vad', on),
+    downloadVad: () => ipcRenderer.invoke('speech:vadDownload'),
     onState: (fn: (s: unknown) => void) => {
       const h = (_e: unknown, s: unknown) => fn(s);
       ipcRenderer.on('speech:state', h);

@@ -22,6 +22,8 @@ import {
   normalizeQuietTake,
 } from '../../core/takeBuffer';
 import { applyRules } from '../../core/wordReplace';
+import { SilenceWatch } from '../../core/vad';
+import { trimTake } from '../vad/vadModel';
 import { parseCommand, serverConfigured, transformAsync } from '../brain/brain';
 import * as LocalBrain from '../brain/localBrain';
 import { BrainException, type FetchLike } from '../brain/speechCleanup';
@@ -49,7 +51,7 @@ export interface RecognizerLike {
   /** ORT provider, for the Hermes health answer. */
   provider?: string;
   /** Pause split and one piece at a time (Hermes); the real Recognizer has both. */
-  pieceRanges?(samples16k: Float32Array): Array<{ from: number; to: number }>;
+  pieceRanges?(samples16k: Float32Array, pauses?: readonly number[]): Array<{ from: number; to: number }>;
   transcribePiece?(samples16k: Float32Array): Promise<string>;
   transcribeCancelable(samples: Float32Array, rate: number, stillWanted: (() => boolean) | null): Promise<string>;
   cancelOwned(): void;
@@ -80,6 +82,8 @@ export interface SessionHooks {
   partialMs?: number;
   /** Client role: RemoteSpeech.transcribe (tests pass a fake host). Throws RemoteHostException. */
   remote?: (s: SettingsData, samples: Float32Array, rate: number, signal: AbortSignal) => Promise<string>;
+  /** VAD trim of a finished take (settings.VadEnabled); defaults to Silero when its model is on disk. */
+  trim?: (s: SettingsData, samples: Float32Array, rate: number) => Promise<Float32Array>;
 }
 
 export function defaultBrainUsable(s: SettingsData): boolean {
@@ -123,6 +127,8 @@ export class DictationSession {
   private readonly brainUsable: (s: SettingsData) => boolean;
   private readonly transform: NonNullable<SessionHooks['transform']>;
   private readonly remote: NonNullable<SessionHooks['remote']>;
+  private readonly trim: NonNullable<SessionHooks['trim']>;
+  private watch: SilenceWatch | null = null;
 
   constructor(hooks: SessionHooks) {
     this.h = { find: findComplete, open: openRecognizer, platform: process.platform, ...hooks };
@@ -130,6 +136,7 @@ export class DictationSession {
     this.transform = hooks.transform
       ?? ((s, body, command, status, signal) => transformAsync(s, body, command, status, signal, false, hooks.fetch ?? globalThis.fetch));
     this.remote = hooks.remote ?? ((s, samples, rate, signal) => RemoteSpeech.transcribe(s, samples, rate, signal));
+    this.trim = hooks.trim ?? ((s, samples, rate) => trimTake(s, samples, rate));
     this.buf.onTakeTooLong = () => {
       Log.write('take too long, stopping');
       void this.stopTake().then(() => {
@@ -206,6 +213,8 @@ export class DictationSession {
     }
     this.abandon = false;
     this.status = '';
+    const autoStop = this.h.settings().VadAutoStopMs;
+    this.watch = autoStop > 0 ? new SilenceWatch(autoStop, SAMPLE_RATE) : null;
     this.buf.start();
     this.overlay?.showListening();
     if (this.h.settings().ShowOverlay) this.startPartials();
@@ -215,6 +224,11 @@ export class DictationSession {
 
   appendPcm(chunk: ArrayLike<number>): void {
     this.buf.append(chunk);
+    if (this.watch && this.buf.isRecording && !this.busy && this.watch.push(chunk)) {
+      Log.write(`vad auto-stop after ${this.watch.limitMs} ms of silence`);
+      this.watch = null;
+      void this.stopTake();
+    }
   }
 
   /** getUserMedia failed in the renderer: drop the take and say why. */
@@ -288,9 +302,16 @@ export class DictationSession {
           }
         }
         normalizeQuietTake(samples, peak);
+        // Silero cuts the silence around the phrase (no model → the take as it is).
+        const speech = s.VadEnabled ? await this.trim(s, samples, SAMPLE_RATE) : samples;
+        if (this.abandon) {
+          overlay?.hideNow();
+          Log.write('take cancelled');
+          return null;
+        }
         if (s.NetworkRole === 'Client') {
           try {
-            text = await this.remote(s, samples, SAMPLE_RATE, abort.signal);
+            text = await this.remote(s, speech, SAMPLE_RATE, abort.signal);
           } catch (e) {
             if (this.abandon || abort.signal.aborted) {
               overlay?.hideNow();
@@ -316,7 +337,7 @@ export class DictationSession {
               : flatText(noModelText());
             return null;
           }
-          text = await rec.transcribeCancelable(samples, SAMPLE_RATE, () => !this.abandon);
+          text = await rec.transcribeCancelable(speech, SAMPLE_RATE, () => !this.abandon);
         }
         if (this.abandon) {
           overlay?.hideNow();

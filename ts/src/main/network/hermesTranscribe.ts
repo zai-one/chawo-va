@@ -13,7 +13,7 @@ export interface HermesRecognizer {
   readonly modelId: string;
   deviceActual: string;
   provider?: string;
-  pieceRanges?(samples16k: Float32Array): Array<{ from: number; to: number }>;
+  pieceRanges?(samples16k: Float32Array, pauses?: readonly number[]): Array<{ from: number; to: number }>;
   transcribePiece?(samples16k: Float32Array): Promise<string>;
   transcribeCancelable(samples: Float32Array, rate: number, stillWanted: (() => boolean) | null): Promise<string>;
 }
@@ -26,6 +26,8 @@ export interface HermesTranscribeHooks {
   /** Name for the health answer when nothing is loaded (settings.SpeechModel). */
   modelName: () => string;
   decode?: (audio: Uint8Array, label: string) => Promise<Float32Array>;
+  /** Cut candidates for long audio (Silero VAD); undefined keeps the energy split. */
+  pauses?: (samples16k: Float32Array) => Promise<number[] | undefined>;
   /** How long a health probe waits for a load it started (the client's check gives up after 5 s). */
   healthWaitMs?: number;
 }
@@ -71,7 +73,8 @@ export function makeHermesTranscribe(h: HermesTranscribeHooks): ((audio: Uint8Ar
     inFlight++;
     try {
       const samples = await decode(audio, 'request');
-      const ranges = rec.pieceRanges ? rec.pieceRanges(samples) : Recognizer.splitRanges(samples, 16000);
+      const pauses = samples.length > 25 * 16000 && h.pauses ? await h.pauses(samples).catch(() => undefined) : undefined;
+      const ranges = rec.pieceRanges ? rec.pieceRanges(samples, pauses) : Recognizer.splitRanges(samples, 16000, pauses);
       const parts: string[] = [];
       for (const { from, to } of ranges) {
         if (h.current() !== rec) return notLoaded('model unloaded');
