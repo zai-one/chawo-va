@@ -7,13 +7,15 @@ import { FileQueue, FileRunner, Ffmpeg, OPEN_FILTERS, load16k, localPrepare, rem
 import * as FileBrain from './brain/fileBrain';
 import { BrainException } from './brain/speechCleanup';
 import * as Settings from './settings';
-import type { SettingsData, SettingsFileParallelism } from './settings';
+import { asExtraFormats, type FileExtraFormat, type SettingsData, type SettingsFileParallelism } from './settings';
 import { isRussian, t } from '../core/strings';
 import * as Log from './log';
 
 export interface FileOptionsDto {
   timestamps: boolean;
   srt: boolean;
+  /** vtt / json / md / docx */
+  extra: FileExtraFormat[];
   parallelism: SettingsFileParallelism;
 }
 
@@ -41,7 +43,7 @@ export function registerFileIpc(getWindow: () => BrowserWindow | null, settings:
       items: queue.snapshot(),
       status: ffmpegStatus || runner.status,
       busy: runner.busy || ffmpegBusy,
-      options: { timestamps: s.FileTimestamps, srt: s.FileSrt, parallelism: s.FileParallelism },
+      options: { timestamps: s.FileTimestamps, srt: s.FileSrt, extra: [...s.FileExtraFormats], parallelism: s.FileParallelism },
       ffmpeg: { line: Ffmpeg.statusLine(), canDownload: Ffmpeg.canDownload(), installed: Ffmpeg.isInstalled() },
       lastOutput: queue.lastOutput,
       ru: isRussian(),
@@ -70,7 +72,7 @@ export function registerFileIpc(getWindow: () => BrowserWindow | null, settings:
     prefetch: () => !client(),
     options: () => {
       const s = settings.get();
-      return { timestamps: s.FileTimestamps, srt: s.FileSrt, useBrain: s.FileUseBrain };
+      return { timestamps: s.FileTimestamps, srt: s.FileSrt, extra: [...s.FileExtraFormats], useBrain: s.FileUseBrain };
     },
     status: () => push(),
     notifyDone: (title, body, _ok, last) => {
@@ -159,6 +161,7 @@ export function registerFileIpc(getWindow: () => BrowserWindow | null, settings:
     const s = settings.get();
     if (typeof o?.timestamps === 'boolean') s.FileTimestamps = o.timestamps;
     if (typeof o?.srt === 'boolean') s.FileSrt = o.srt;
+    if (Array.isArray(o?.extra)) s.FileExtraFormats = asExtraFormats(o.extra);
     if (typeof o?.parallelism === 'string' && PARALLELISM.includes(o.parallelism)) s.FileParallelism = o.parallelism;
     Settings.save(s);
     return state();

@@ -74,6 +74,18 @@ describe('file transcription in the Client role', () => {
     expect(statuses[0]).toBe(`Кусок 1 из ${sizes.length} на хосте…`);
   });
 
+  it('a timed extra format (.vtt/.json) also posts piece by piece; .md without timestamps does not', async () => {
+    let posts = 0;
+    const post = async () => { posts++; return 'x'; };
+    const s = client((x) => { x.FileTimestamps = false; x.FileSrt = false; x.FileExtraFormats = ['md', 'docx']; });
+    await remoteTranscriber(() => s, post)('/x/a.wav', long(), () => {}, new AbortController().signal);
+    expect(posts).toBe(1);
+    posts = 0;
+    s.FileExtraFormats = ['json'];
+    await remoteTranscriber(() => s, post)('/x/a.wav', long(), () => {}, new AbortController().signal);
+    expect(posts).toBeGreaterThan(1);
+  });
+
   it('prepare checks only the address; a bad one stops before any file', async () => {
     const s = client((x) => { x.RemoteHost = ''; });
     const prep = await remotePrepare(() => s, async () => 'x')();
