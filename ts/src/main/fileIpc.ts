@@ -1,9 +1,9 @@
 // IPC for the «Расшифровка файла» page. The renderer never touches the filesystem: it asks the
 // main process to pick, add, run, stop and reveal, and receives queue/status pushes.
 
-import { BrowserWindow, Notification, dialog, ipcMain, shell } from 'electron';
-import { dirname } from 'node:path';
-import { FileQueue, FileRunner, Ffmpeg, OPEN_FILTERS, load16k, localPrepare, remoteFatal, remotePrepare } from './file';
+import { BrowserWindow, Notification, app, dialog, ipcMain, shell } from 'electron';
+import { dirname, join } from 'node:path';
+import { FileQueue, FileRunner, Ffmpeg, UrlImport, YtDlp, OPEN_FILTERS, load16k, localPrepare, remoteFatal, remotePrepare } from './file';
 import * as FileBrain from './brain/fileBrain';
 import { BrainException } from './brain/speechCleanup';
 import * as Settings from './settings';
@@ -23,6 +23,8 @@ export interface FileStateDto {
   busy: boolean;
   options: FileOptionsDto;
   ffmpeg: { line: string; canDownload: boolean; installed: boolean };
+  /** «По ссылке»: yt-dlp state, where the audio is saved, whether a link is downloading. */
+  url: { line: string; canDownload: boolean; installed: boolean; managed: boolean; busy: boolean; folder: string };
   lastOutput: string | null;
   /** UI language picked in main (Auto follows the OS locale), so the page matches status lines. */
   ru: boolean;
@@ -40,9 +42,17 @@ export function registerFileIpc(getWindow: () => BrowserWindow | null, settings:
     return {
       items: queue.snapshot(),
       status: ffmpegStatus || runner.status,
-      busy: runner.busy || ffmpegBusy,
+      busy: runner.busy || ffmpegBusy || urlImport.busy,
       options: { timestamps: s.FileTimestamps, srt: s.FileSrt, parallelism: s.FileParallelism },
       ffmpeg: { line: Ffmpeg.statusLine(), canDownload: Ffmpeg.canDownload(), installed: Ffmpeg.isInstalled() },
+      url: {
+        line: YtDlp.statusLine(),
+        canDownload: YtDlp.canDownload(),
+        installed: YtDlp.find() !== null,
+        managed: YtDlp.isManaged(),
+        busy: urlImport.busy || ytdlpBusy,
+        folder: urlFolder(),
+      },
       lastOutput: queue.lastOutput,
       ru: isRussian(),
     };
@@ -72,7 +82,11 @@ export function registerFileIpc(getWindow: () => BrowserWindow | null, settings:
       const s = settings.get();
       return { timestamps: s.FileTimestamps, srt: s.FileSrt, useBrain: s.FileUseBrain };
     },
-    status: () => push(),
+    status: () => {
+      // The queue speaks again: its line replaces the last download/ffmpeg line.
+      if (!urlImport.busy && !ffmpegBusy && !ytdlpBusy) ffmpegStatus = '';
+      push();
+    },
     notifyDone: (title, body, _ok, last) => {
       const w = getWindow();
       if (w?.isVisible() && w.isFocused()) return;
@@ -101,6 +115,49 @@ export function registerFileIpc(getWindow: () => BrowserWindow | null, settings:
     },
   });
   queue.onChanged(push);
+
+  const urlFolder = () => join(app.getPath('downloads'), 'Chawo');
+  let ytdlpBusy = false;
+  const urlImport: UrlImport = new UrlImport({
+    findYtDlp: () => YtDlp.find(),
+    fetchAudio: (url, outDir, progress, signal) => YtDlp.fetchAudio(url, outDir, { progress, signal }),
+    outDir: urlFolder,
+    enqueue: (path) => void queue.add([path], false),
+    runQueue: () => {
+      if (runner.busy) return;
+      void runner.run().catch((e) => Log.write(`file run: ${e instanceof Error ? e.message : String(e)}`));
+    },
+    changed: () => {
+      ffmpegStatus = urlImport.status;
+      push();
+    },
+  });
+
+  ipcMain.handle('file:url', (_e, url: unknown) => {
+    if (ffmpegBusy || ytdlpBusy || typeof url !== 'string') return state();
+    void urlImport.start(url).then((p) => p && Log.write(`url → ${p}`));
+    return state();
+  });
+
+  ipcMain.handle('file:ytdlpDownload', () => {
+    if (urlImport.busy || ytdlpBusy || !YtDlp.canDownload()) return state();
+    ytdlpBusy = true;
+    ytdlpAbort = new AbortController();
+    ffmpegStatus = t('Скачиваю yt-dlp…', 'Downloading yt-dlp…');
+    push();
+    void YtDlp.downloadAsync((line) => {
+      ffmpegStatus = line;
+      push();
+    }, ytdlpAbort.signal)
+      .catch((e) => (ffmpegStatus = t(`yt-dlp не скачался: ${(e as Error).message}`, `yt-dlp download failed: ${(e as Error).message}`)))
+      .finally(() => {
+        ytdlpBusy = false;
+        ytdlpAbort = null;
+        push();
+      });
+    return state();
+  });
+  let ytdlpAbort: AbortController | null = null;
 
   ipcMain.handle('file:state', () => state());
 
@@ -144,7 +201,9 @@ export function registerFileIpc(getWindow: () => BrowserWindow | null, settings:
 
   ipcMain.handle('file:stop', () => {
     runner.stop();
+    urlImport.stop();
     ffmpegAbort?.abort();
+    ytdlpAbort?.abort();
     return state();
   });
 
@@ -166,7 +225,7 @@ export function registerFileIpc(getWindow: () => BrowserWindow | null, settings:
 
   let ffmpegAbort: AbortController | null = null;
   ipcMain.handle('file:ffmpegDownload', () => {
-    if (runner.busy || ffmpegBusy || !Ffmpeg.canDownload()) return state();
+    if (runner.busy || ffmpegBusy || urlImport.busy || ytdlpBusy || !Ffmpeg.canDownload()) return state();
     ffmpegBusy = true;
     ffmpegAbort = new AbortController();
     ffmpegStatus = t('Скачиваю ffmpeg…', 'Downloading ffmpeg…');
@@ -183,5 +242,5 @@ export function registerFileIpc(getWindow: () => BrowserWindow | null, settings:
       });
     return state();
   });
-  return { busy: () => runner.busy };
+  return { busy: () => runner.busy || urlImport.busy };
 }

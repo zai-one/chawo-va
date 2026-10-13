@@ -369,3 +369,33 @@ Re-align folder names and tooling with taptain-desktop once its layout is readab
   unit-tested with a fake spawn only (needs a Windows run). Next: the Windows native helper (hold
   key, TextInserter, SelectionReader, caret placement, job object), the «Продажи» card, then
   Updater/Autostart.
+
+- 2026-10-13 tick (branch `ts/feat-url-transcribe`, IDEAS.md №12, approved batch 2 п.4): расшифровка по
+  ссылке через yt-dlp. `src/core/mediaUrl.ts` (pure): `parseMediaUrl` (только http/https, ссылка без
+  схемы → https, file:/data:/javascript:/ftp: и длиннее 2048 — отказ), `ytDlpArgs` (`--ignore-config`,
+  `--no-playlist`, `-f bestaudio[ext=m4a]/bestaudio[ext=webm]/bestaudio/best`, `-P <папка>`,
+  `-o "%(title).90B [%(id)s].%(ext)s"`, `--windows-filenames`, свои теги прогресса и пути через
+  `--progress-template`/`--print after_move:`, `--no-simulate`, `--ffmpeg-location` при наличии,
+  `--js-runtimes node:<electron>`, URL после `--`), `parseYtDlpLine`, `ytDlpAsset` (yt-dlp.exe /
+  yt-dlp_macos / yt-dlp_linux / yt-dlp_linux_aarch64), `shaFromSums`, `ytDlpError`.
+  `src/main/file/ytDlpTool.ts`: find (свой в `tools/yt-dlp`, затем PATH), statusLine, downloadAsync
+  (SHA2-256SUMS → бинарь через fetchFile → sha256 → chmod → `--version` → rename; старая сборка
+  остаётся при несовпадении), fetchAudio (spawn в своей группе процессов, Stop/таймаут 30 мин убивают
+  дерево — POSIX `kill(-pid)`, Windows `taskkill /T /F`; при Electron `ELECTRON_RUN_AS_NODE=1`, чтобы
+  yt-dlp решал JS-челленджи YouTube самим Electron). `urlImport.ts` (UrlImport, без Electron): одна
+  ссылка за раз, статусы «Скачиваю звук с <host>… N%», «Скачано: … Расшифровываю локально.»,
+  ошибки «Не скачалось: <ERROR-строка yt-dlp>», стоп → «Скачивание по ссылке остановлено.»; файл
+  уходит в FileQueue и запускает прогон (идущий прогон подхватит сам). fileIpc: `file:url`,
+  `file:ytdlpDownload`, `url` в FileStateDto (line/canDownload/installed/managed/busy/folder =
+  Downloads/Chawo), «Остановить» гасит и скачивание; статус очереди снова главный, когда она
+  заговорит. Renderer: fieldset «По ссылке» (поле сохраняет текст/фокус/курсор при перерисовке,
+  Enter = запуск), строка о сети, строка yt-dlp, «Скачать yt-dlp»/«Обновить yt-dlp». Новых настроек нет.
+  Тесты: mediaUrl (24), urlImport (4), ytDlpTool (8: fake fetch + /bin/sh fake yt-dlp — sha, mismatch
+  сохраняет старую сборку, аргументы после `--`, прогресс, ERROR, abort/таймаут). 342 теста зелёные
+  (309 до). Smoke под xvfb (`scripts/smoke-url.cjs`): кнопка скачала настоящий yt-dlp 2026.08.19 c
+  GitHub (sha ок) за 4 с; `file:///etc/passwd` → «нужна ссылка http(s)»; MP3 с 127.0.0.1 (generic
+  extractor) → `Downloads/Chawo/lecture [lecture].mp3` → `[00:00:00] Русский язык. Русский язык —
+  это один из восточнославянских языков…` за 6.8 с; YouTube «Me at the zoo» → `.m4a` 19 с →
+  .txt (английская речь, русская модель текста не дала — ожидаемо) за 9 с, с Electron как
+  JS-рантаймом. Gaps: CLI (`chawo-va transcribe <url>`) не трогал — CLI в отдельной ветке; Windows-
+  путь taskkill проверен только кодом.
