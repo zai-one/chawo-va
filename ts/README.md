@@ -34,6 +34,18 @@ without Node. No model weights are packaged (the app downloads them); the build 
 workflow smoke-tests the package: no weights, CLI `--version` / `segments`, native modules load, the
 window starts with `ChawoNative.exe`. `npm run dist:dir` makes an unpacked build for the current OS.
 
+## End-to-end smoke
+
+`npm run e2e` builds and runs `scripts/e2e-smoke.cjs`: every `chawo-va` command (help, errors and exit
+codes, `transcribe` with all formats / `--stdout` / `--skip-existing` / folders / `--post-script` /
+`--brain --brief` / links, `segments`, `history`, `brain`, `brief`, `translate`) and the GUI (under
+xvfb on Linux: every page renders, dark theme, every page state, history search, transcript editor,
+brief and translation, a real file in the queue, clean quit). It runs in a temp profile with a fake
+Brain on 127.0.0.1 and checks that no onnxruntime device id is written and settings.json is never
+rewritten by the CLI. Real transcription needs `CHAWO_SMOKE_MODEL_DIR=<GigaAM v3 folder>` (else the
+app's own download) and `CHAWO_SMOKE_AUDIO=<Russian recording>`; without a model those cases are skipped.
+`--no-gui`, `--no-cli`, `--shots <dir>`, `--keep`, `--verbose`. CI: `.github/workflows/ts-e2e.yml`.
+
 ## Command line
 
 File transcription without the window, same model and parallel plan as the app:

@@ -98,12 +98,19 @@ function blank(command: CliOptions['command']): CliOptions {
 
 export function parseArgs(argv: readonly string[]): ParseResult {
   const args = [...argv];
+  // `--lang` may also come before the command (`chawo-va --lang ru --help`, `chawo-va --lang en transcribe …`).
+  const lead: string[] = [];
+  while (args.length > 0 && (args[0] === '--lang' || args[0].startsWith('--lang='))) {
+    if (args[0] === '--lang' && args.length < 2) return { ok: false, error: '--lang needs a value' };
+    lead.push(...args.splice(0, args[0] === '--lang' ? 2 : 1));
+  }
   if (args.length === 0) return { ok: true, options: blank('help') };
   const first = args[0];
   if (first === '--help' || first === '-h' || first === 'help') return { ok: true, options: blank('help') };
   if (first === '--version' || first === '-v' || first === 'version') return { ok: true, options: blank('version') };
   if (first !== 'transcribe' && first !== 'brain' && first !== 'brief' && first !== 'translate' && first !== 'history' && first !== 'segments') return { ok: false, error: `unknown command: ${first}` };
 
+  args.splice(1, 0, ...lead);
   const o = blank(first);
   let onlyFiles = false;
   const toggles = new Set<string>();

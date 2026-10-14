@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   bullets,
+  cloudName,
   describe as describeTarget,
   group,
   isFaithful,
@@ -98,5 +99,18 @@ describe('runWithAsk (shared by the page and the CLI)', () => {
     expect(a).toEqual(b);
     expect(a.text.startsWith('[00:00:00] привет всем.')).toBe(true);
     await expect(runWithAsk('None', segs, true, () => undefined, ac.signal, ask)).rejects.toThrow();
+  });
+});
+
+describe('cloudName: a server on this computer is not a cloud', () => {
+  const server = (url: string) => settings({ Brain: 'Server', CleanupEndpointUrl: url, CleanupModel: 'm' });
+  it('loopback with a port → null (no «text leaves» prompt)', () => {
+    for (const url of ['http://127.0.0.1:1234/v1', 'http://localhost:11434/v1', 'http://[::1]:8080/v1', 'http://127.0.0.2/v1', 'http://localhost/v1']) {
+      expect(cloudName(server(url)), url).toBeNull();
+    }
+  });
+  it('another host is still named, with its port', () => {
+    expect(cloudName(server('http://192.168.1.20:8080/v1'))).toBe('192.168.1.20:8080');
+    expect(cloudName(server('http://127.0.0.1.example.com/v1'))).toBe('127.0.0.1.example.com');
   });
 });

@@ -8,7 +8,7 @@ import * as Log from '../log';
 import * as Brain from './brain';
 import { fromUrl, Xiaomi } from './brainProviders';
 import * as LocalBrain from './localBrain';
-import { BrainException, cleanAsync, hostOf } from './speechCleanup';
+import { BrainException, cleanAsync, hostOf, isLoopbackEndpoint } from './speechCleanup';
 
 export type FileBrainTarget = 'None' | 'Local' | 'Cloud';
 
@@ -45,9 +45,9 @@ export function cloudName(s: SettingsData): string | null {
   if (target(s) !== 'Cloud') return null;
   const p = fromUrl(s.CleanupEndpointUrl);
   if (!p.isCustom) return p.id === Xiaomi.id ? 'Xiaomi' : p.name;
-  const host = hostOf(s.CleanupEndpointUrl);
-  if (host === 'localhost' || host === '127.0.0.1' || host === '::1' || host === '[::1]') return null;
-  return host;
+  // A server on this computer (llama-server, LM Studio, Ollama on localhost:<port>) is not a cloud: no «text leaves» prompt.
+  if (isLoopbackEndpoint(s.CleanupEndpointUrl)) return null;
+  return hostOf(s.CleanupEndpointUrl);
 }
 
 /** One line for the File page: where the text would go. */

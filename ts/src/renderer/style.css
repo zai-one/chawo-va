@@ -19,8 +19,9 @@ button.link { background: none; border: none; color: var(--muted); padding: 2px 
 button.link:hover { color: var(--text); }
 .queue { border: 1px solid var(--line); border-radius: 8px; background: var(--panel); min-height: 96px; max-height: 300px; overflow: auto; margin-bottom: 12px; }
 .queue .empty { padding: 32px 16px; text-align: center; }
-.item { display: grid; grid-template-columns: minmax(0, 2fr) 96px minmax(0, 3fr) auto auto; gap: 8px; align-items: center; padding: 6px 12px; border-bottom: 1px solid var(--line); }
+.item { display: grid; grid-template-columns: minmax(0, 2fr) 96px minmax(0, 3fr) auto; gap: 8px; align-items: center; padding: 6px 12px; border-bottom: 1px solid var(--line); }
 .item:last-child { border-bottom: none; }
+.item .acts { display: flex; gap: 4px; align-items: center; justify-content: flex-end; white-space: nowrap; }
 .item .name, .item .note { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .item.running .state { color: var(--accent); }
 .item.done .state { color: #7fd18b; }

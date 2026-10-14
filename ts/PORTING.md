@@ -1074,3 +1074,26 @@ Re-align folder names and tooling with taptain-desktop once its layout is readab
   запущен. Артефакты: Setup.exe ≈ 115 МБ, zip ≈ 161 МБ. 850 тестов зелёные (847 до), `tsc`/build.
   Gaps: без подписи (SmartScreen предупредит); установщик проверен сборкой, а не установкой на чистую
   Windows; настоящая расшифровка из Windows-пакета не гонялась в CI (нет весов) — на Linux-пакете да.
+
+- 2026-10-13 tick (branch `ts/feat-e2e-smoke`): сквозной smoke. `scripts/e2e-smoke.cjs` (`npm run e2e`):
+  временный профиль (CHAWO_APPDATA / CHAWO_LOCALAPPDATA / HOME / XDG_CACHE_HOME), фейковый Мозг
+  (OpenAI-совместимый, 127.0.0.1), засеянная история; все команды CLI — help/version/`--lang` до команды,
+  коды выхода (2 — параметры, 1 — нет файла, 3 — нет модели), `segments` txt/srt/json, `history`
+  (поиск ё=е, `-n`, `--json`, `--raw`), `brain`/`brief`/`translate` (файл, `--stdout`, `-o`, `--instruction`,
+  `--to`), `transcribe` (без модели → 3; с моделью: txt, все форматы + проверка json/docx/vtt, `--stdout`,
+  `--skip-existing`, папка без рекурсии, `--post-script`, `--brain --brief`, `--diarize` без моделей
+  спикеров, ссылка, file:// не читается), settings.json не переписан, deviceid ORT нет.
+  `scripts/e2e-gui.cjs` (Electron под xvfb): окно, заголовок, тёмная тема, все 8 страниц без заглушки,
+  все `*:state`, история, редактор расшифровки, «Кратко и задачи» и «Перевести» через Мозг, настоящая
+  расшифровка в очереди, ошибки рендерера/main = провал, чистый выход ≤ 20 с; IPC с таймаутом 90 с.
+  Workflow `.github/workflows/ts-e2e.yml` (ubuntu-latest: npm ci → тесты → e2e без модели, скриншоты).
+  Найдено и исправлено: (1) свой сервер Мозга на localhost/127.0.0.1 **с портом** считался облаком —
+  GUI спрашивал «Текст уйдёт в 127.0.0.1:1234…» перед «Кратко»/«Перевести» (hostOf отдаёт host:port);
+  теперь `isLoopbackEndpoint` (localhost, 127.x, ::1, любой порт). (2) `chawo-va --lang ru --help` /
+  `--lang en transcribe …` → «unknown command»: `--lang` до команды теперь принимается. (3) В очереди
+  «Расшифровки файла» у готовых строк «×» переносился на вторую строку (6 элементов в 5-колоночной сетке) —
+  действия в одной ячейке `.acts`. Тесты: cliArgs (+2), fileBrain (+2), speechCleanup (+1). 855 зелёные
+  (850 до), `tsc`/build. Live на боксе: с моделью v3 и 30-с русской записью 69/69 PASS; без модели
+  59 PASS, 10 SKIP (как в CI).
+  Gaps: CI без весов (настоящая расшифровка только локально); e2e GUI вызывает IPC-обработчики напрямую
+  (клики только по навигации и редактору); Windows-пакет e2e не гоняет (там свой smoke в ts-windows).
