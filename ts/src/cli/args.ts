@@ -8,7 +8,7 @@ export const FORMATS = ['txt', 'srt', 'vtt', 'json', 'md', 'docx'] as const;
 export type OutputFormat = (typeof FORMATS)[number];
 
 export interface CliOptions {
-  command: 'transcribe' | 'brain' | 'brief' | 'translate' | 'history' | 'ask' | 'segments' | 'stats' | 'serve' | 'snippets' | 'dictionary' | 'help' | 'version';
+  command: 'transcribe' | 'brain' | 'brief' | 'score' | 'translate' | 'history' | 'ask' | 'segments' | 'stats' | 'serve' | 'snippets' | 'dictionary' | 'help' | 'version';
   inputs: string[];
   /** Empty = not given (txt). */
   formats: OutputFormat[];
@@ -28,6 +28,10 @@ export interface CliOptions {
   instruction: string | null;
   /** brief / transcribe --brief: «Кратко и задачи» template (built-in alias or custom name); 'list' prints them. */
   template: string | null;
+  /** score / transcribe --score: checklist (built-in alias or custom name); 'list' prints them. */
+  checklist: string | null;
+  /** transcribe: --score / --no-score; null = settings CallScoreEnabled (→ .score.json / .score.txt). */
+  score: boolean | null;
   /** stats: «Название: термин, …» per --track (replaces the trackers from settings). */
   track: string[];
   /** stats: also print the phrases each tracker matched. */
@@ -90,7 +94,7 @@ const SCRIPTS: Record<string, CtcScript> = { auto: 'auto', ru: 'russian', russia
 const LANGS: Record<string, 'Russian' | 'English'> = { ru: 'Russian', russian: 'Russian', en: 'English', english: 'English' };
 
 /** Options that take a value: --out DIR and --out=DIR both work. */
-const VALUED = new Set(['--format', '-f', '--out', '-o', '--model', '--device', '--threads', '-j', '--script', '--model-dir', '--lang', '--instruction', '--template', '--track', '--to', '--post-script', '--limit', '-n', '--server', '--token', '--host', '--port', '--data-dir', '--context', '--context-file', '--in']);
+const VALUED = new Set(['--format', '-f', '--out', '-o', '--model', '--device', '--threads', '-j', '--script', '--model-dir', '--lang', '--instruction', '--template', '--checklist', '--track', '--to', '--post-script', '--limit', '-n', '--server', '--token', '--host', '--port', '--data-dir', '--context', '--context-file', '--in']);
 
 function blank(command: CliOptions['command']): CliOptions {
   return {
@@ -110,6 +114,8 @@ function blank(command: CliOptions['command']): CliOptions {
     lang: null,
     instruction: null,
     template: null,
+    checklist: null,
+    score: null,
     track: [],
     hits: false,
     to: null,
@@ -147,7 +153,7 @@ export function parseArgs(argv: readonly string[]): ParseResult {
   const first = args[0];
   if (first === '--help' || first === '-h' || first === 'help') return { ok: true, options: blank('help') };
   if (first === '--version' || first === '-v' || first === 'version') return { ok: true, options: blank('version') };
-  if (first !== 'transcribe' && first !== 'brain' && first !== 'brief' && first !== 'translate' && first !== 'history' && first !== 'ask' && first !== 'segments' && first !== 'stats' && first !== 'serve' && first !== 'snippets' && first !== 'dictionary') return { ok: false, error: `unknown command: ${first}` };
+  if (first !== 'transcribe' && first !== 'brain' && first !== 'brief' && first !== 'score' && first !== 'translate' && first !== 'history' && first !== 'ask' && first !== 'segments' && first !== 'stats' && first !== 'serve' && first !== 'snippets' && first !== 'dictionary') return { ok: false, error: `unknown command: ${first}` };
 
   args.splice(1, 0, ...lead);
   const o = blank(first);
@@ -246,6 +252,15 @@ export function parseArgs(argv: readonly string[]): ParseResult {
       case '--template':
         if (!v) return { ok: false, error: '--template is empty' };
         o.template = v;
+        break;
+      case '--checklist':
+        if (!v) return { ok: false, error: '--checklist is empty' };
+        o.checklist = v;
+        break;
+      case '--score':
+      case '--no-score':
+        toggles.add(a);
+        o.score = a === '--score';
         break;
       case '--to':
         if (!v) return { ok: false, error: '--to is empty' };
@@ -352,16 +367,27 @@ export function parseArgs(argv: readonly string[]): ParseResult {
   if ((o.vad !== null || o.diarize !== null) && o.command !== 'transcribe') return { ok: false, error: '--vad and --diarize are for transcribe' };
   if (toggles.has('--brain') && toggles.has('--no-brain')) return { ok: false, error: '--brain and --no-brain cannot be used together' };
   if (toggles.has('--brief') && toggles.has('--no-brief')) return { ok: false, error: '--brief and --no-brief cannot be used together' };
+  if (toggles.has('--score') && toggles.has('--no-score')) return { ok: false, error: '--score and --no-score cannot be used together' };
   if ((o.brain !== null || o.brief !== null) && o.command !== 'transcribe')
     return { ok: false, error: o.command === 'brain' || o.command === 'brief' ? `--brain / --brief are switches for transcribe; \`${o.command}\` already does it` : '--brain and --brief are for transcribe' };
   if (o.server != null && o.command !== 'transcribe') return { ok: false, error: '--server is for transcribe' };
   if ((o.askIn.length > 0 || o.noHistory || o.searchOnly) && o.command !== 'ask') return { ok: false, error: '--in, --no-history and --search are for ask' };
+  if (o.server != null && (o.score === true || o.checklist != null)) return { ok: false, error: '--score does not work with --server; run `chawo-va score` on the .txt afterwards' };
   if ((o.track.length > 0 || o.hits) && o.command !== 'stats') return { ok: false, error: '--track and --hits are for stats' };
   if (o.template != null) {
     if (o.command !== 'brief' && o.command !== 'transcribe') return { ok: false, error: '--template is for brief (or transcribe --brief)' };
     if (o.instruction != null) return { ok: false, error: '--template and --instruction cannot be used together' };
     if (o.command === 'brief' && o.template.toLowerCase() === 'list') {
       if (o.inputs.length > 0) return { ok: false, error: '--template list takes no files' };
+      return { ok: true, options: o };
+    }
+  }
+  if (o.score !== null && o.command !== 'transcribe')
+    return { ok: false, error: o.command === 'score' ? '--score / --no-score are switches for transcribe; `score` already does it' : '--score is for transcribe' };
+  if (o.checklist != null) {
+    if (o.command !== 'score' && o.command !== 'transcribe') return { ok: false, error: '--checklist is for score (or transcribe --score)' };
+    if (o.command === 'score' && o.checklist.toLowerCase() === 'list') {
+      if (o.inputs.length > 0) return { ok: false, error: '--checklist list takes no files' };
       return { ok: true, options: o };
     }
   }
@@ -393,7 +419,7 @@ export function parseArgs(argv: readonly string[]): ParseResult {
   if (o.command === 'ask') {
     // Words after `ask` are the question; -n = how many excerpts.
     const speech = o.model || o.device || o.threads || o.script || o.modelDir;
-    if (o.formats.length > 0 || o.outDir || o.stdout || o.timestamps !== null || o.skipExisting || speech || o.instruction != null || o.to != null || o.postScript != null || o.noPostScript || o.raw || o.context != null || o.contextFile != null)
+    if (o.formats.length > 0 || o.outDir || o.stdout || o.timestamps !== null || o.skipExisting || speech || o.instruction != null || o.to != null || o.postScript != null || o.noPostScript || o.raw || o.context != null || o.contextFile != null || o.checklist != null || o.score !== null)
       return { ok: false, error: 'ask prints to stdout; it takes a question, --in, --no-history, --search, -n, --json' };
     if (o.inputs.join(' ').trim().length === 0) return { ok: false, error: 'ask needs a question' };
     if (o.limit === Number.POSITIVE_INFINITY) o.limit = 30;
@@ -471,7 +497,8 @@ export function parseArgs(argv: readonly string[]): ParseResult {
     if (o.server != null) return { ok: false, error: '--context does not work with --server (the Brain is not run there)' };
   }
   if (o.context != null && o.contextFile != null) return { ok: false, error: '--context and --context-file cannot be used together' };
-  if (o.limit !== null || o.json || o.raw) return { ok: false, error: '-n, --json and --raw are for history ( --json also for segments)' };
+  if (o.limit !== null || (o.json && o.command !== 'score') || o.raw) return { ok: false, error: '-n, --json and --raw are for history ( --json also for segments and score)' };
+  if (o.command === 'score' && o.json && !o.stdout) return { ok: false, error: 'score --json needs --stdout (files are always .score.json and .score.txt)' };
   if (o.inputs.length === 0) return { ok: false, error: 'no files given' };
   if (o.command === 'brain') {
     if (o.formats.length > 0) return { ok: false, error: 'brain writes .brain.txt (or --stdout); drop --format' };
@@ -481,6 +508,11 @@ export function parseArgs(argv: readonly string[]): ParseResult {
   if (o.command === 'brief') {
     if (o.formats.length > 0) return { ok: false, error: 'brief writes .brief.txt (or --stdout); drop --format' };
     if (o.model || o.device || o.threads || o.script || o.modelDir) return { ok: false, error: 'brief takes a transcript .txt (speech options are for transcribe)' };
+  }
+  if (o.command === 'score') {
+    if (o.formats.length > 0) return { ok: false, error: 'score writes .score.json and .score.txt (or --stdout); drop --format' };
+    if (o.model || o.device || o.threads || o.script || o.modelDir) return { ok: false, error: 'score takes a transcript .txt (speech options are for transcribe)' };
+    if (o.instruction != null || o.template != null) return { ok: false, error: '--instruction / --template are for brief; score takes --checklist' };
   }
   if (o.command === 'translate') {
     if (o.formats.length > 0) return { ok: false, error: 'translate writes .translate.txt (or --stdout); drop --format' };
@@ -503,6 +535,7 @@ export function helpText(t: (ru: string, en: string) => string): string {
   chawo-va transcribe <файлы, папки или ссылки…> [параметры]
   chawo-va brain <расшифровки.txt…> [параметры]
   chawo-va brief <расшифровки.txt…> [параметры]
+  chawo-va score <расшифровки.txt…> [--checklist имя|list] [параметры]
   chawo-va translate <тексты.txt…> [--to язык] [параметры]
   chawo-va history [слова для поиска…] [-n 20|all] [--json] [--raw]
   chawo-va ask <вопрос…> [--in папка|файл.txt]… [--no-history] [--search] [-n 8] [--json]
@@ -542,6 +575,9 @@ export function helpText(t: (ru: string, en: string) => string): string {
       --brief / --no-brief
                          ещё и «Кратко и задачи» → .brief.txt (--template / --instruction — формат);
                          по умолчанию — из настроек. Сбой Мозга — пометка, .txt всё равно пишется
+      --score / --no-score
+                         ещё и «Проверка по чек-листу» → .score.json и .score.txt (--checklist — какой);
+                         по умолчанию — из настроек
       --server <URL>     расшифровать на удалённом 'chawo-va serve' (job API; локальной модели нет)
       --token <секрет>   Bearer для --server / для serve (или CHAWO_SERVE_TOKEN)
       --lang ru|en       язык сообщений
@@ -571,6 +607,15 @@ export function helpText(t: (ru: string, en: string) => string): string {
       --instruction «…»  своя инструкция формата (иначе — шаблон из настроек / встроенная)
       --stdout           печатать карточку в stdout вместо .brief.txt
   -o, --out <папка>      куда писать .brief.txt
+      --lang ru|en       язык сообщений
+  -q, --quiet
+
+Параметры score:
+      --checklist <имя>  чек-лист: sales (звонок продаж, встроенный) или имя своего; --checklist list —
+                         показать все. По умолчанию — выбранный в приложении
+      --stdout           печатать результат в stdout вместо .score.json / .score.txt
+      --json             с --stdout: печатать JSON вместо текста
+  -o, --out <папка>      куда писать .score.json и .score.txt
       --lang ru|en       язык сообщений
   -q, --quiet
 
@@ -634,6 +679,7 @@ WAV и Ogg/Opus читаются сами, остальные форматы (MP
 скачивание. yt-dlp CLI не скачивает: кнопка «Скачать yt-dlp» в приложении или yt-dlp в PATH.
 brain читает готовый .txt и пишет .brain.txt: абзацы без слов-паразитов и «Кратко».
 brief читает готовый .txt (рядом с записью или .brain.txt) и пишет .brief.txt через Мозг.
+score проверяет звонок по чек-листу через Мозг: по каждому пункту да / частично / нет, цитата и итог.
 translate переводит готовый .txt через Мозг (локальный по умолчанию) и пишет .translate.txt.
 segments печатает фразы со временем (как карточка «Расшифровка»): .srt → .json → метки в .txt.
 stats печатает статистику разговора по готовой расшифровке (как «Статистика разговора» на странице «Файл»).
@@ -647,6 +693,7 @@ Usage:
   chawo-va transcribe <files, folders or links…> [options]
   chawo-va brain <transcript.txt…> [options]
   chawo-va brief <transcript.txt…> [options]
+  chawo-va score <transcript.txt…> [--checklist name|list] [options]
   chawo-va translate <text.txt…> [--to language] [options]
   chawo-va history [search words…] [-n 20|all] [--json] [--raw]
   chawo-va ask <question…> [--in folder|file.txt]… [--no-history] [--search] [-n 8] [--json]
@@ -686,6 +733,9 @@ Options:
       --brief / --no-brief
                          also «Brief and tasks» → .brief.txt (--template / --instruction for the format);
                          default: settings. A Brain failure is a note; the .txt is written anyway
+      --score / --no-score
+                         also «Checklist score» → .score.json and .score.txt (--checklist picks one);
+                         default: settings
       --server <URL>     transcribe on a remote 'chawo-va serve' (job API; no local model)
       --token <secret>   Bearer for --server / for serve (or CHAWO_SERVE_TOKEN)
       --lang ru|en       message language
@@ -715,6 +765,15 @@ brief options:
       --instruction "…"  custom format instruction (else the template from settings / built-in)
       --stdout           print the card to stdout instead of .brief.txt
   -o, --out <dir>        where to write .brief.txt
+      --lang ru|en       message language
+  -q, --quiet
+
+score options:
+      --checklist <name> checklist: sales (built-in sales call) or your own one's name; --checklist list
+                         shows them all. Default: the one picked in the app
+      --stdout           print the result instead of writing .score.json / .score.txt
+      --json             with --stdout: print JSON instead of text
+  -o, --out <dir>        where to write .score.json and .score.txt
       --lang ru|en       message language
   -q, --quiet
 
@@ -778,6 +837,7 @@ the audio goes to Downloads/Chawo (or -o), then it is transcribed locally. Only 
 the network. The CLI does not fetch yt-dlp: use «Download yt-dlp» in the app or have yt-dlp on PATH.
 brain reads a finished .txt and writes .brain.txt: paragraphs without filler words plus «Summary».
 brief reads a finished .txt (beside the recording or .brain.txt) and writes .brief.txt via the Brain.
+score checks a call against a checklist via the Brain: yes / partial / no per item, a quote and a total.
 translate translates a finished .txt via the Brain (local by default) and writes .translate.txt.
 segments prints timed phrases (like the Transcript card): .srt → .json → stamps in .txt.
 stats prints call stats for a finished transcript (like «Call stats» on the File page).

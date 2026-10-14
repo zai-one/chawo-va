@@ -365,7 +365,7 @@ describe('readDefaults (settings.json read-only)', () => {
     writeFileSync(file, body);
     const before = statSync(file).mtimeMs;
     const { readDefaults } = await import('../src/cli');
-    expect(readDefaults()).toEqual({ model: 'multilingual_large_ctc', device: 'cpu', threads: 2, script: 'english', timestamps: false, language: 'English', postScript: 'python fix.py', historyKeep: 'Week', vad: true, diarize: false, brain: false, brief: false, callTrackers: '' });
+    expect(readDefaults()).toEqual({ model: 'multilingual_large_ctc', device: 'cpu', threads: 2, script: 'english', timestamps: false, language: 'English', postScript: 'python fix.py', historyKeep: 'Week', vad: true, diarize: false, brain: false, brief: false, callTrackers: '', score: false, checklist: '' });
     expect(readFileSync(file, 'utf8')).toBe(body);
     expect(statSync(file).mtimeMs).toBe(before);
   });
@@ -1090,6 +1090,60 @@ describe('chawo-va snippets', () => {
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+});
+
+describe('runCli score («Проверка по чек-листу»)', () => {
+  const answer = JSON.stringify({ items: [{ n: 1, verdict: 'yes', quote: 'Привет' }, { n: 2, verdict: 'partial', quote: '' }] });
+  it('writes .score.json and .score.txt; custom checklist; list; unknown', async () => {
+    const prompts: string[] = [];
+    const mk = () => {
+      const h = harness({ fileText: { '/r/call.txt': 'Привет. Чем помочь?' }, briefAsk: async (p) => (prompts.push(p), answer) });
+      h.deps.checklists = () => [{ name: 'Сервис', items: ['Поздоровался', 'Назвал заявку'] }];
+      return h;
+    };
+    let h = mk();
+    expect(await run(h, 'score', '/r/call.txt')).toBe(EXIT_OK);
+    const j = JSON.parse(String(h.files.get('/r/call.score.json')));
+    expect([j.checklist.id, j.score, j.max]).toEqual(['sales', 1.5, 6]);
+    expect(String(h.files.get('/r/call.score.txt'))).toContain('Score: 1.5 of 6 (25%)');
+    h = mk();
+    expect(await run(h, 'score', '/r/call.txt', '--checklist', 'сервис', '--stdout', '--json')).toBe(EXIT_OK);
+    expect(JSON.parse(h.out.join('')).percent).toBe(75);
+    expect(prompts.at(-1)).toContain('2. Назвал заявку');
+    expect([...h.files.keys()]).toEqual([]);
+    h = mk();
+    expect(await run(h, 'score', '--checklist', 'list')).toBe(EXIT_OK);
+    expect(h.out.join('')).toMatch(/^sales\t.*\t6\n.*Сервис\tcustom\t2/s);
+    h = mk();
+    expect(await run(h, 'score', '/r/call.txt', '--checklist', 'zzz')).toBe(EXIT_USAGE);
+    h = mk();
+    h.deps.defaults = () => ({ model: 'v3_e2e_rnnt', device: 'cpu', threads: 'auto', script: 'auto', timestamps: true, language: 'English', checklist: 'Сервис' });
+    expect(await run(h, 'score', '/r/call.txt', '-o', '/out')).toBe(EXIT_OK);
+    expect(JSON.parse(String(h.files.get('/out/call.score.json'))).checklist.name).toBe('Сервис');
+  });
+  it('no Brain → 3; bad answer → 1', async () => {
+    expect(await run(harness({ fileText: { '/a.txt': 'x' }, briefTarget: 'None' }), 'score', '/a.txt')).toBe(EXIT_NO_MODEL);
+    const h = harness({ fileText: { '/a.txt': 'x' }, briefAsk: async () => 'sorry' });
+    expect(await run(h, 'score', '/a.txt')).toBe(EXIT_FAILED);
+    expect(h.err.join('')).toMatch(/checklist format/);
+  });
+  it('transcribe --score writes the score files; settings turn it on; failure is a note', async () => {
+    const h = harness({ existing: ['/a.wav'], briefAsk: async () => answer });
+    expect(await run(h, 'transcribe', '/a.wav', '--score')).toBe(EXIT_OK);
+    expect([...h.files.keys()]).toEqual(['/a.txt', '/a.score.json', '/a.score.txt']);
+    const on = harness({ existing: ['/a.wav'], defaults: { score: true }, briefAsk: async () => answer });
+    expect(await run(on, 'transcribe', '/a.wav')).toBe(EXIT_OK);
+    expect(on.files.has('/a.score.json')).toBe(true);
+    const off = harness({ existing: ['/a.wav'], defaults: { score: true } });
+    expect(await run(off, 'transcribe', '/a.wav', '--no-score')).toBe(EXIT_OK);
+    expect([...off.files.keys()]).toEqual(['/a.txt']);
+    const bad = harness({ existing: ['/a.wav'], briefAsk: async () => 'nope' });
+    expect(await run(bad, 'transcribe', '/a.wav', '--score')).toBe(EXIT_OK);
+    expect(bad.err.join('')).toMatch(/checklist: the model did not answer/);
+    const so = harness({ existing: ['/a.wav'], briefAsk: async () => answer });
+    expect(await run(so, 'transcribe', '/a.wav', '--score', '--stdout')).toBe(EXIT_OK);
+    expect(so.out.join('')).toContain('==> Checklist score <==');
   });
 });
 

@@ -72,6 +72,10 @@ export interface SettingsData {
   MeetingBriefInstruction: string;
   /** Selected «Кратко и задачи» template id/name; '' = own instruction (MeetingBriefInstruction). */
   MeetingBriefTemplate: string;
+  /** «Проверка по чек-листу» after transcription → .score.json / .score.txt. */
+  CallScoreEnabled: boolean;
+  /** Selected checklist id/name; '' = built-in «Звонок продаж». */
+  CallScoreChecklist: string;
   /** «Статистика разговора» trackers: «Название: термин, …» per line; '' = built-in (core/callStats). */
   CallTrackers: string;
   /** «Спросить историю»: extra folders with transcripts, one per line (the meetings folder is always searched). */
@@ -156,6 +160,8 @@ export function defaults(): SettingsData {
     MeetingBriefEnabled: false,
     MeetingBriefInstruction: '',
     MeetingBriefTemplate: '',
+    CallScoreEnabled: false,
+    CallScoreChecklist: '',
     CallTrackers: '',
     AskFolders: '',
     TranslateTarget: '',
@@ -414,6 +420,8 @@ export function fromJsonObject(raw: Record<string, unknown>): { settings: Settin
   d.MeetingBriefEnabled = asBool(raw.MeetingBriefEnabled, d.MeetingBriefEnabled);
   d.MeetingBriefInstruction = asString(raw.MeetingBriefInstruction, d.MeetingBriefInstruction);
   d.MeetingBriefTemplate = asString(raw.MeetingBriefTemplate, d.MeetingBriefTemplate);
+  d.CallScoreEnabled = asBool(raw.CallScoreEnabled, d.CallScoreEnabled);
+  d.CallScoreChecklist = asString(raw.CallScoreChecklist, d.CallScoreChecklist);
   d.CallTrackers = asString(raw.CallTrackers, d.CallTrackers).slice(0, 8000);
   d.AskFolders = asString(raw.AskFolders, d.AskFolders).slice(0, 8000);
   d.TranslateTarget = asString(raw.TranslateTarget, d.TranslateTarget);
@@ -511,6 +519,8 @@ export function toJsonObject(s: SettingsData): Record<string, unknown> {
     MeetingBriefEnabled: s.MeetingBriefEnabled,
     MeetingBriefInstruction: s.MeetingBriefInstruction,
     MeetingBriefTemplate: s.MeetingBriefTemplate,
+    CallScoreEnabled: s.CallScoreEnabled,
+    CallScoreChecklist: s.CallScoreChecklist,
     CallTrackers: s.CallTrackers,
     AskFolders: s.AskFolders,
     TranslateTarget: s.TranslateTarget,

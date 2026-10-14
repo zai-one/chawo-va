@@ -125,6 +125,14 @@ label.stack { display: flex; flex-direction: column; gap: 3px; font-size: 12px; 
 .meeting-brief .tpl-row input.grow { flex: 1; min-width: 0; }
 .meeting-brief textarea[readonly] { color: var(--muted, #9aa0a6); }
 .meeting-brief .brief-card pre { margin: 0; font: inherit; white-space: pre-wrap; }
+.call-score .score-items { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.call-score .score-items li { display: grid; grid-template-columns: 18px minmax(0, 1fr); column-gap: 6px; }
+.call-score .score-items li > q, .call-score .score-items li > small { grid-column: 2; overflow-wrap: anywhere; }
+.call-score .score-items q { color: var(--muted); font-style: italic; }
+.call-score .mark { font-weight: 600; text-align: center; }
+.call-score .v-yes .mark { color: #4caf7a; }
+.call-score .v-partial .mark { color: #d9a441; }
+.call-score .v-no .mark { color: #e0645c; }
 .translate-box input#translate-to { min-width: 220px; background: var(--bg); color: var(--fg); border: 1px solid var(--line); border-radius: 6px; padding: 6px 10px; }
 .translate-box .translate-card pre { margin: 0; font: inherit; white-space: pre-wrap; }
 .post-script .row input.grow { flex: 1; min-width: 0; }
