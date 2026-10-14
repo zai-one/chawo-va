@@ -113,6 +113,11 @@ interface FileApi {
   onState(fn: (s: FileState) => void): () => void;
   onToast(fn: (s: string) => void): () => void;
 }
+interface MeetingOffer {
+  reasons: string[];
+  fingerprint: string;
+  appsSupported: boolean;
+}
 interface MeetingState {
   recording: boolean;
   startedAt: number;
@@ -123,6 +128,10 @@ interface MeetingState {
   folder: string;
   note: string;
   ru: boolean;
+  autoDetect: boolean;
+  autoDetectApps: boolean;
+  autoDetectCalendar: string;
+  offer: MeetingOffer | null;
 }
 type SystemPlan = { kind: 'loopback' } | { kind: 'none' };
 interface MeetingApi {
@@ -134,6 +143,13 @@ interface MeetingApi {
   cancel(): Promise<MeetingState>;
   failed(reason: string): Promise<MeetingState>;
   setSystem(on: boolean): Promise<MeetingState>;
+  setAutoDetect(on: boolean): Promise<MeetingState>;
+  setAutoDetectApps(on: boolean): Promise<MeetingState>;
+  setAutoDetectCalendar(path: string): Promise<MeetingState>;
+  pickCalendar(): Promise<MeetingState>;
+  offerSnooze(): Promise<MeetingState>;
+  offerNever(): Promise<MeetingState>;
+  detectNow(): Promise<unknown>;
   onState(fn: (s: MeetingState) => void): () => void;
 }
 interface SpeechModelRow { kind: string; label: string; selected: boolean; onDisk: boolean; path: string | null; canDelete: boolean; deleteTip: string }
@@ -2514,6 +2530,11 @@ function applyMeeting(s: MeetingState): void {
     window.clearInterval(meetingTimer);
     meetingTimer = null;
   }
+  // Auto-detect offer: jump to the file page so the compact prompt is visible.
+  if (s.offer && !s.recording && current !== 'file') {
+    show('file');
+    return;
+  }
   if (current === 'file') renderFile();
 }
 
@@ -2558,6 +2579,21 @@ function renderMeeting(): void {
   const m = meetingState;
   if (!m) return;
   const box = el('fieldset', { className: 'meeting' }, el('legend', { textContent: L('Встреча', 'Meeting') }));
+  if (m.offer && !m.recording) {
+    const why = m.offer.reasons.length
+      ? m.offer.reasons.slice(0, 3).join(' · ')
+      : L('приложения или календарь', 'apps or calendar');
+    const offer = el('div', { className: 'meeting-offer' },
+      el('p', { className: 'offer-title', textContent: L('Похоже, идёт встреча — записать?', 'Looks like a meeting — record it?') }),
+      el('p', { className: 'muted hint', textContent: why }),
+      el('div', { className: 'row' },
+        button(L('Записать', 'Record'), () => void meetingStart(), 'primary'),
+        button(L('Не сейчас', 'Not now'), () => void bridge.meeting.offerSnooze().then(applyMeeting), 'link'),
+        button(L('Больше не предлагать', 'Do not offer again'), () => void bridge.meeting.offerNever().then(applyMeeting), 'link'),
+      ),
+    );
+    box.append(offer);
+  }
   if (m.recording) {
     const span = (key: string, cls = '') => {
       const e = el('span', { className: cls });
@@ -2586,6 +2622,32 @@ function renderMeeting(): void {
       const cb = el('input', { type: 'checkbox', checked: m.systemOn });
       cb.addEventListener('change', () => void bridge.meeting.setSystem(cb.checked).then(applyMeeting));
       box.append(el('label', {}, cb, L(' Со звуком компьютера (собеседники в Zoom, Teams, Telegram)', ' With the computer sound (people in Zoom, Teams, Telegram)')));
+    }
+    const ad = el('input', { type: 'checkbox', checked: m.autoDetect, id: 'meeting-auto-detect' });
+    ad.addEventListener('change', () => void bridge.meeting.setAutoDetect(ad.checked).then(applyMeeting));
+    box.append(el('label', { className: 'check' }, ad, ' ', L('Предлагать запись, если похоже на встречу', 'Offer to record when a meeting looks active')));
+    if (m.autoDetect) {
+      const apps = el('input', { type: 'checkbox', checked: m.autoDetectApps, id: 'meeting-auto-apps' });
+      apps.addEventListener('change', () => void bridge.meeting.setAutoDetectApps(apps.checked).then(applyMeeting));
+      box.append(el('label', { className: 'check' }, apps, ' ', L('Смотреть Zoom, Teams, Телемост и др. (Windows)', 'Watch Zoom, Teams, Telemost, etc. (Windows)')));
+      const calRow = el('div', { className: 'row cal-row' });
+      const cal = el('input', {
+        type: 'text',
+        className: 'grow',
+        placeholder: L('Файл или папка .ics (необязательно)', '.ics file or folder (optional)'),
+        value: m.autoDetectCalendar,
+        id: 'meeting-auto-cal',
+      }) as HTMLInputElement;
+      cal.addEventListener('change', () => void bridge.meeting.setAutoDetectCalendar(cal.value.trim()).then(applyMeeting));
+      calRow.append(
+        cal,
+        button(L('Обзор…', 'Browse…'), () => void bridge.meeting.pickCalendar().then(applyMeeting), 'link'),
+      );
+      box.append(calRow);
+      box.append(el('p', { className: 'muted hint', textContent: L(
+        'Выкл. по умолчанию. Не запускает запись сама — только спрашивает. «Не сейчас» — пауза ~20 мин. Календарь только локальный .ics, без облака.',
+        'Off by default. Never starts recording by itself — only asks. “Not now” snoozes ~20 min. Calendar is a local .ics only, no cloud.',
+      )}));
     }
     box.append(el('p', { className: 'muted hint', textContent: L(`Запись остаётся только на этом компьютере: ${m.folder}. Текст сохранится рядом.`, `The recording stays on this PC only: ${m.folder}. The text is saved next to it.`) }));
   }

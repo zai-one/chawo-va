@@ -21,6 +21,7 @@
 | `stats <.txt/.srt/.json…>` | «Статистика разговора»: доля речи, монологи, вопросы, темп, трекеры слов | stdout |
 | `snippets list\|add\|remove` | Сниппеты для «вставь …» при диктовке (тот же `snippets.json`, что на «Словаре») | stdout / `snippets.json` |
 | `dictionary list\|suggest\|accept\|dismiss\|learn\|auto` | Словарь замен и «Из исправлений» (тот же `learned-words.json`, что на «Словаре») | stdout / `learned-words.json` |
+| `meeting detect` | Автоопределение встречи (приложения Windows / локальный `.ics`) без запуска записи | stdout |
 | `serve` | Headless CPU-сервер расшифровки ([linux-server.md](linux-server.md)) | — |
 | `--help`, `--version` | Справка / версия (`chawo-va 2.0.0`) | stdout |
 
@@ -242,6 +243,20 @@ Read-only MCP-сервер ([Model Context Protocol](https://modelcontextprotoco
 
 Облачный ассистент отправит прочитанное в своё облако — это решаете вы, когда подключаете клиента.
 
+### `meeting detect`
+
+Одноразовая проверка: похоже ли, что идёт встреча. **Запись не запускает.**
+
+```bash
+chawo-va meeting detect
+chawo-va meeting detect --json
+```
+
+Берутся настройки приложения `MeetingAutoDetectApps` и `MeetingAutoDetectCalendar` (мастер-флаг в CLI не нужен — проверка всегда выполняется). На не-Windows список приложений пуст (`appsSupported: false`); календарь `.ics` работает везде.
+
+`--json` печатает `{ active, appsSupported, apps, calendar, reasons }`.
+
+
 ### `serve`
 
 | Флаг | Значение |
@@ -309,6 +324,7 @@ Chawo Voice Assistant — расшифровка файлов, «Кратко и
   chawo-va snippets list [--json] | add <фраза> <текст|-> | remove <фраза>
   chawo-va dictionary list|suggest [--json] | accept <как слышно> [как писать] | dismiss <как слышно>
   chawo-va dictionary learn <было.txt> <стало.txt> [--json] | auto on|off
+  chawo-va meeting detect [--json]
   chawo-va serve [--host 127.0.0.1|0.0.0.0] [--port 17831] [--token …] [--data-dir …]
 
 Параметры:
@@ -419,6 +435,10 @@ Chawo Voice Assistant — расшифровка файлов, «Кратко и
       dismiss <как слышно>              больше не предлагать
       learn <было.txt> <стало.txt>      запомнить ваши правки слов (--json: fixes, added, suggested)
       auto on|off        добавлять повторённые исправления в словарь сами (по умолчанию off)
+
+Параметры meeting (автоопределение встречи без запуска записи; настройки — из settings.json):
+      detect [--json]    есть ли сейчас встреча: приложения (Windows) и/или локальный .ics
+                         JSON: {active, appsSupported, apps, calendar, reasons}
 
 Параметры history (история диктовки, только чтение, новые сверху):
       слова…             поиск: каждое слово должно встретиться (ё = е), как на странице

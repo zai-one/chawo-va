@@ -349,5 +349,16 @@ describe('brain --context / --context-file («Контекст для Мозга
     expect(helpText((ru) => ru)).toContain('--context-file <файл>');
     expect(helpText((_ru, en) => en)).toContain('--context <text>');
   });
+
+  it('meeting detect [--json]', () => {
+    expect(ok(['meeting', 'detect']).command).toBe('meeting');
+    expect(ok(['meeting', 'detect']).inputs).toEqual(['detect']);
+    expect(ok(['meeting', 'detect', '--json'])).toMatchObject({ command: 'meeting', json: true, inputs: ['detect'] });
+    expect(ok(['meeting']).inputs).toEqual(['detect']);
+    expect(err(['meeting', 'watch'])).toContain('detect');
+    expect(err(['meeting', 'detect', 'file.ics'])).toContain('no file');
+    expect(helpText((a) => a)).toMatch(/meeting detect/);
+  });
+
 });
 

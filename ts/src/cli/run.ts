@@ -175,6 +175,14 @@ export interface CliDeps {
   checklists?: () => import('../main/brain/callScore').CustomChecklist[];
   /** history.jsonl of the app (read, never written by the CLI). */
   historyPath?: () => string;
+  /** Auto-detect settings for `chawo-va meeting detect` (from settings.json, read-only). */
+  meetingDetectSettings?: () => {
+    MeetingAutoDetectApps: boolean;
+    MeetingAutoDetectCalendar: string;
+  };
+  /** Injected process listing for meeting detect tests. */
+  meetingExec?: import('../main/meeting/meetingApps').ExecLike;
+  meetingPlatform?: NodeJS.Platform;
   /** Wall clock for history dates (defaults to Date.now; `now` above may be a test counter). */
   clock?: () => number;
   log(line: string): void;
@@ -219,6 +227,7 @@ export async function runCli(argv: readonly string[], d: CliDeps): Promise<numbe
   if (o.command === 'stats') return statsCommand(o, defaults, d);
   if (o.command === 'snippets') return snippetsCommand(o, d);
   if (o.command === 'dictionary') return dictionaryCommand(o, d);
+  if (o.command === 'meeting') return meetingCommand(o, d);
   if (o.command === 'serve') {
     const serveDeps: ServeDeps = {
       t: d.t,
@@ -1468,4 +1477,64 @@ async function dictionaryCommand(o: CliOptions, d: CliDeps): Promise<number> {
     d.err(t('Ошибка: ', 'Error: ') + (e instanceof Error ? e.message : String(e)) + '\n');
     return EXIT_FAILED;
   }
+}
+
+/**
+ * `chawo-va meeting detect [--json]`: whether a meeting looks active (apps / local .ics).
+ * Never starts recording. Uses settings MeetingAutoDetectApps and MeetingAutoDetectCalendar
+ * (master switch is ignored here — the CLI always runs a one-shot check).
+ */
+async function meetingCommand(o: CliOptions, d: CliDeps): Promise<number> {
+  const t = d.t;
+  const { detectMeeting } = await import('../main/meeting/meetingDetect');
+  const s = d.meetingDetectSettings
+    ? d.meetingDetectSettings()
+    : { MeetingAutoDetectApps: true, MeetingAutoDetectCalendar: '' };
+  const result = await detectMeeting(
+    {
+      MeetingAutoDetect: true,
+      MeetingAutoDetectApps: s.MeetingAutoDetectApps,
+      MeetingAutoDetectCalendar: s.MeetingAutoDetectCalendar,
+    },
+    {
+      exec: d.meetingExec,
+      platform: d.meetingPlatform ?? process.platform,
+      now: d.now,
+    },
+  );
+  d.log(`cli meeting detect active=${result.active} apps=${result.apps.length} cal=${result.calendar.length}`);
+  if (o.json) {
+    d.out(JSON.stringify({
+      active: result.active,
+      appsSupported: result.appsSupported,
+      apps: result.apps,
+      calendar: result.calendar.map((c) => ({
+        summary: c.summary,
+        startMs: c.startMs,
+        endMs: c.endMs,
+        kind: c.kind,
+        file: c.file,
+      })),
+      reasons: result.reasons,
+    }) + '\n');
+    return EXIT_OK;
+  }
+  if (!result.active) {
+    if (!o.quiet) {
+      d.out(t('Встреча не обнаружена.\n', 'No meeting detected.\n'));
+      if (!result.appsSupported && s.MeetingAutoDetectApps) {
+        d.err(t('Подсказка: приложения встреч распознаются на Windows; календарь .ics — на любой ОС.\n',
+          'Note: meeting apps are detected on Windows; .ics calendar works on any OS.\n'));
+      }
+    }
+    return EXIT_OK;
+  }
+  const lines: string[] = [];
+  for (const a of result.apps) lines.push(t(`приложение: ${a.app} (${a.matched})`, `app: ${a.app} (${a.matched})`));
+  for (const c of result.calendar) {
+    const when = c.kind === 'now' ? t('сейчас', 'now') : t('скоро', 'soon');
+    lines.push(t(`календарь: ${c.summary} (${when})`, `calendar: ${c.summary} (${when})`));
+  }
+  d.out(t('Похоже, идёт встреча:\n', 'A meeting looks active:\n') + lines.map((l) => `  ${l}\n`).join(''));
+  return EXIT_OK;
 }

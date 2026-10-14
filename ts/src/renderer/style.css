@@ -164,3 +164,8 @@ label.stack { display: flex; flex-direction: column; gap: 3px; font-size: 12px; 
 .call-stats .phrase-time { color: var(--muted); font-variant-numeric: tabular-nums; font-size: 12px; }
 .call-stats .tracker-config textarea { width: 100%; }
 .mcp-box pre.mcp-snippet { margin: 6px 0; padding: 8px 10px; background: var(--bg); color: var(--fg); border: 1px solid var(--line); border-radius: 6px; font: 12px/1.4 ui-monospace, Consolas, monospace; white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; max-height: 220px; overflow: auto; }
+
+.meeting .meeting-offer { margin: 0 0 10px; padding: 10px 12px; border: 1px solid var(--accent); border-radius: 8px; background: color-mix(in srgb, var(--accent) 12%, var(--bg)); }
+.meeting .meeting-offer .offer-title { margin: 0 0 4px; font-weight: 600; }
+.meeting .cal-row { margin: 6px 0; gap: 8px; align-items: center; }
+.meeting .cal-row input.grow { flex: 1; min-width: 0; font: inherit; background: var(--bg); color: var(--fg); border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; }

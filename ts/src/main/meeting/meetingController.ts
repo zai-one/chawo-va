@@ -7,6 +7,13 @@ import { MeetingRecorder, meetingPath, repairUnfinished } from './meetingRecorde
 import type { SystemAudioMode } from './systemAudio';
 import { t } from '../../core/strings';
 
+export interface MeetingOfferDto {
+  /** Short labels: app names and/or calendar summaries. */
+  reasons: string[];
+  fingerprint: string;
+  appsSupported: boolean;
+}
+
 export interface MeetingStateDto {
   recording: boolean;
   /** Epoch ms of the start (the page ticks its own clock). */
@@ -22,6 +29,14 @@ export interface MeetingStateDto {
   /** One line under the button: what happened last, or why the computer sound is missing. */
   note: string;
   ru: boolean;
+  /** «Автоопределение встречи» master switch (off by default). */
+  autoDetect: boolean;
+  /** Watch known meeting apps when autoDetect is on. */
+  autoDetectApps: boolean;
+  /** Path to a .ics file or folder (empty = calendar off). */
+  autoDetectCalendar: string;
+  /** Compact «Похоже, идёт встреча» prompt; null when nothing to offer. */
+  offer: MeetingOfferDto | null;
 }
 
 export type SystemPlan = { kind: 'loopback' } | { kind: 'none' };
@@ -35,7 +50,13 @@ export interface StartResult {
 
 export interface MeetingDeps {
   dir: () => string;
-  settings: () => { MeetingSystemAudio: boolean; MicrophoneId: string };
+  settings: () => {
+    MeetingSystemAudio: boolean;
+    MicrophoneId: string;
+    MeetingAutoDetect: boolean;
+    MeetingAutoDetectApps: boolean;
+    MeetingAutoDetectCalendar: string;
+  };
   save: () => void;
   mode: () => SystemAudioMode;
   /** Allow the next getDisplayMedia to be answered with loopback audio (only while starting). */
@@ -46,6 +67,8 @@ export interface MeetingDeps {
   log: (line: string) => void;
   isRussian: () => boolean;
   now?: () => number;
+  /** After auto-detect settings change (start/stop poller). */
+  autoDetectChanged?: () => void;
 }
 
 const clock = (sec: number) => {
@@ -59,6 +82,7 @@ export class MeetingController {
   private note = '';
   private capturing: 'mic+system' | 'mic' | null = null;
   private repaired = false;
+  private offer: MeetingOfferDto | null = null;
 
   constructor(private readonly d: MeetingDeps) {
     this.recorder = new MeetingRecorder(d.now ?? Date.now);
@@ -76,7 +100,52 @@ export class MeetingController {
       folder: this.d.dir(),
       note: this.note,
       ru: this.d.isRussian(),
+      autoDetect: s.MeetingAutoDetect,
+      autoDetectApps: s.MeetingAutoDetectApps,
+      autoDetectCalendar: s.MeetingAutoDetectCalendar,
+      offer: this.offer,
     };
+  }
+
+  setOffer(offer: MeetingOfferDto | null): MeetingStateDto {
+    this.offer = offer;
+    this.d.changed();
+    return this.state();
+  }
+
+  setAutoDetect(on: boolean): MeetingStateDto {
+    const s = this.d.settings();
+    if (s.MeetingAutoDetect !== on) {
+      s.MeetingAutoDetect = on;
+      this.d.save();
+      if (!on) this.offer = null;
+      this.d.autoDetectChanged?.();
+    }
+    this.d.changed();
+    return this.state();
+  }
+
+  setAutoDetectApps(on: boolean): MeetingStateDto {
+    const s = this.d.settings();
+    if (s.MeetingAutoDetectApps !== on) {
+      s.MeetingAutoDetectApps = on;
+      this.d.save();
+      this.d.autoDetectChanged?.();
+    }
+    this.d.changed();
+    return this.state();
+  }
+
+  setAutoDetectCalendar(path: string): MeetingStateDto {
+    const s = this.d.settings();
+    const next = typeof path === 'string' ? path : '';
+    if (s.MeetingAutoDetectCalendar !== next) {
+      s.MeetingAutoDetectCalendar = next;
+      this.d.save();
+      this.d.autoDetectChanged?.();
+    }
+    this.d.changed();
+    return this.state();
   }
 
   /** Opens the file and tells the page which streams to open. */
