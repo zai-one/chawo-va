@@ -10,7 +10,9 @@ import * as MeetingBrief from './brain/meetingBrief';
 import * as Translate from './brain/translate';
 import { BrainException } from './brain/speechCleanup';
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
-import { toTxt } from '../core/transcriptFormat';
+import { loadTimedTranscript, toTxt, type TranscriptSegment } from '../core/transcriptFormat';
+import { siblingAudioCandidates } from '../core/localMedia';
+import { allowMediaPath, isMediaAllowed, mediaUrlFor } from './localMediaProtocol';
 import { scriptCommand } from '../core/postScript';
 import * as Settings from './settings';
 import { asExtraFormats, type FileExtraFormat, type SettingsData, type SettingsFileParallelism } from './settings';
@@ -26,6 +28,25 @@ export interface FileOptionsDto {
   diarize: boolean;
   /** «Кратко и задачи» after transcription (MeetingBriefEnabled). */
   brief: boolean;
+}
+
+
+export interface FileEditorSegmentDto {
+  start: number;
+  end: number;
+  text: string;
+  speaker?: number;
+}
+
+export interface FileEditorDto {
+  available: boolean;
+  reason?: string;
+  audioPath: string | null;
+  txtPath: string | null;
+  segments: FileEditorSegmentDto[];
+  mediaUrl: string | null;
+  /** Which timed file fed the phrases: srt | json | txt */
+  sourceHint?: string;
 }
 
 export interface FileStateDto {
@@ -67,6 +88,8 @@ export interface FileStateDto {
   };
   /** UI language picked in main (Auto follows the OS locale), so the page matches status lines. */
   ru: boolean;
+  /** Click-a-phrase transcript editor (timed segments + local audio). */
+  editor: FileEditorDto;
 }
 
 const PARALLELISM: readonly SettingsFileParallelism[] = ['Auto', 'Gentle1', 'Two', 'Four', 'Max'];
@@ -89,6 +112,95 @@ export function registerFileIpc(getWindow: () => BrowserWindow | null, settings:
   let lastTranslatePath: string | null = null;
   let translateBusy = false;
   let translateAbort: AbortController | null = null;
+
+  /** Transcript the editor card shows; null = follow queue.lastOutput. */
+  let editorFocus: string | null = null;
+  let editorCache: FileEditorDto = emptyEditor();
+
+  function emptyEditor(): FileEditorDto {
+    return { available: false, reason: 'missing', audioPath: null, txtPath: null, segments: [], mediaUrl: null };
+  }
+
+  function readText(path: string): string | null {
+    try {
+      if (!existsSync(path)) return null;
+      return readFileSync(path, 'utf8');
+    } catch {
+      return null;
+    }
+  }
+
+  function findAudioFor(txtPath: string): string | null {
+    const item = queue.snapshot().find((i) => i.outputPath && (i.outputPath === txtPath));
+    if (item?.path && existsSync(item.path)) return item.path;
+    for (const c of siblingAudioCandidates(txtPath)) {
+      if (existsSync(c)) return c;
+    }
+    return null;
+  }
+
+  function reasonMessage(reason: string | undefined, hasAudio: boolean): string | undefined {
+    if (!hasAudio && reason !== 'missing') return 'no-audio';
+    return reason;
+  }
+
+  function buildEditor(txtPath: string | null): FileEditorDto {
+    if (!txtPath) {
+      allowMediaPath(null);
+      return emptyEditor();
+    }
+    const loaded = loadTimedTranscript(txtPath, readText);
+    const audioPath = findAudioFor(txtPath);
+    if (!loaded.available) {
+      allowMediaPath(audioPath);
+      return {
+        available: false,
+        reason: reasonMessage(loaded.reason, Boolean(audioPath)),
+        audioPath,
+        txtPath,
+        segments: [],
+        mediaUrl: audioPath ? mediaUrlFor(audioPath) : null,
+        sourceHint: loaded.sourceHint,
+      };
+    }
+    if (!audioPath) {
+      allowMediaPath(null);
+      return {
+        available: false,
+        reason: 'no-audio',
+        audioPath: null,
+        txtPath,
+        segments: loaded.segments.map(segDto),
+        mediaUrl: null,
+        sourceHint: loaded.sourceHint,
+      };
+    }
+    allowMediaPath(audioPath);
+    return {
+      available: true,
+      audioPath,
+      txtPath,
+      segments: loaded.segments.map(segDto),
+      mediaUrl: mediaUrlFor(audioPath),
+      sourceHint: loaded.sourceHint,
+    };
+  }
+
+  function segDto(s: TranscriptSegment): FileEditorSegmentDto {
+    return typeof s.speaker === 'number'
+      ? { start: s.start, end: s.end, text: s.text, speaker: s.speaker }
+      : { start: s.start, end: s.end, text: s.text };
+  }
+
+  let editorLoadedFor: string | null | undefined = undefined;
+
+  function refreshEditor(force = false): FileEditorDto {
+    const focus = editorFocus || queue.lastOutput;
+    if (!force && focus === editorLoadedFor) return editorCache;
+    editorLoadedFor = focus;
+    editorCache = buildEditor(focus ?? null);
+    return editorCache;
+  }
 
   const state = (): FileStateDto => {
     const s = settings.get();
@@ -136,6 +248,7 @@ export function registerFileIpc(getWindow: () => BrowserWindow | null, settings:
         busy: translateBusy,
       },
       ru: ruLang,
+      editor: refreshEditor(),
     };
   };
 
@@ -549,6 +662,25 @@ export function registerFileIpc(getWindow: () => BrowserWindow | null, settings:
       push();
     }
     return state();
+  });
+
+
+  ipcMain.handle('file:openEditor', (_e, path: unknown) => {
+    const p = typeof path === 'string' && path.length > 0 ? path : queue.lastOutput;
+    editorFocus = p;
+    refreshEditor(true);
+    return state();
+  });
+
+  ipcMain.handle('file:mediaUrl', (_e, path: unknown) => {
+    if (typeof path !== 'string' || !path) return null;
+    if (!isMediaAllowed(path) && existsSync(path)) {
+      // Only queue / editor audio: allow if it matches the current editor audio or a queue item.
+      const snap = queue.snapshot();
+      const known = snap.some((i) => i.path === path) || editorCache.audioPath === path;
+      if (known) allowMediaPath(path);
+    }
+    return mediaUrlFor(path);
   });
 
   return {

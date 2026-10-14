@@ -2,6 +2,7 @@
 // turns on a network feature. This is the shell the WPF features get ported into, piece by piece.
 
 import { app, BrowserWindow, Menu, Tray, nativeImage, nativeTheme, session } from 'electron';
+import { handleMediaProtocol, registerMediaScheme } from './localMediaProtocol';
 import { join } from 'node:path';
 import { registerFileIpc } from './fileIpc';
 import { registerSpeechIpc } from './speechIpc';
@@ -137,15 +138,18 @@ function quit(): void {
   app.quit();
 }
 
+registerMediaScheme();
+
 if (!app.requestSingleInstanceLock()) {
   app.quit();
 } else {
   app.on('second-instance', () => showWindow());
   app.whenReady().then(() => {
     nativeTheme.themeSource = 'dark';
+    handleMediaProtocol();
     // Local by default: block any renderer request that is not a bundled file.
     session.defaultSession.webRequest.onBeforeRequest((details, cb) => {
-      cb({ cancel: !details.url.startsWith('file://') && !details.url.startsWith('devtools://') });
+      cb({ cancel: !details.url.startsWith('file://') && !details.url.startsWith('devtools://') && !details.url.startsWith('chawo-media://') });
     });
     session.defaultSession.setPermissionRequestHandler((_wc, permission, cb) => cb(permission === 'media'));
     settings = Settings.load();
