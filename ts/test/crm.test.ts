@@ -10,7 +10,7 @@ import {
   type CrmConfig, type Fetch,
 } from '../src/core/crm';
 import { loadCrmConfig, loadSent, recordSent, saveCrmConfig } from '../src/main/crm/crmStore';
-import { nodeFetch } from '../src/main/crm/crmFlow';
+import { pinnedFetch } from '../src/main/crm/crmFlow';
 import { CrmController } from '../src/main/crm/crmPage';
 import { applyLanguage } from '../src/core/strings';
 
@@ -193,14 +193,14 @@ describe('a real local HTTP mock (nodeFetch)', () => {
     c.amocrm.base = base;
     c.webhook.url = base + '/hook';
     const rules = { allowLocal: true };
-    let r = await sendRequest('amocrm', buildRequest('amocrm', c, payload, '7', { rules }), { fetch: nodeFetch });
+    let r = await sendRequest('amocrm', buildRequest('amocrm', c, payload, '7', { rules }), { fetch: pinnedFetch(rules) });
     expect(r).toMatchObject({ ok: true, createdId: '901' });
     expect(got.at(-1)).toMatchObject({ url: '/api/v4/leads/7/notes', auth: `Bearer ${TOKEN}` });
-    r = await sendRequest('webhook', buildRequest('webhook', c, payload, '', { rules }), { fetch: nodeFetch });
+    r = await sendRequest('webhook', buildRequest('webhook', c, payload, '', { rules }), { fetch: pinnedFetch(rules) });
     expect(r.ok).toBe(true);
     expect(JSON.parse(got.at(-1)!.body).tasks).toEqual(['Анна: КП до пятницы']);
     c.webhook.url = base + '/redirect';
-    r = await sendRequest('webhook', buildRequest('webhook', c, payload, '', { rules }), { fetch: nodeFetch });
+    r = await sendRequest('webhook', buildRequest('webhook', c, payload, '', { rules }), { fetch: pinnedFetch(rules) });
     expect(r.ok).toBe(false);
     expect(got.some((g) => g.url === '/stolen')).toBe(false);
   });

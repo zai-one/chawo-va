@@ -1209,3 +1209,10 @@ Re-align folder names and tooling with taptain-desktop once its layout is readab
   amoCRM (заметка), Bitrix24 (комментарий/задача), HubSpot (note + ассоциация), вебхук (JSON + HMAC, Idempotency-Key).
   Токены — `crm.json` 0600 (не safeStorage: нужен CLI). SSRF: https, белый список хостов amo, DNS-проверка, без редиректов.
   Gaps: реальные CRM не вызывались (только мок); DNS-rebinding между проверкой и запросом; гонка журнала GUI+CLI.
+
+- CRM/встречи — доработки (`ts/fix-crm-followup`): id ассоциаций HubSpot (202/190/214) и эндпоинты amoCRM
+  (`POST /api/v4/{entity}/{id}/notes`, `note_type: common`) / Bitrix24 (`crm.timeline.comment.add`, `tasks.task.add` +
+  `UF_CRM_TASK` `L_/C_/CO_/D_`) сверены с официальной документацией — верны. DNS-rebinding закрыт: запрос идёт через
+  node:https с собственным `lookup`, который проверяет все адреса и отдаёт сокету только проверенные (без второго
+  резолва). Журнал `crm-sent.json`: блокировка `.lock` (O_EXCL, перехват устаревшей), перечитывание под блокировкой,
+  уникальный tmp + rename. `.ics`: TZID учитывается (IANA, в кавычках, с префиксом, частые имена Windows), Z — UTC.
