@@ -8,7 +8,7 @@ export const FORMATS = ['txt', 'srt', 'vtt', 'json', 'md', 'docx'] as const;
 export type OutputFormat = (typeof FORMATS)[number];
 
 export interface CliOptions {
-  command: 'transcribe' | 'brain' | 'brief' | 'translate' | 'history' | 'help' | 'version';
+  command: 'transcribe' | 'brain' | 'brief' | 'translate' | 'history' | 'segments' | 'help' | 'version';
   inputs: string[];
   /** Empty = not given (txt). */
   formats: OutputFormat[];
@@ -102,7 +102,7 @@ export function parseArgs(argv: readonly string[]): ParseResult {
   const first = args[0];
   if (first === '--help' || first === '-h' || first === 'help') return { ok: true, options: blank('help') };
   if (first === '--version' || first === '-v' || first === 'version') return { ok: true, options: blank('version') };
-  if (first !== 'transcribe' && first !== 'brain' && first !== 'brief' && first !== 'translate' && first !== 'history') return { ok: false, error: `unknown command: ${first}` };
+  if (first !== 'transcribe' && first !== 'brain' && first !== 'brief' && first !== 'translate' && first !== 'history' && first !== 'segments') return { ok: false, error: `unknown command: ${first}` };
 
   const o = blank(first);
   let onlyFiles = false;
@@ -265,7 +265,16 @@ export function parseArgs(argv: readonly string[]): ParseResult {
       return { ok: false, error: 'history takes search words, -n, --json, --raw' };
     return { ok: true, options: o };
   }
-  if (o.limit !== null || o.json || o.raw) return { ok: false, error: '-n, --json and --raw are for history' };
+  if (o.command === 'segments') {
+    const speech = o.model || o.device || o.threads || o.script || o.modelDir;
+    if (o.formats.length > 0 || o.outDir || o.stdout || o.timestamps !== null || o.skipExisting || speech)
+      return { ok: false, error: 'segments prints to stdout; pass transcript .txt/.srt/.json files and optional --json' };
+    if (o.instruction != null || o.to != null || o.postScript != null || o.noPostScript || o.limit !== null || o.raw)
+      return { ok: false, error: 'segments takes transcript files and optional --json' };
+    if (o.inputs.length === 0) return { ok: false, error: 'no files given' };
+    return { ok: true, options: o };
+  }
+  if (o.limit !== null || o.json || o.raw) return { ok: false, error: '-n, --json and --raw are for history ( --json also for segments)' };
   if (o.inputs.length === 0) return { ok: false, error: 'no files given' };
   if (o.command === 'brain') {
     if (o.formats.length > 0) return { ok: false, error: 'brain writes .brain.txt (or --stdout); drop --format' };
@@ -299,6 +308,7 @@ export function helpText(t: (ru: string, en: string) => string): string {
   chawo-va brief <расшифровки.txt…> [параметры]
   chawo-va translate <тексты.txt…> [--to язык] [параметры]
   chawo-va history [слова для поиска…] [-n 20|all] [--json] [--raw]
+  chawo-va segments <файлы.txt|.srt|.json…> [--json]
 
 Параметры:
   -f, --format txt,srt,vtt,json,md,docx
@@ -354,6 +364,11 @@ export function helpText(t: (ru: string, en: string) => string): string {
       --lang ru|en       язык сообщений (не язык перевода)
   -q, --quiet
 
+Параметры segments (фразы со временем из готовой расшифровки, только чтение):
+  файлы…             .txt (с метками или рядом .srt/.json), .srt или .json
+      --json             JSON: start, end, text, speaker?
+  -q, --quiet            без строки «N фраз»
+
 Параметры history (история диктовки, только чтение, новые сверху):
       слова…             поиск: каждое слово должно встретиться (ё = е), как на странице
   -n, --limit <N|all>    сколько записей (по умолчанию 20)
@@ -371,6 +386,7 @@ WAV и Ogg/Opus читаются сами, остальные форматы (MP
 brain читает готовый .txt и пишет .brain.txt: абзацы без слов-паразитов и «Кратко».
 brief читает готовый .txt (рядом с записью или .brain.txt) и пишет .brief.txt через Мозг.
 translate переводит готовый .txt через Мозг (локальный по умолчанию) и пишет .translate.txt.
+segments печатает фразы со временем (как карточка «Расшифровка»): .srt → .json → метки в .txt.
 
 Коды выхода: 0 — всё готово, 1 — часть файлов не удалась, 2 — ошибка параметров,
 3 — нет модели / Мозга / yt-dlp, 130 — прервано (Ctrl+C).`,
@@ -382,6 +398,7 @@ Usage:
   chawo-va brief <transcript.txt…> [options]
   chawo-va translate <text.txt…> [--to language] [options]
   chawo-va history [search words…] [-n 20|all] [--json] [--raw]
+  chawo-va segments <files.txt|.srt|.json…> [--json]
 
 Options:
   -f, --format txt,srt,vtt,json,md,docx
@@ -437,6 +454,11 @@ translate options:
       --lang ru|en       message language (not the translation target)
   -q, --quiet
 
+segments options (timed phrases from a finished transcript, read-only):
+  files…             .txt (with stamps or a sibling .srt/.json), .srt or .json
+      --json             JSON: start, end, text, speaker?
+  -q, --quiet            no «N phrases» line
+
 history options (dictation history, read-only, newest first):
       words…             search: every word must occur (ё = е), same as the page
   -n, --limit <N|all>    how many entries (default 20)
@@ -454,6 +476,7 @@ the network. The CLI does not fetch yt-dlp: use «Download yt-dlp» in the app o
 brain reads a finished .txt and writes .brain.txt: paragraphs without filler words plus «Summary».
 brief reads a finished .txt (beside the recording or .brain.txt) and writes .brief.txt via the Brain.
 translate translates a finished .txt via the Brain (local by default) and writes .translate.txt.
+segments prints timed phrases (like the Transcript card): .srt → .json → stamps in .txt.
 
 Exit codes: 0 all done, 1 some files failed, 2 bad arguments, 3 no model/Brain/yt-dlp, 130 interrupted (Ctrl+C).`,
   );
