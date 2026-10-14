@@ -1,7 +1,7 @@
 // Combine app + calendar sources into one detect result. Pure orchestration (injected I/O),
 // so CLI and the GUI poller share the same logic. Never starts recording by itself.
 
-import { listMeetingApps, type ExecLike, type MeetingAppHit } from './meetingApps';
+import { listMeetingApps, meetingAppsSupported, type ExecLike, type MeetingAppHit } from './meetingApps';
 import {
   DEFAULT_LEAD_MS,
   detectCalendar,
@@ -21,7 +21,7 @@ export interface MeetingDetectSettings {
 export interface MeetingDetectResult {
   /** True when at least one source says a meeting looks active. */
   active: boolean;
-  /** False on non-Windows: process heuristics are not run. */
+  /** False when process heuristics are not available (e.g. macOS). */
   appsSupported: boolean;
   apps: MeetingAppHit[];
   calendar: CalendarHit[];
@@ -55,7 +55,7 @@ export async function detectMeeting(
     apps = listed.hits;
   } else {
     const platform = deps.platform ?? process.platform;
-    appsSupported = platform === 'win32';
+    appsSupported = meetingAppsSupported(platform);
   }
 
   const calendar =

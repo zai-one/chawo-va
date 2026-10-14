@@ -1,5 +1,5 @@
-// Known meeting apps: process-name / window-title heuristics (Windows-first). Pure matching is
-// unit-tested; listing processes needs an injected exec. On Linux/mac the list is empty and
+// Known meeting apps: process-name / window-title heuristics (Windows + Linux). Pure matching is
+// unit-tested; listing processes needs an injected exec. On macOS the list is empty and
 // appsSupported is false — calendar .ics still works elsewhere.
 
 export interface MeetingAppHit {
@@ -17,8 +17,10 @@ export const MEETING_PROCESSES: Readonly<Record<string, string>> = {
   teams: 'Teams',
   'ms-teams': 'Teams',
   msteams: 'Teams',
+  'teams-for-linux': 'Teams',
   skype: 'Skype',
   skypeapp: 'Skype',
+  skypeforlinux: 'Skype',
   discord: 'Discord',
   webex: 'Webex',
   webexhost: 'Webex',
@@ -133,8 +135,30 @@ export function parseWindowsProcessList(out: string): Array<{ name: string; titl
   return rows;
 }
 
+/** `ps -eo comm=` lines → process name rows (no window title). */
+export function parseLinuxProcessList(out: string): Array<{ name: string; title: string }> {
+  const rows: Array<{ name: string; title: string }> = [];
+  for (const line of out.split(/\r?\n/)) {
+    let name = line.trim();
+    if (!name) continue;
+    // Skip rare header if present; basename when a path slips through.
+    if (name === 'COMM' || name === 'COMMAND') continue;
+    const slash = name.lastIndexOf('/');
+    if (slash >= 0) name = name.slice(slash + 1);
+    if (!name) continue;
+    rows.push({ name, title: '' });
+  }
+  return rows;
+}
+
+/** True when process heuristics are implemented for this OS. */
+export function meetingAppsSupported(platform: NodeJS.Platform): boolean {
+  return platform === 'win32' || platform === 'linux';
+}
+
 /**
  * Running meeting apps on this machine. Windows: PowerShell process list.
+ * Linux: `ps -eo comm=` (process names only; no window titles without optional tools).
  * Elsewhere: unsupported (empty list) — callers use appsSupported === false.
  */
 export async function listMeetingApps(deps: ListMeetingAppsDeps = {}): Promise<{
@@ -142,11 +166,15 @@ export async function listMeetingApps(deps: ListMeetingAppsDeps = {}): Promise<{
   hits: MeetingAppHit[];
 }> {
   const platform = deps.platform ?? process.platform;
-  if (platform !== 'win32') return { supported: false, hits: [] };
+  if (!meetingAppsSupported(platform)) return { supported: false, hits: [] };
   const exec = deps.exec;
   if (!exec) return { supported: true, hits: [] };
   const timeout = deps.timeoutMs ?? 4000;
   try {
+    if (platform === 'linux') {
+      const out = await exec('ps', ['-eo', 'comm='], timeout);
+      return { supported: true, hits: matchMeetingProcesses(parseLinuxProcessList(out)) };
+    }
     const out = await exec('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', WINDOWS_LIST_SCRIPT], timeout);
     return { supported: true, hits: matchMeetingProcesses(parseWindowsProcessList(out)) };
   } catch {

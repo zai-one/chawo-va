@@ -2745,7 +2745,7 @@ function renderMeeting(): void {
     if (m.autoDetect) {
       const apps = el('input', { type: 'checkbox', checked: m.autoDetectApps, id: 'meeting-auto-apps' });
       apps.addEventListener('change', () => void bridge.meeting.setAutoDetectApps(apps.checked).then(applyMeeting));
-      box.append(el('label', { className: 'check' }, apps, ' ', L('Смотреть Zoom, Teams, Телемост и др. (Windows)', 'Watch Zoom, Teams, Telemost, etc. (Windows)')));
+      box.append(el('label', { className: 'check' }, apps, ' ', L('Смотреть Zoom, Teams, Телемост и др. (Windows/Linux)', 'Watch Zoom, Teams, Telemost, etc. (Windows/Linux)')));
       const calRow = el('div', { className: 'row cal-row' });
       const cal = el('input', {
         type: 'text',

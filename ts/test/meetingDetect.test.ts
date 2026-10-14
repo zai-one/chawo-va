@@ -3,8 +3,11 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
+  listMeetingApps,
   matchMeetingProcess,
   matchMeetingProcesses,
+  meetingAppsSupported,
+  parseLinuxProcessList,
   parseWindowsProcessList,
   stemOf,
 } from '../src/main/meeting/meetingApps';
@@ -36,11 +39,14 @@ describe('meetingApps matching', () => {
     expect(matchMeetingProcess('CptHost')?.app).toBe('Zoom');
     expect(matchMeetingProcess('Teams.exe')?.app).toBe('Teams');
     expect(matchMeetingProcess('ms-teams')?.app).toBe('Teams');
+    expect(matchMeetingProcess('teams-for-linux')?.app).toBe('Teams');
     expect(matchMeetingProcess('Discord.exe')?.app).toBe('Discord');
     expect(matchMeetingProcess('Skype.exe')?.app).toBe('Skype');
+    expect(matchMeetingProcess('skypeforlinux')?.app).toBe('Skype');
     expect(matchMeetingProcess('webexhost')?.app).toBe('Webex');
     expect(matchMeetingProcess('telemost')?.app).toBe('Телемост');
     expect(matchMeetingProcess('notepad.exe')).toBeNull();
+    expect(matchMeetingProcess('telegram-desktop')).toBeNull();
   });
 
   it('matches browser window titles for Meet / Telemost', () => {
@@ -66,6 +72,66 @@ describe('meetingApps matching', () => {
       { name: 'chrome', title: 'Gmail' },
       { name: 'Teams', title: '' },
     ]);
+  });
+
+  it('parses Linux ps comm lines', () => {
+    const rows = parseLinuxProcessList('zoom\nteams\nchrome\n/usr/bin/discord\nCOMM\n');
+    expect(rows).toEqual([
+      { name: 'zoom', title: '' },
+      { name: 'teams', title: '' },
+      { name: 'chrome', title: '' },
+      { name: 'discord', title: '' },
+    ]);
+  });
+
+  it('meetingAppsSupported is win32 and linux only', () => {
+    expect(meetingAppsSupported('win32')).toBe(true);
+    expect(meetingAppsSupported('linux')).toBe(true);
+    expect(meetingAppsSupported('darwin')).toBe(false);
+  });
+
+  it('listMeetingApps on Linux: hits from stubbed ps, supported on exec fail', async () => {
+    const hit = await listMeetingApps({
+      platform: 'linux',
+      exec: async (file, args) => {
+        expect(file).toBe('ps');
+        expect(args).toEqual(['-eo', 'comm=']);
+        return 'bash\nzoom\nteams-for-linux\nfirefox\n';
+      },
+    });
+    expect(hit.supported).toBe(true);
+    expect(hit.hits.map((h) => h.app).sort()).toEqual(['Teams', 'Zoom']);
+
+    const fail = await listMeetingApps({
+      platform: 'linux',
+      exec: async () => {
+        throw new Error('ps missing');
+      },
+    });
+    expect(fail.supported).toBe(true);
+    expect(fail.hits).toEqual([]);
+
+    const noExec = await listMeetingApps({ platform: 'linux' });
+    expect(noExec).toEqual({ supported: true, hits: [] });
+  });
+
+  it('listMeetingApps on darwin stays unsupported; Windows still works', async () => {
+    const mac = await listMeetingApps({
+      platform: 'darwin',
+      exec: async () => 'zoom\n',
+    });
+    expect(mac).toEqual({ supported: false, hits: [] });
+
+    const win = await listMeetingApps({
+      platform: 'win32',
+      exec: async (file, args) => {
+        expect(file).toBe('powershell.exe');
+        expect(args[0]).toBe('-NoProfile');
+        return 'Zoom|Meeting\nchrome|Gmail\n';
+      },
+    });
+    expect(win.supported).toBe(true);
+    expect(win.hits.map((h) => h.app)).toEqual(['Zoom']);
   });
 });
 
@@ -162,10 +228,17 @@ describe('meetingDetect combine + poller', () => {
 
     const linux = await detectMeeting(
       { MeetingAutoDetect: true, MeetingAutoDetectApps: true, MeetingAutoDetectCalendar: '' },
-      { platform: 'linux', exec: async () => 'Zoom|', now: () => now },
+      { platform: 'linux', exec: async () => 'zoom\nteams\nbash\n', now: () => now },
     );
-    expect(linux.appsSupported).toBe(false);
-    expect(linux.apps).toEqual([]);
+    expect(linux.appsSupported).toBe(true);
+    expect(linux.apps.map((a) => a.app).sort()).toEqual(['Teams', 'Zoom']);
+
+    const darwin = await detectMeeting(
+      { MeetingAutoDetect: true, MeetingAutoDetectApps: true, MeetingAutoDetectCalendar: '' },
+      { platform: 'darwin', exec: async () => 'zoom\n', now: () => now },
+    );
+    expect(darwin.appsSupported).toBe(false);
+    expect(darwin.apps).toEqual([]);
   });
 
   it('shouldOfferPrompt respects snooze, recording, fingerprint', () => {

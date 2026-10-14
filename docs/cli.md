@@ -22,7 +22,7 @@
 | `stats <.txt/.srt/.json…>` | «Статистика разговора»: доля речи, монологи, вопросы, темп, трекеры слов | stdout |
 | `snippets list\|add\|remove` | Сниппеты для «вставь …» при диктовке (тот же `snippets.json`, что на «Словаре») | stdout / `snippets.json` |
 | `dictionary list\|suggest\|accept\|dismiss\|learn\|auto` | Словарь замен и «Из исправлений» (тот же `learned-words.json`, что на «Словаре») | stdout / `learned-words.json` |
-| `meeting detect` | Автоопределение встречи (приложения Windows / локальный `.ics`, в т.ч. RRULE) без запуска записи | stdout |
+| `meeting detect` | Автоопределение встречи (приложения Windows/Linux / локальный `.ics`, в т.ч. RRULE) без запуска записи | stdout |
 | `serve` | Headless CPU-сервер расшифровки ([linux-server.md](linux-server.md)) | — |
 | `--help`, `--version` | Справка / версия (`chawo-va 2.0.0`) | stdout |
 
@@ -254,7 +254,7 @@ chawo-va meeting detect
 chawo-va meeting detect --json
 ```
 
-Берутся настройки приложения `MeetingAutoDetectApps` и `MeetingAutoDetectCalendar` (мастер-флаг в CLI не нужен — проверка всегда выполняется). На не-Windows список приложений пуст (`appsSupported: false`); календарь `.ics` работает везде (повторы RRULE, EXDATE, без CANCELLED).
+Берутся настройки приложения `MeetingAutoDetectApps` и `MeetingAutoDetectCalendar` (мастер-флаг в CLI не нужен — проверка всегда выполняется). На macOS список приложений пуст (`appsSupported: false`); на Windows и Linux процессы Zoom/Teams/… распознаются; календарь `.ics` работает везде (повторы RRULE, EXDATE, без CANCELLED).
 
 `--json` печатает `{ active, appsSupported, apps, calendar, reasons }`.
 
@@ -457,7 +457,7 @@ Chawo Voice Assistant — расшифровка файлов, «Кратко и
       auto on|off        добавлять повторённые исправления в словарь сами (по умолчанию off)
 
 Параметры meeting (автоопределение встречи без запуска записи; настройки — из settings.json):
-      detect [--json]    есть ли сейчас встреча: приложения (Windows) и/или локальный .ics (RRULE/EXDATE)
+      detect [--json]    есть ли сейчас встреча: приложения (Windows/Linux) и/или локальный .ics (RRULE/EXDATE)
                          JSON: {active, appsSupported, apps, calendar, reasons}
 
 Параметры history (история диктовки, только чтение, новые сверху):
