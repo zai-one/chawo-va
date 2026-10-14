@@ -193,6 +193,21 @@ const api = {
       return () => ipcRenderer.removeListener('brain:state', h);
     },
   },
+  ask: {
+    state: () => ipcRenderer.invoke('ask:state'),
+    run: (q: string) => ipcRenderer.invoke('ask:run', q),
+    cancel: () => ipcRenderer.invoke('ask:cancel'),
+    setHistory: (on: boolean) => ipcRenderer.invoke('ask:history', on),
+    addFolder: () => ipcRenderer.invoke('ask:addFolder'),
+    removeFolder: (p: string) => ipcRenderer.invoke('ask:removeFolder', p),
+    copy: () => ipcRenderer.invoke('ask:copy'),
+    open: (p: string) => ipcRenderer.invoke('ask:open', p),
+    onState: (fn: (s: unknown) => void) => {
+      const h = (_e: unknown, s: unknown) => fn(s);
+      ipcRenderer.on('ask:state', h);
+      return () => ipcRenderer.removeListener('ask:state', h);
+    },
+  },
   history: {
     state: () => ipcRenderer.invoke('history:state'),
     setQuery: (q: string) => ipcRenderer.invoke('history:query', q),
