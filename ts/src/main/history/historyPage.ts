@@ -43,7 +43,7 @@ export interface HistoryStateDto {
   canRerun: boolean;
   rerunTip: string;
   rerunningId: string | null;
-  labels: { copy: string; copyRaw: string; rerun: string; remove: string; clearAll: string; rawHeader: string };
+  labels: { copy: string; copyRaw: string; rerun: string; remove: string; clearAll: string; rawHeader: string; edit: string; save: string; cancel: string };
 }
 
 export interface HistoryHooks {
@@ -56,6 +56,8 @@ export interface HistoryHooks {
   push?: () => void;
   now?: () => number;
   brainUsable?: (s: SettingsData) => boolean;
+  /** «Исправить» saved: learn the word fixes for «Словарь» (learned-words.json). */
+  learn?: (before: string, after: string) => { added: { from: string; to: string }[]; suggested: { from: string; to: string }[] };
   transform?: (s: SettingsData, body: string, command: string | null, status: (line: string) => void, signal: AbortSignal) => Promise<string>;
 }
 
@@ -154,6 +156,9 @@ export class HistoryController {
         remove: t('Удалить', 'Delete'),
         clearAll: t('Очистить всё', 'Clear all'),
         rawHeader: t('Распознано:', 'Recognized:'),
+        edit: t('Исправить', 'Fix'),
+        save: t('Сохранить', 'Save'),
+        cancel: t('Отмена', 'Cancel'),
       },
     };
   }
@@ -205,6 +210,26 @@ export class HistoryController {
         this.status = t('В буфер обмена скопировать не получилось.', 'Could not copy to the clipboard.');
       }
     }
+    return this.state();
+  }
+
+  /**
+   * «Исправить»: the user's text replaces the entry. Word fixes go to «Словарь из исправлений»:
+   * a fix seen twice is suggested there (or added by itself when «Добавлять сами» is on).
+   */
+  edit(id: string, text: string): HistoryStateDto {
+    const e = this.h.store.get(id);
+    const next = typeof text === 'string' ? text.replace(/\r\n?/g, '\n').trim() : '';
+    if (!e || !next || next === e.final) return this.state();
+    const before = e.final;
+    this.h.store.setText(id, next);
+    const r = this.h.learn?.(before, next) ?? { added: [], suggested: [] };
+    const pairs = (l: { from: string; to: string }[]) => l.map((p) => `${p.from} → ${p.to}`).join(', ');
+    this.status = r.added.length > 0
+      ? t(`Исправлено. В словарь добавлено: ${pairs(r.added)}.`, `Fixed. Added to the dictionary: ${pairs(r.added)}.`)
+      : r.suggested.length > 0
+        ? t(`Исправлено. На «Словаре» предложено: ${pairs(r.suggested)}.`, `Fixed. Suggested on Dictionary: ${pairs(r.suggested)}.`)
+        : t('Исправлено.', 'Fixed.');
     return this.state();
   }
 

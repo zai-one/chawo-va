@@ -104,6 +104,8 @@ export interface SessionHooks {
   postScript?: (r: PostScriptRun) => Promise<PostScriptResult>;
   /** Snippets for «вставь …»; defaults to snippets.json in the app data folder (tests inject). */
   snippets?: () => Snippet[];
+  /** Picks up dictionary rows queued by `chawo-va dictionary accept` before the rules run. */
+  pendingRules?: () => void;
   /** Client role: RemoteSpeech.transcribe (tests pass a fake host). Throws RemoteHostException. */
   remote?: (s: SettingsData, samples: Float32Array, rate: number, signal: AbortSignal) => Promise<string>;
   /** The focused program at key press (per-app modes). Asked only while settings.AppRules is not empty. */
@@ -522,6 +524,7 @@ export class DictationSession {
         if (text.length > 0) this.showSales(text);
         // Dictionary on the finished recognition only, before the Brain sees the phrase. Not the live draft.
         if (text.length > 0) {
+          this.h.pendingRules?.();
           const replaced = applyRules(text, effectiveWordReplacementRules(this.h.settings()));
           if (replaced !== text) Log.write(`word replace before brain: ${text.length} -> ${replaced.length} chars`);
           text = replaced;

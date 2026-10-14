@@ -28,6 +28,7 @@ const api = {
     setTranslateTarget: (text: string) => ipcRenderer.invoke('file:translateTarget', text),
     runTranslate: (to?: string, path?: string) => ipcRenderer.invoke('file:runTranslate', to, path),
     openEditor: (path?: string) => ipcRenderer.invoke('file:openEditor', path),
+    editPhrase: (index: number, text: string) => ipcRenderer.invoke('file:editPhrase', index, text),
     mediaUrl: (audioPath: string) => ipcRenderer.invoke('file:mediaUrl', audioPath),
     onState: (fn: (s: unknown) => void) => {
       const h = (_e: unknown, s: unknown) => fn(s);
@@ -87,6 +88,9 @@ const api = {
     addSnippet: () => ipcRenderer.invoke('dict:addSnippet'),
     removeSnippet: (id: number) => ipcRenderer.invoke('dict:removeSnippet', id),
     testScript: () => ipcRenderer.invoke('dict:testScript'),
+    acceptLearned: (from: string, to: string) => ipcRenderer.invoke('dict:acceptLearned', from, to),
+    dismissLearned: (from: string, to: string) => ipcRenderer.invoke('dict:dismissLearned', from, to),
+    setLearnAuto: (on: boolean) => ipcRenderer.invoke('dict:setLearnAuto', on),
   },
   sales: {
     state: () => ipcRenderer.invoke('sales:state'),
@@ -201,6 +205,7 @@ const api = {
     remove: (id: string) => ipcRenderer.invoke('history:remove', id),
     clearAll: () => ipcRenderer.invoke('history:clear'),
     rerun: (id: string) => ipcRenderer.invoke('history:rerun', id),
+    edit: (id: string, text: string) => ipcRenderer.invoke('history:edit', id, text),
     onState: (fn: (s: unknown) => void) => {
       const h = (_e: unknown, s: unknown) => fn(s);
       ipcRenderer.on('history:state', h);

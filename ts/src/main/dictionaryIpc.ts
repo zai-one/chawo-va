@@ -33,6 +33,9 @@ export function registerDictionaryIpc(
     return { id, state: ctl.state() };
   });
   ipcMain.handle('dict:removeSnippet', (_e, id: unknown) => ctl.removeSnippet(num(id)));
+  ipcMain.handle('dict:acceptLearned', (_e, from: unknown, to: unknown) => ctl.acceptLearned(str(from), str(to)));
+  ipcMain.handle('dict:dismissLearned', (_e, from: unknown, to: unknown) => ctl.dismissLearned(str(from), str(to)));
+  ipcMain.handle('dict:setLearnAuto', (_e, on: unknown) => ctl.setLearnAuto(on === true));
   ipcMain.handle('dict:testScript', () => ctl.testScript());
   return ctl;
 }

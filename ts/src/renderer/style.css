@@ -50,6 +50,10 @@ label.block { display: block; font-weight: 600; margin: 14px 0 4px; }
 .dict.suggest .dict-row { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 120px; }
 .dict-row.head { font-size: 12px; padding: 0 2px; }
 .dict-row .cell { overflow-wrap: anywhere; }
+.phrase-edit { margin: 2px 0; }
+.learned-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 40px 110px auto; gap: 8px; align-items: center; margin: 3px 0; }
+.hist-edit { width: 100%; resize: vertical; font: inherit; background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 6px; padding: 5px 7px; box-sizing: border-box; }
+.hist-edit:focus { outline: none; border-color: var(--accent); }
 .snippet-row { display: grid; grid-template-columns: minmax(0, 180px) minmax(0, 1fr) 110px; gap: 8px; align-items: start; margin: 4px 0; }
 .snippet-row textarea { resize: vertical; min-height: 30px; font: inherit; }
 input[type=text] { background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 6px; padding: 5px 7px; font: inherit; min-width: 0; width: 100%; }

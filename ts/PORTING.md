@@ -1173,6 +1173,15 @@ Re-align folder names and tooling with taptain-desktop once its layout is readab
   метки); вопросы — только по «?» от модели. Документация: docs/user-guide.md, docs/cli.md (+ полный --help).
   Следующее: словарь из исправлений (№4).
 
+- 2026-10-14 tick (branch `ts/feat-self-dictionary`, competitor queue №4): **Словарь из исправлений** —
+  `src/core/selfDictionary.ts` (wordCorrections: LCS по словам, правки 1–3 слова, без регистра первой
+  буквы/вставок/цифр/переписанного текста; learn/suggestions с порогом 2, dismiss, autoAdd, очередь
+  pending для CLI), `learned-words.json`; «История» → «Исправить» (HistoryStore.setText, HistoryController.edit),
+  блок «Из исправлений» на «Словаре» (В словарь / Скрыть / «Добавлять в словарь сами»); CLI
+  `chawo-va dictionary list|suggest|accept|dismiss|learn|auto` (settings.json только читается, принятые строки
+  приложение забирает из pending при диктовке/показе страницы). Правки в поле чужой программы после вставки
+  не отслеживаются (нужен нативный хелпер) — источник правок: история и файлы.
+
 - 2026-10-14 tick (branch `ts/feat-ask-history`, competitor queue №7 / top-10 #5): **Спросить историю** (как Granola
   chat across meetings, Fireflies AskFred) — `src/core/askHistory.ts` (чистый): лёгкий стеммер RU/EN (без «-ов/-ев»,
   чтобы фамилии Иванов/Иванову/Иванова давали одну основу; «-ся/-сь» снимается первым), стоп-слова, отрывки по
@@ -1187,7 +1196,7 @@ Re-align folder names and tooling with taptain-desktop once its layout is readab
   (процитированные раскрыты, «Открыть» — только пути из последнего ответа). Облачный Мозг спрашивает перед
   отправкой («Нет, только поиск»), без Мозга — только отрывки. CLI: `chawo-va ask <вопрос…> [--in …]…
   [--no-history] [--search] [-n N] [--json]`. Тесты: askHistory (+10), askSources (+5), askPage (+6), cli (+6),
-  cliArgs (+2). **979** зелёные после слияния с main (было 950), `tsc`/build. e2e (без речевой модели, Мозг — фейковый 127.0.0.1): 89 PASS / 0 FAIL /
+  cliArgs (+2). **998** зелёные после слияния с main (было 969), `tsc`/build. e2e (без речевой модели, Мозг — фейковый 127.0.0.1): 100 PASS / 0 FAIL /
   11 SKIP после слияния с main (CLI ask --search / с ответом и источником / --no-history --json / --in; GUI: вопрос через поле и кнопку →
   ответ с [1] и источником `встреча-иванов.txt`, переключатель диктовки, ask:state). Живой прогон CLI `--search` на трёх
   расшифровках звонков: «что обещали Ромашке по скидке?», «когда демо с Лютиком?», «кто отвечает за бюджет» — нужный

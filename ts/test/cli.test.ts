@@ -1093,6 +1093,66 @@ describe('chawo-va snippets', () => {
   });
 });
 
+describe('chawo-va dictionary', () => {
+  it('learn twice → suggest → accept writes only WordReplacementRules; dismiss, auto, list', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'chawo-dict-cli-'));
+    try {
+      const lp = join(dir, 'learned-words.json');
+      const sp = '/cfg/settings.json';
+      const settings = JSON.stringify({ Brain: 'Local', ApiKeyProtected: 'secret-blob', WordReplacementRules: '' });
+      const mk = (files: Record<string, string> = {}) => {
+        const h = harness({ fileText: files });
+        h.deps.learnedPath = () => lp;
+        h.deps.settingsFile = () => sp;
+        return h;
+      };
+      const texts = { '/a.txt': 'созвон с зайон и гигапис', '/b.txt': 'созвон с Zaion и GigaPisar' };
+      let h = mk(texts);
+      expect(await run(h, 'dictionary', 'learn', '/a.txt', '/b.txt')).toBe(EXIT_OK);
+      expect(h.out.join('')).toBe('зайон\tZaion\nгигапис\tGigaPisar\n');
+      h = mk(texts);
+      expect(await run(h, 'dictionary', 'suggest')).toBe(EXIT_OK);
+      expect(h.out.join('')).toBe('');
+      h = mk(texts);
+      expect(await run(h, 'dictionary', 'learn', '/a.txt', '/b.txt', '--json')).toBe(EXIT_OK);
+      expect(JSON.parse(h.out.join('')).suggested).toHaveLength(2);
+      h = mk();
+      expect(await run(h, 'dictionary', 'suggest', '--json')).toBe(EXIT_OK);
+      expect(JSON.parse(h.out.join('')).map((p: { from: string }) => p.from).sort()).toEqual(['гигапис', 'зайон']);
+      h = mk({ [sp]: settings });
+      expect(await run(h, 'dictionary', 'accept', 'Зайон')).toBe(EXIT_OK);
+      expect(h.files.has(sp)).toBe(false); // settings.json is never written by the CLI
+      expect(JSON.parse(readFileSync(lp, 'utf8')).pending).toEqual([{ from: 'зайон', to: 'Zaion' }]);
+      const h2 = mk({ [sp]: settings });
+      expect(await run(h2, 'dictionary', 'list')).toBe(EXIT_OK);
+      expect(h2.out.join('')).toContain('зайон\tZaion\n');
+      expect(h2.out.join('')).toContain('цпу\tCPU\n');
+      h = mk();
+      expect(await run(h, 'dictionary', 'dismiss', 'гигапис')).toBe(EXIT_OK);
+      h = mk();
+      expect(await run(h, 'dictionary', 'suggest', '--json')).toBe(EXIT_OK);
+      expect(JSON.parse(h.out.join(''))).toEqual([]);
+      h = mk();
+      expect(await run(h, 'dictionary', 'dismiss', 'нету')).toBe(EXIT_FAILED);
+      h = mk();
+      expect(await run(h, 'dictionary', 'accept', 'нету')).toBe(EXIT_FAILED);
+      h = mk();
+      expect(await run(h, 'dictionary', 'auto', 'on')).toBe(EXIT_OK);
+      expect(JSON.parse(readFileSync(lp, 'utf8')).autoAdd).toBe(true);
+      h = mk();
+      expect(await run(h, 'dictionary', 'auto', 'maybe')).toBe(EXIT_USAGE);
+      h = mk();
+      expect(await run(h, 'dictionary', 'learn', '/missing.txt', '/b.txt')).toBe(EXIT_FAILED);
+      h = mk();
+      expect(await run(h, 'dictionary', 'accept', '--json', 'x')).toBe(EXIT_USAGE);
+      h = mk();
+      expect(await run(h, 'dictionary', 'frobnicate')).toBe(EXIT_USAGE);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
 describe('runCli brain --context («Контекст для Мозга»)', () => {
   it('no flag: prompts carry no context', async () => {
     const prompts: string[] = [];

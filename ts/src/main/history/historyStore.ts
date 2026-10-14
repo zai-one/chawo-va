@@ -185,6 +185,16 @@ export class HistoryStore {
     return e;
   }
 
+  /** «Исправить»: the user's own text replaces `final` (the Brain flags stay as they were). */
+  setText(id: string, final: string): HistoryEntry | null {
+    const list = this.load();
+    const e = list.find((x) => x.id === id);
+    if (!e) return null;
+    e.final = final.slice(0, MAX_TEXT);
+    this.writeAll(list);
+    return e;
+  }
+
   remove(id: string): boolean {
     const list = this.load();
     const kept = list.filter((e) => e.id !== id);

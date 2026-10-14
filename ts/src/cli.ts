@@ -16,7 +16,7 @@ import { diarizeHook } from './main/diarize/diarizeRuntime';
 import { runCli, EXIT_INTERRUPTED, type CliDefaults, type CliDeps, type Engine, type EngineConfig } from './cli/run';
 import * as Log from './main/log';
 import { findComplete, looksComplete } from './main/models/speechModelStore';
-import { briefTemplatesPath, env, historyFilePath, settingsPath, snippetsPath } from './main/paths';
+import { briefTemplatesPath, env, historyFilePath, learnedWordsPath, settingsPath, snippetsPath } from './main/paths';
 import * as AskSources from './main/history/askSources';
 import * as BriefTemplates from './main/brain/briefTemplates';
 import { defaults as settingsDefaults, fromJsonObject, toCtcScript, toFileParallelism, toSpeechDeviceKind, toSpeechModelKind } from './main/settings';
@@ -155,6 +155,8 @@ export function realDeps(signal: AbortSignal): CliDeps {
       return [...meet, ...AskSources.parseFolders(s.AskFolders)];
     },
     snippetsPath,
+    learnedPath: learnedWordsPath,
+    settingsFile: settingsPath,
     briefTemplates: () => BriefTemplates.loadCustom(briefTemplatesPath()),
     readStdin: async () => {
       const chunks: Buffer[] = [];

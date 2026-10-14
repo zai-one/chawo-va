@@ -131,6 +131,9 @@ function seedHistory() {
   const { HistoryStore } = require(join(root, 'dist/main/history/historyStore.js'));
   const store = new HistoryStore(Paths.historyFilePath());
   const now = Date.now();
+  // Two older takes for «Исправить» → «Словарь из исправлений» in the GUI pass (same fix twice).
+  store.add({ raw: 'Лес в тумане', final: 'Лес в тумане.', command: null, brain: false, brainFailed: false, seconds: 1.0, ts: now - 120_000 }, 'Week');
+  store.add({ raw: 'Поле в тумане', final: 'Поле в тумане.', command: null, brain: false, brainFailed: false, seconds: 1.0, ts: now - 90_000 }, 'Week');
   store.add({ raw: 'ну Совещание в пятницу', final: 'Совещание в пятницу.', command: null, brain: true, brainFailed: false, seconds: 2.3, ts: now - 60_000 }, 'Week');
   store.add({ raw: 'Ёжик в тумане', final: 'Ёжик в тумане.', command: null, brain: false, brainFailed: false, seconds: 1.1, ts: now - 30_000 }, 'Week');
   // A finished meeting transcript for «Спросить историю» (CLI `ask` and the History page).
@@ -179,7 +182,7 @@ async function cliCases(brainPort) {
   let r = await run(['--version']);
   check('cli --version', r.code === 0 && r.out.includes(pkg.version), brief(r));
   r = await run(['--help']);
-  const cmds = ['transcribe', 'brain', 'brief', 'translate', 'history', 'ask', 'segments', 'stats', 'snippets'];
+  const cmds = ['transcribe', 'brain', 'brief', 'translate', 'history', 'ask', 'segments', 'stats', 'snippets', 'dictionary'];
   check('cli --help lists every command', r.code === 0 && cmds.every((c) => r.out.includes('chawo-va ' + c)), brief(r));
   r = await run(['--lang', 'en', '--help']);
   check('cli --lang en --help (before the command)', r.code === 0 && r.out.includes('Usage'), brief(r));
@@ -239,6 +242,29 @@ async function cliCases(brainPort) {
   check('cli snippets remove', r.code === 0 && r2.code === 0 && !r2.out.includes('реквизиты'), brief(r) + ' / ' + brief(r2));
   r = await run(['snippets', 'remove', 'реквизиты']);
   check('cli snippets remove missing → exit 1', r.code === 1, brief(r));
+
+  // ---- dictionary from fixes (learned-words.json; only WordReplacementRules in settings.json changes) ----
+  const ld = join(tmp, 'learn');
+  mkdirSync(ld, { recursive: true });
+  writeFileSync(join(ld, 'before.txt'), 'Созвон с гигачад в среду, потом гигачад отчёт.');
+  writeFileSync(join(ld, 'after.txt'), 'Созвон с GigaChad в среду, потом GigaChad отчёт.');
+  r = await run(['dictionary', 'learn', join(ld, 'before.txt'), join(ld, 'after.txt')]);
+  check('cli dictionary learn finds the fix', r.code === 0 && r.out.includes('гигачад\tGigaChad'), brief(r));
+  r = await run(['dictionary', 'suggest', '--json']);
+  check('cli dictionary suggest: one fix is not enough', r.code === 0 && r.out.trim() === '[]', brief(r));
+  await run(['dictionary', 'learn', join(ld, 'before.txt'), join(ld, 'after.txt')]);
+  r = await run(['dictionary', 'suggest', '--json']);
+  let dj = [];
+  try { dj = JSON.parse(r.out); } catch { /* checked below */ }
+  check('cli dictionary suggest after the second fix', r.code === 0 && dj.some((x) => x.from === 'гигачад' && x.to === 'GigaChad' && x.count === 2), brief(r));
+  r = await run(['dictionary', 'accept', 'гигачад']);
+  const r3 = await run(['dictionary', 'list']);
+  const learnedCli = JSON.parse(readFileSync(Paths.learnedWordsPath(), 'utf8'));
+  check('cli dictionary accept → queued for the app, shown by list', r.code === 0 && r3.out.includes('гигачад\tGigaChad') && (learnedCli.pending || []).some((p) => p.from === 'гигачад'), brief(r) + ' / ' + brief(r3));
+  r = await run(['dictionary', 'suggest', '--json']);
+  check('cli dictionary suggest is empty after accept', r.code === 0 && r.out.trim() === '[]', brief(r));
+  r = await run(['dictionary', 'accept', 'нет-такого']);
+  check('cli dictionary accept unknown → exit 1', r.code === 1, brief(r));
 
   r = await run(['history']);
   check('cli history lists the takes', r.code === 0 && r.out.includes('Ёжик') && r.out.includes('Совещание'), brief(r));
@@ -435,7 +461,7 @@ async function guiCase(haveModel) {
     cmd = 'xvfb-run';
     full = ['-a', '-s', '-screen 0 1280x800x24', bin, ...eargs];
   }
-  const env = { ...baseEnv, CHAWO_E2E_MODEL: haveModel ? '1' : '0' };
+  const env = { ...baseEnv, CHAWO_E2E_MODEL: haveModel ? '1' : '0', CHAWO_E2E_CLI_RAN: flag('--no-cli') ? '0' : '1' };
   const t0 = Date.now();
   const child = spawn(cmd, full, { env, stdio: ['ignore', 'pipe', 'pipe'] });
   let log = '';

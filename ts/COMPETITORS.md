@@ -44,7 +44,7 @@
 | # | Функция | У кого есть | Польза | Приватность | Трудоёмкость |
 |---|---|---|---|---|---|
 | 1 ⭐ ✅ | **Сниппеты: голосовые сокращения.** Говоришь «моя подпись», «реквизиты», «ссылка на календарь», вставляется готовый текст (сделано 2026-10-14, `ts/feat-snippets`) | [Wispr Flow](https://wisprflow.ai/features) (snippets, общие для команды), [Dragon](https://dragon.nuance.com/en-us/dragon-professional) (Auto-Texts) | 👤 подписи, адреса; 💼 типовые ответы, КП-абзацы, реквизиты | ✅ | S |
-| 2 ⭐ | **Словарь пополняется сам из исправлений** (поправил слово после вставки, оно попало в словарь) | [Wispr Flow](https://wisprflow.ai/features) | 👤 имена и жаргон без ручной настройки; 💼 названия клиентов и товаров | ✅ (сравнивать вставленное с тем, что стало в поле) | M |
+| 2 ⭐ ✅ | **Словарь пополняется сам из исправлений** (поправил слово после вставки, оно попало в словарь; сделано 2026-10-14, `ts/feat-self-dictionary`: правки в «История» → «Исправить» и `chawo-va dictionary learn`, предложения на «Словаре», «Добавлять сами» по желанию) | [Wispr Flow](https://wisprflow.ai/features) | 👤 имена и жаргон без ручной настройки; 💼 названия клиентов и товаров | ✅ (сравнивать вставленное с тем, что стало в поле) | M |
 | 3 ⭐ ✅ | **Контекст для Мозга: буфер, программа, текст на экране** (не только выделенный текст) | [Superwhisper](https://superwhisper.com/docs/modes/modes) (Application / Copied text / Selected text), Aqua Voice (screen-aware, не проверено) | 👤 ответ на письмо, которое открыто; 💼 ответ клиенту с учётом переписки | ✅ при локальном Мозге; для облака спрашивать (сделано 2026-10-14, `ts/feat-brain-context`: буфер + программа/заголовок окна, по желанию, выкл. по умолчанию, предупреждение для облака; CLI `brain` и `transcribe --brain` с `--context/--context-file`; «Прогнать через мозг» на странице «Файл» — буфер обмена (`ts/feat-brain-context-parity`); текст на экране не читаем) | M |
 | 4 ⭐ ✅ | **Шаблоны/«рецепты» для карточки после встречи** (разбор звонка продаж, протокол, краткое резюме + свои) с выбором шаблона (сделано 2026-10-14, `ts/feat-templates`) | [Granola](https://www.granola.ai/pricing) (templates, Recipes), [Meetily](https://github.com/Zackriya-Solutions/meetily) (Pro templates), [Superwhisper](https://superwhisper.com/docs/modes/built-in) (Meeting mode) | 💼 единый формат отчёта по каждому звонку | ✅ | S |
 | 5 ⭐ ✅ | **Вопросы к встречам и истории («что обещали клиенту Х?»)**: чат по одной или многим расшифровкам (сделано 2026-10-14, `ts/feat-ask-history`) | [Granola](https://www.granola.ai/pricing) (chat across meetings), Fireflies AskFred, Otter AI Chat (не проверено), [Wispr Notetaker](https://wisprflow.ai/) | 💼 подготовка к следующему звонку; 👤 поиск по смыслу | ✅ (локальный Мозг + та же RAG, что в ассистенте продаж) | M |
@@ -73,7 +73,7 @@
 1. ✅ Сниппеты (S): Wispr Flow, Dragon. — сделано 2026-10-14 (`ts/feat-snippets`).
 2. ✅ Шаблоны карточки после встречи (S): Granola, Meetily, Superwhisper. — сделано 2026-10-14 (`ts/feat-templates`).
 3. ✅ Статистика разговора и трекеры слов (S): Gong. — сделано 2026-10-14 (`ts/feat-call-stats`).
-4. Словарь из исправлений (M): Wispr Flow.
+4. ✅ Словарь из исправлений (M): Wispr Flow. — сделано 2026-10-14 (`ts/feat-self-dictionary`).
 5. ✅ Контекст для Мозга: буфер и программа (M): Superwhisper, Aqua. — сделано 2026-10-14 (`ts/feat-brain-context`).
 6. Проверка звонка по чек-листу (M): MANGO, SpeechSense, Calltouch.
 7. ✅ Вопросы ко всем встречам (M): Granola, Fireflies, Otter, Wispr. — сделано 2026-10-14 (`ts/feat-ask-history`).
