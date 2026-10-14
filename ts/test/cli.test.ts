@@ -1093,6 +1093,33 @@ describe('chawo-va snippets', () => {
   });
 });
 
+describe('runCli brain --context («Контекст для Мозга»)', () => {
+  it('no flag: prompts carry no context', async () => {
+    const prompts: string[] = [];
+    const h = harness({ fileText: { '/a.txt': 'Ну, привет.' }, fileBrainAsk: async (p, t) => (prompts.push(p), defaultFileBrainAsk(p, t)) });
+    expect(await run(h, 'brain', '/a.txt', '--stdout')).toBe(EXIT_OK);
+    expect(prompts.length).toBeGreaterThan(0);
+    expect(prompts.every((p) => !p.includes('<context>'))).toBe(true);
+  });
+  it('--context goes into every prompt, never into the text; cloud says it leaves', async () => {
+    const prompts: string[] = [];
+    const h = harness({ fileText: { '/a.txt': 'Ну, привет.' }, fileBrainCloud: 'api.example.com', fileBrainAsk: async (p, t) => (prompts.push(p), defaultFileBrainAsk(p, t)) });
+    expect(await run(h, 'brain', '/a.txt', '--stdout', '--context', 'Анна Карпенко')).toBe(EXIT_OK);
+    expect(prompts.every((p) => p.includes('<context>') && p.includes('Анна Карпенко'))).toBe(true);
+    expect(h.out.join('')).not.toContain('Карпенко');
+    expect(h.err.join('')).toContain('Brain context: 13 characters, goes to api.example.com');
+  });
+  it('--context-file reads the file; a missing one fails cleanly', async () => {
+    const prompts: string[] = [];
+    const h = harness({ fileText: { '/a.txt': 'Ну, привет.', '/ctx.txt': 'термин RAG' }, fileBrainAsk: async (p, t) => (prompts.push(p), defaultFileBrainAsk(p, t)) });
+    expect(await run(h, 'brain', '/a.txt', '--stdout', '--context-file', '/ctx.txt')).toBe(EXIT_OK);
+    expect(prompts.every((p) => p.includes('термин RAG'))).toBe(true);
+    const m = harness({ fileText: { '/a.txt': 'Ну, привет.' } });
+    expect(await run(m, 'brain', '/a.txt', '--context-file', '/nope.txt')).toBe(EXIT_FAILED);
+    expect(m.err.join('')).toContain('Cannot read --context-file: /nope.txt');
+  });
+});
+
 describe('chawo-va stats', () => {
   const SRT = [
     '1', '00:00:00,000 --> 00:00:10,000', 'Спикер 1: Здравствуйте, у нас скидка.', '',

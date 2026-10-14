@@ -257,6 +257,22 @@ async function cliCases(brainPort) {
   check('cli brain → .brain.txt', r.code === 0 && brainTxt.includes('Анна подготовит') && /Кратко|Summary/.test(brainTxt), brief(r));
   r = await run(['brain', meet, '--stdout', '-q']);
   check('cli brain --stdout', r.code === 0 && r.out.includes('Анна'), brief(r));
+  // «Контекст для Мозга»: off unless asked; --context / --context-file land fenced in the prompt, never in the text.
+  const plainAsk = asked.length;
+  r = await run(['brain', meet, '--stdout', '-q']);
+  check('cli brain: no context by default', r.code === 0 && asked.slice(plainAsk).every((a) => !a.full.includes('<context>')), brief(r));
+  const ctxAsk = asked.length;
+  r = await run(['brain', meet, '--stdout', '-q', '--context', 'Клиент: ООО «Зюйд-Вест», Анна Карпенко']);
+  check('cli brain --context', r.code === 0 && !r.out.includes('Зюйд') && asked.slice(ctxAsk).length > 0 && asked.slice(ctxAsk).every((a) => a.full.includes('<context>') && a.full.includes('Зюйд-Вест')), brief(r));
+  const ctxFile = join(bd, 'ctx.txt');
+  writeFileSync(ctxFile, 'Проект «Чаво», термин RAG\n', 'utf8');
+  const fileAsk = asked.length;
+  r = await run(['brain', meet, '--stdout', '-q', '--context-file', ctxFile]);
+  check('cli brain --context-file', r.code === 0 && asked.slice(fileAsk).length > 0 && asked.slice(fileAsk).every((a) => a.full.includes('термин RAG')), brief(r));
+  r = await run(['brain', meet, '--stdout', '-q', '--context-file', join(bd, 'missing.txt')]);
+  check('cli brain --context-file missing → error', r.code !== 0 && /context-file/.test(r.err) && !/at .*\.js:\d+/.test(r.err), brief(r));
+  r = await run(['brief', meet, '--context', 'x']);
+  check('cli --context is only for brain', r.code !== 0 && /--context/.test(r.err), brief(r));
   r = await run(['brief', meet]);
   check('cli brief → .brief.txt', r.code === 0 && read(join(bd, 'meet.brief.txt')).includes('Задачи'), brief(r));
   r = await run(['brief', meet, '--instruction', 'Только задачи', '--stdout']);

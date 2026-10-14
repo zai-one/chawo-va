@@ -55,6 +55,16 @@ export function registerBrainIpc(
     if (typeof v === 'boolean') ctl.setSelection(v);
     return ctl.state();
   });
+  ipcMain.handle('brain:context', (_e, v: unknown) => {
+    if (v && typeof v === 'object') {
+      const o = v as { clipboard?: unknown; app?: unknown };
+      ctl.setContext({
+        clipboard: typeof o.clipboard === 'boolean' ? o.clipboard : undefined,
+        app: typeof o.app === 'boolean' ? o.app : undefined,
+      });
+    }
+    return ctl.state();
+  });
   ipcMain.handle('brain:device', (_e, v: unknown) => {
     if (v === 'Cpu' || v === 'Gpu') ctl.setDevice(v);
     return ctl.state();

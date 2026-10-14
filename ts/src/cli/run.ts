@@ -4,6 +4,7 @@
 // for every file. Everything is injected so tests run without a model.
 
 import { basename, join } from 'node:path';
+import { clip, contextBlock, CONTEXT_MAX_CHARS } from '../core/brainContext';
 import { progressLine } from '../core/fileParallel';
 import type { FileParallelismKind } from '../core/fileParallel';
 import type { CtcScript, SpeechDeviceKind, SpeechModelKind } from '../core/speechModels';
@@ -249,6 +250,24 @@ async function brainCommand(o: CliOptions, d: CliDeps): Promise<number> {
   }
   if (brain.cloud) say(t(`Мозг: текст уходит в ${brain.cloud}`, `Brain: the text goes to ${brain.cloud}`));
 
+  // «Контекст для Мозга»: only when asked for (--context / --context-file), appended to every prompt.
+  let contextText = o.context;
+  if (o.contextFile != null) {
+    try {
+      contextText = d.readFile(o.contextFile);
+    } catch (e) {
+      fail(t(`Не прочитать --context-file: ${o.contextFile}: ${message(e)}`, `Cannot read --context-file: ${o.contextFile}: ${message(e)}`));
+      return EXIT_FAILED;
+    }
+  }
+  const context = contextBlock({ text: contextText });
+  const ask: typeof brain.ask = context ? (prompt, ...rest) => brain.ask(prompt + context, ...rest) : brain.ask;
+  if (context) {
+    say(brain.cloud
+      ? t(`Контекст для Мозга: ${clip(contextText, CONTEXT_MAX_CHARS).length} знаков, уходит в ${brain.cloud}`, `Brain context: ${clip(contextText, CONTEXT_MAX_CHARS).length} characters, goes to ${brain.cloud}`)
+      : t(`Контекст для Мозга: ${clip(contextText, CONTEXT_MAX_CHARS).length} знаков`, `Brain context: ${clip(contextText, CONTEXT_MAX_CHARS).length} characters`));
+  }
+
   const FileBrain = await import('../main/brain/fileBrain');
   if (o.outDir && !o.stdout) d.mkdirp(o.outDir);
 
@@ -259,7 +278,7 @@ async function brainCommand(o: CliOptions, d: CliDeps): Promise<number> {
     say(prefix + src);
     try {
       const parsed = fromTxt(d.readFile(src));
-      const result = noAnswer(await FileBrain.runWithAsk(brain.target, parsed.segments, o.timestamps ?? parsed.timestamps, (line) => say(prefix + line), d.signal, brain.ask), t);
+      const result = noAnswer(await FileBrain.runWithAsk(brain.target, parsed.segments, o.timestamps ?? parsed.timestamps, (line) => say(prefix + line), d.signal, ask), t);
       const note = brainNote(result, t);
       if (o.stdout) {
         if (files.length > 1) d.out(`==> ${src} <==\n`);

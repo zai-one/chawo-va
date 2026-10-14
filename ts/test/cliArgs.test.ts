@@ -303,3 +303,25 @@ describe('--lang before the command', () => {
   });
 
 });
+
+describe('brain --context / --context-file («Контекст для Мозга»)', () => {
+  it('parses both forms; off by default', () => {
+    const a = parseArgs(['brain', 'a.txt']);
+    expect(a.ok && a.options.context === null && a.options.contextFile === null).toBe(true);
+    const b = parseArgs(['brain', 'a.txt', '--context', 'Анна Карпенко']);
+    expect(b.ok && b.options.context).toBe('Анна Карпенко');
+    const c = parseArgs(['brain', 'a.txt', '--context-file=ctx.txt']);
+    expect(c.ok && c.options.contextFile).toBe('ctx.txt');
+  });
+  it('rejects misuse', () => {
+    expect(parseArgs(['brain', 'a.txt', '--context', ' '])).toMatchObject({ ok: false });
+    expect(parseArgs(['brain', 'a.txt', '--context', 'x', '--context-file', 'y'])).toMatchObject({ ok: false });
+    expect(parseArgs(['brief', 'a.txt', '--context', 'x'])).toMatchObject({ ok: false, error: '--context / --context-file are for brain' });
+    expect(parseArgs(['transcribe', 'a.wav', '--context-file', 'x'])).toMatchObject({ ok: false });
+  });
+  it('help mentions the options in both languages', () => {
+    expect(helpText((ru) => ru)).toContain('--context-file <файл>');
+    expect(helpText((_ru, en) => en)).toContain('--context <text>');
+  });
+});
+
