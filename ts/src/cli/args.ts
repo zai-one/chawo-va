@@ -672,7 +672,7 @@ export function helpText(t: (ru: string, en: string) => string): string {
       auto on|off        добавлять повторённые исправления в словарь сами (по умолчанию off)
 
 Параметры meeting (автоопределение встречи без запуска записи; настройки — из settings.json):
-      detect [--json]    есть ли сейчас встреча: приложения (Windows) и/или локальный .ics
+      detect [--json]    есть ли сейчас встреча: приложения (Windows) и/или локальный .ics (RRULE/EXDATE)
                          JSON: {active, appsSupported, apps, calendar, reasons}
 
 Параметры history (история диктовки, только чтение, новые сверху):
@@ -837,7 +837,7 @@ only read — the app moves accepted rows into the Dictionary by itself):
       auto on|off        add repeated fixes to the dictionary by themselves (default off)
 
 meeting options (meeting auto-detect without starting a recording; settings from settings.json):
-      detect [--json]    whether a meeting looks active: apps (Windows) and/or a local .ics
+      detect [--json]    whether a meeting looks active: apps (Windows) and/or a local .ics (RRULE/EXDATE)
                          JSON: {active, appsSupported, apps, calendar, reasons}
 
 history options (dictation history, read-only, newest first):
