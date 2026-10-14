@@ -9,7 +9,7 @@ const WINDOW = 512; // 32 ms
 
 // Same address spelling as the Brain command (brain.ts AddressInner), but only at the very start.
 const WordRight = '(?![\\p{L}\\p{N}_])';
-const LeadingWake = new RegExp(`^[\\s«"'(—–-]*(?:ч[аеоё]в[оа]|chawo|chavo)${WordRight}[\\s,.:;!?…—–-]*`, 'iu');
+const LeadingWake = new RegExp(`^[\\s«"'(—–-]*(?:ч[аеоё]в[оа]|chawo|chavo)${WordRight}[\\s,.:;!?…—–»"')-]*`, 'iu');
 
 /** «Чаво, переведи» → { rest: 'переведи' }; text that does not start with the word → null. */
 export function matchWake(text: string): { rest: string } | null {
