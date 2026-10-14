@@ -190,6 +190,13 @@ app.whenReady().then(async () => {
       await sleep(600);
       const rows = await js(`document.querySelectorAll('.transcript-editor .phrase').length`);
       check('gui: transcript editor shows phrases', rows >= 3, `${rows} rows`);
+      // Double-click a phrase → fix it → the .txt and .srt beside it change, the note says so.
+      await js(`(() => { const r = document.querySelectorAll('.transcript-editor .phrase')[2]; r.dispatchEvent(new MouseEvent('dblclick', { bubbles: true })); const i = document.querySelector('[data-editor="phraseEdit"]'); i.value = 'Третья без Speakera'; i.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' })); return true; })()`);
+      await sleep(800);
+      const note = await js(`document.querySelector('[data-editor="note"]')?.textContent ?? ''`);
+      const tTxt = readFileSync(join(ed, 'sample.txt'), 'utf8');
+      const tSrt = readFileSync(join(ed, 'sample.srt'), 'utf8');
+      check('gui: transcript editor phrase fix writes .txt/.srt and learns', tTxt.includes('Третья без Speakera') && tSrt.includes('Третья без Speakera') && !tTxt.includes('без спикера') && /Исправлено в 2/.test(note), note + ' | ' + tTxt.slice(0, 200));
     } catch (e) {
       check('gui: transcript editor opens', false, e.message);
     }

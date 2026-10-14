@@ -49,6 +49,7 @@ interface FileState {
     segments: { start: number; end: number; text: string; speaker?: number }[];
     mediaUrl: string | null;
     sourceHint?: string;
+    note?: string;
   };
 }
 interface FileApi {
@@ -73,6 +74,7 @@ interface FileApi {
   setTranslateTarget(text: string): Promise<FileState>;
   runTranslate(to?: string, path?: string): Promise<FileState>;
   openEditor(path?: string): Promise<FileState>;
+  editPhrase(index: number, text: string): Promise<FileState>;
   mediaUrl(audioPath: string): Promise<string | null>;
   onState(fn: (s: FileState) => void): () => void;
   onToast(fn: (s: string) => void): () => void;
@@ -1749,7 +1751,7 @@ function renderFile(): void {
   }
 
   // «Расшифровка»: timed phrases; click seeks the source audio (chawo-media://).
-  const ed = s.editor ?? { available: false, reason: 'missing', audioPath: null, txtPath: null, segments: [], mediaUrl: null };
+  const ed: FileState['editor'] = s.editor ?? { available: false, reason: 'missing', audioPath: null, txtPath: null, segments: [], mediaUrl: null };
   const editorBox = el('fieldset', { className: 'transcript-editor' },
     el('legend', { textContent: L('Расшифровка', 'Transcript') }),
   );
@@ -1771,6 +1773,28 @@ function renderFile(): void {
         audio.currentTime = Math.max(0, seg.start);
         void audio.play().catch(() => { /* autoplay / decode */ });
       });
+      // Double-click: fix the phrase in place (Enter saves, Esc cancels); the fix also teaches «Словарь».
+      const idx = i;
+      row.addEventListener('dblclick', () => {
+        audio.pause();
+        const input = el('input', { type: 'text', value: seg.text, spellcheck: true });
+        input.className = 'phrase-edit';
+        input.dataset.editor = 'phraseEdit';
+        let done = false;
+        const finish = (save: boolean) => {
+          if (done) return;
+          done = true;
+          if (save && input.value.trim() && input.value.trim() !== seg.text.trim()) void bridge.file.editPhrase(idx, input.value).then(apply);
+          else input.replaceWith(row);
+        };
+        input.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter') finish(true);
+          else if (e.key === 'Escape') finish(false);
+        });
+        input.addEventListener('blur', () => finish(true));
+        row.replaceWith(input);
+        input.focus();
+      });
       rows.push(row);
       phrases.append(row);
     }
@@ -1788,9 +1812,14 @@ function renderFile(): void {
     paint();
     editorBox.append(
       audio,
-      el('p', { className: 'muted hint', textContent: L('Нажмите фразу — воспроизведение с этого места.', 'Click a phrase to play from that time.') }),
+      el('p', { className: 'muted hint', textContent: L('Нажмите фразу — воспроизведение с этого места. Двойной щелчок — исправить (поправки слов попадут в «Словарь» → «Из исправлений»).', 'Click a phrase to play from that time. Double-click to fix it (word fixes go to Dictionary → From your fixes).') }),
       phrases,
     );
+    if (ed.note) {
+      const note = el('p', { className: 'status line', textContent: ed.note });
+      note.dataset.editor = 'note';
+      editorBox.append(note);
+    }
     if (ed.txtPath) {
       editorBox.append(el('div', { className: 'row' },
         button(L('Показать файл', 'Show file'), () => void bridge.file.reveal(ed.txtPath!), 'link'),

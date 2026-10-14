@@ -93,3 +93,41 @@ describe('learned-words.json', () => {
     expect(loadLearned(p)).toEqual({ autoAdd: false, pairs: [{ from: 'ok', to: 'OK', count: 1, last: 0 }] });
   });
 });
+
+describe('hostile-review guards', () => {
+  it('no rules from common words, short words or inflections', async () => {
+    const { riskyFix } = await import('../src/core/selfDictionary');
+    expect(wordCorrections('пошли в офис', 'пошли во офис')).toEqual([]);
+    expect(wordCorrections('это и есть план', 'это а есть план')).toEqual([]);
+    expect(wordCorrections('скинь ок завтра', 'скинь OK завтра')).toEqual([]);
+    expect(wordCorrections('встреча в пятницу утром', 'встреча в пятница утром')).toEqual([]);
+    expect(wordCorrections('позвони мне завтра', 'позвони ему завтра')).toEqual([]);
+    expect(wordCorrections('Отправил the отчёт', 'Отправил a отчёт')).toEqual([]);
+    expect(riskyFix('гигачад', 'GigaChad')).toBe(false);
+    expect(riskyFix('сбер', 'Сбер')).toBe(false);
+    expect(riskyFix('клиента', 'клиенту')).toBe(true);
+    // A real brand fix still goes through, even a lowercase Latin one.
+    expect(wordCorrections('открой гитхаб сейчас', 'открой github сейчас')).toEqual([{ from: 'гитхаб', to: 'github' }]);
+  });
+  it('a corrupt learned-words.json is kept as .bad before being replaced', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'chawo-learned-bad-'));
+    try {
+      const p = join(dir, 'learned-words.json');
+      writeFileSync(p, '{"pairs": [oops');
+      expect(loadLearned(p)).toEqual(emptyLearned());
+      expect(readFileSync(p + '.bad', 'utf8')).toBe('{"pairs": [oops');
+      writeFileSync(p, 'null');
+      expect(loadLearned(p)).toEqual(emptyLearned());
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+  it('dropPending keeps rows the CLI queued after the app read the file', async () => {
+    const { dropPending, addPending } = await import('../src/core/selfDictionary');
+    let d = addPending(emptyLearned(), 'гигачад', 'GigaChad');
+    const seenByApp = d.pending!;
+    d = addPending(d, 'кромка', 'Kromka'); // CLI, meanwhile
+    expect(dropPending(d, seenByApp).pending).toEqual([{ from: 'кромка', to: 'Kromka' }]);
+    expect(dropPending(d, d.pending!).pending).toBeUndefined();
+  });
+});

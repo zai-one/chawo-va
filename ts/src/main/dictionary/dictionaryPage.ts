@@ -13,7 +13,7 @@ import { suggestDictionary, type DictSuggestion } from '../sales';
 import { cleanSnippets, loadSnippets, saveSnippets, type Snippet } from '../../core/snippets';
 import { learnedWordsPath, snippetsPath } from '../paths';
 import { applyPendingRules } from './learnedWords';
-import { dismiss, findPair, forget, loadLearned, saveLearned, suggestions as learnedSuggestions, SUGGEST_AT } from '../../core/selfDictionary';
+import { dismiss, findPair, foldWord, forget, loadLearned, saveLearned, suggestions as learnedSuggestions, SUGGEST_AT } from '../../core/selfDictionary';
 import { dictionaryRows, saveDictionary, type SettingsData } from '../settings';
 
 export interface DictRow {
@@ -245,8 +245,8 @@ export class DictionaryController {
     const rules = this.rows.map((r) => ({ from: r.from, to: r.to }));
     return {
       heading: t('Из исправлений', 'From your fixes'),
-      hint: t(`Когда вы исправляете фразу в «Истории» (кнопка «Исправить»), Chawo запоминает заменённые слова. Одна и та же правка ${SUGGEST_AT} раза — и она появится здесь. Только на этом компьютере (learned-words.json).`,
-        `When you fix a phrase in History (the Fix button), Chawo remembers the replaced words. The same fix ${SUGGEST_AT} times and it shows up here. On this computer only (learned-words.json).`),
+      hint: t(`Когда вы исправляете фразу в «Истории» («Исправить») или в расшифровке файла (двойной щелчок), Chawo запоминает заменённые слова. Одна и та же правка ${SUGGEST_AT} раза — и она появится здесь. Только на этом компьютере (learned-words.json).`,
+        `When you fix a phrase in History (Fix) or in a file transcript (double-click), Chawo remembers the replaced words. The same fix ${SUGGEST_AT} times and it shows up here. On this computer only (learned-words.json).`),
       autoAdd: d.autoAdd,
       autoLabel: t('Добавлять в словарь сами', 'Add to the dictionary by itself'),
       acceptLabel: t('В словарь', 'Add'),
@@ -263,8 +263,8 @@ export class DictionaryController {
     const d = loadLearned(path);
     const p = findPair(d, from, to);
     if (!p) return this.state();
-    const f = p.from.trim().toLowerCase();
-    const same = this.rows.find((r) => r.from.trim().toLowerCase() === f);
+    const f = foldWord(p.from.trim());
+    const same = this.rows.find((r) => foldWord(r.from.trim()) === f);
     if (same) {
       same.to = p.to;
       this.persist();

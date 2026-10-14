@@ -3,7 +3,7 @@
 // SUGGEST_AT times becomes a suggestion for «Словарь»; with «Добавлять сами» it goes in by itself.
 // Local only: learned-words.json beside settings.json, nothing is sent anywhere.
 
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import type { ReplacePair } from './wordReplace';
 
@@ -37,6 +37,34 @@ export interface LearnedData {
 }
 
 interface Tok { word: string; start: number; end: number }
+
+/** Common words: a fix of these is grammar or a rewrite, never a dictionary row (it would hit every text). */
+const COMMON = new Set(('и а но или да нет не ни в во на с со к ко о об от до по за из у же ли бы то что как так это этот эта эти тот та те он она оно они мы вы ты я его ее её их им ей мне меня нам вас вам там тут здесь уже еще ещё вот ну все всё весь вся был была было были будет есть быть для при про без над под через после когда если чтобы потому очень можно нужно надо да ' +
+  'the a an and or but not no of to in on at by for with from as is are was were be been it its this that these those he she they we you i me my your our their his her them us do does did have has had will would can could should so if then than there here')
+  .split(/\s+/).filter(Boolean));
+
+/** Minimum letters in the heard form: «в» → «во» or «ок» → «OK» is too risky as a global rule. */
+export const MIN_FROM_LETTERS = 3;
+
+/**
+ * A fix that would do harm as a whole-word rule everywhere: a common word on either side, a too
+ * short heard form, or the same word in another grammatical form («пятницу» → «пятница»).
+ */
+export function riskyFix(from: string, to: string): boolean {
+  const f = foldWord(from);
+  const tw = foldWord(to);
+  const fw = f.split(' ');
+  if (f.replace(/[^\p{L}\p{N}]/gu, '').length < MIN_FROM_LETTERS) return true;
+  if (fw.every((w) => COMMON.has(w))) return true;
+  if (fw.length === 1 && COMMON.has(tw)) return true;
+  // Inflection: same lowercase word with only the last 1–3 letters changed (both Cyrillic, both lowercase).
+  if (fw.length === 1 && !/\s/.test(tw) && to === to.toLowerCase() && /^[\p{Script=Cyrillic}-]+$/u.test(f + tw)) {
+    let k = 0;
+    while (k < f.length && k < tw.length && f[k] === tw[k]) k++;
+    if (k >= 3 && f.length - k <= 3 && tw.length - k <= 3) return true;
+  }
+  return false;
+}
 
 const TOKEN_RE = /[\p{L}\p{N}]+(?:[-'’][\p{L}\p{N}]+)*/gu;
 
@@ -86,6 +114,7 @@ export function wordCorrections(before: string, after: string): ReplacePair[] {
     const from = a.slice(i0, i1).map((x) => x.word).join(' ');
     const to = after.slice(b[j0]!.start, b[j1 - 1]!.end).replace(/\s+/g, ' ').trim();
     if (trivialCase(from, to)) return;
+    if (riskyFix(from, to)) return;
     if (/^[\p{N}\s]+$/u.test(from) && /^[\p{N}\s.,]+$/u.test(to)) return;
     if (!out.some((p) => p.from === from && p.to === to)) out.push({ from, to });
   };
@@ -123,13 +152,20 @@ export function loadLearned(path: string): LearnedData {
       : [];
     return { autoAdd: raw.autoAdd === true, pairs, ...(pending.length ? { pending } : {}) };
   } catch {
+    // Unreadable file: keep a copy beside it before the next save replaces it.
+    try {
+      copyFileSync(path, `${path}.bad`);
+    } catch {
+      /* nothing to keep */
+    }
     return emptyLearned();
   }
 }
 
 export function saveLearned(path: string, d: LearnedData): void {
   mkdirSync(dirname(path), { recursive: true });
-  const tmp = `${path}.tmp`;
+  // Per-process temp name: the app and the CLI may save at the same moment; rename keeps it whole.
+  const tmp = `${path}.${process.pid}.${Date.now()}.tmp`;
   writeFileSync(tmp, JSON.stringify(d, null, 2) + '\n', 'utf8');
   renameSync(tmp, path);
 }
@@ -232,4 +268,12 @@ export function withPending(rules: readonly ReplacePair[], d: LearnedData): Repl
 /** Queues a CLI rule for the app (a newer row for the same heard form wins). */
 export function addPending(d: LearnedData, from: string, to: string): LearnedData {
   return { ...d, pending: withRule(d.pending ?? [], from, to) };
+}
+
+/** Pending rows minus the ones already applied (matched by heard form and written form). */
+export function dropPending(d: LearnedData, applied: readonly ReplacePair[]): LearnedData {
+  const done = new Set(applied.map((p) => `${foldWord(p.from)}\u0000${p.to}`));
+  const left = (d.pending ?? []).filter((p) => !done.has(`${foldWord(p.from)}\u0000${p.to}`));
+  const { pending: _old, ...rest } = d;
+  return left.length ? { ...rest, pending: left } : rest;
 }

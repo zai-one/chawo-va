@@ -2,7 +2,7 @@
 // «Добавлять сами» is on, writes ready pairs into the dictionary rules in settings.
 
 import { statSync } from 'node:fs';
-import { learnEdit, loadLearned, saveLearned, withPending } from '../../core/selfDictionary';
+import { dropPending, learnEdit, loadLearned, saveLearned, withPending } from '../../core/selfDictionary';
 import type { ReplacePair } from '../../core/wordReplace';
 import * as Log from '../log';
 import { learnedWordsPath } from '../paths';
@@ -58,8 +58,8 @@ export function applyPendingRules(settings: SettingsData, save: (s: SettingsData
     if (!d.pending || d.pending.length === 0) return false;
     saveDictionary(settings, withPending(dictionaryRows(settings), d));
     save(settings);
-    const { pending: _done, ...rest } = d;
-    saveLearned(path, rest);
+    // Re-read: the CLI may have queued more rows meanwhile; only the applied ones leave the queue.
+    saveLearned(path, dropPending(loadLearned(path), d.pending));
     seenMtime.set(path, statSync(path).mtimeMs);
     Log.write(`learned words: ${d.pending.length} rules from the command line`);
     return true;
