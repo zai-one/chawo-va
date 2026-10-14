@@ -27,7 +27,8 @@ export function clip(s: string | null | undefined, max: number): string {
 
 /** Our fence must not be closable from inside the context. */
 function defuse(s: string): string {
-  return s.replace(/<\/?\s*context\s*>/gi, '');
+  // Any spelling of an opening or closing tag: </context>, < /CONTEXT >, <context foo=1>, </context\n>.
+  return s.replace(/<\s*\/?\s*context\b[^>]*>/gi, '');
 }
 
 /**

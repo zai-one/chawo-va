@@ -410,3 +410,23 @@ describe('«Контекст для Мозга» in a take', () => {
   });
 });
 
+describe('«Контекст для Мозга»: privacy of history', () => {
+  it('the clipboard text never lands in the history record', async () => {
+    const srv = server(() => 'Привет.');
+    const recs: unknown[] = [];
+    const { take } = make({ fetch: srv.fetch, record: (r) => void recs.push(r), clipboardText: () => 'СЕКРЕТ-123' }, (x) => {
+      serverSettings(x); x.BrainEveryTake = true; x.BrainContextClipboard = true;
+    });
+    await take('привет');
+    expect(srv.calls[0].body.messages[0].content).toContain('СЕКРЕТ-123');
+    expect(recs.length).toBe(1);
+    expect(JSON.stringify(recs)).not.toContain('СЕКРЕТ');
+  });
+  it('Brain off: even with the switches on nothing is read', async () => {
+    let reads = 0;
+    const { take } = make({ clipboardText: () => (reads++, 'x') }, (x) => { x.BrainContextClipboard = true; x.BrainContextApp = true; });
+    await take('привет');
+    expect(reads).toBe(0);
+  });
+});
+
