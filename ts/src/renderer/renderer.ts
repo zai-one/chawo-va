@@ -38,6 +38,15 @@ interface FileState {
     busy: boolean;
   };
   ru: boolean;
+  editor: {
+    available: boolean;
+    reason?: string;
+    audioPath: string | null;
+    txtPath: string | null;
+    segments: { start: number; end: number; text: string; speaker?: number }[];
+    mediaUrl: string | null;
+    sourceHint?: string;
+  };
 }
 interface FileApi {
   state(): Promise<FileState>;
@@ -57,6 +66,8 @@ interface FileApi {
   runBrief(path?: string): Promise<FileState>;
   setTranslateTarget(text: string): Promise<FileState>;
   runTranslate(to?: string, path?: string): Promise<FileState>;
+  openEditor(path?: string): Promise<FileState>;
+  mediaUrl(audioPath: string): Promise<string | null>;
   onState(fn: (s: FileState) => void): () => void;
   onToast(fn: (s: string) => void): () => void;
 }
@@ -1569,6 +1580,32 @@ function renderSpeech(): void {
   page.append(el('p', { className: 'muted line', textContent: s.status }));
 }
 
+/** Reused across File page re-renders so seek/play position is not lost on status pushes. */
+let editorAudio: HTMLAudioElement | null = null;
+let editorAudioUrl: string | null = null;
+
+function formatSegTime(seconds: number): string {
+  const s = Math.max(0, Math.floor(seconds));
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const sec = s % 60;
+  const mm = String(m).padStart(2, '0');
+  const ss = String(sec).padStart(2, '0');
+  return h > 0 ? `${h}:${mm}:${ss}` : `${mm}:${ss}`;
+}
+
+function ensureEditorAudio(mediaUrl: string): HTMLAudioElement {
+  if (editorAudio && editorAudioUrl === mediaUrl) return editorAudio;
+  const a = document.createElement('audio');
+  a.controls = true;
+  a.preload = 'metadata';
+  a.className = 'transcript-audio';
+  a.src = mediaUrl;
+  editorAudio = a;
+  editorAudioUrl = mediaUrl;
+  return a;
+}
+
 /** The link field survives the page re-rendering on every queue push (text, focus, caret). */
 let urlDraft = '';
 /** «Перевести»: what the user is typing in the language field; null = show the saved value. */
@@ -1603,7 +1640,10 @@ function renderFile(): void {
       el('span', { className: 'state', textContent: ru ? STATE_RU[it.state] : it.state.toLowerCase() }),
       el('span', { className: 'note muted', textContent: it.note }),
     );
-    if (it.outputPath) row.append(button(L('Показать', 'Show'), () => void bridge.file.reveal(it.outputPath), 'link'));
+    if (it.outputPath) {
+      row.append(button(L('Показать', 'Show'), () => void bridge.file.reveal(it.outputPath), 'link'));
+      row.append(button(L('Слушать', 'Listen'), () => void bridge.file.openEditor(it.outputPath).then(apply), 'link'));
+    }
     if (it.state !== 'Running') row.append(button('×', () => void bridge.file.remove(it.id).then(apply), 'link x'));
     list.append(row);
   }
@@ -1611,6 +1651,71 @@ function renderFile(): void {
   if (s.items.some((i) => i.state !== 'Queued' && i.state !== 'Running')) {
     page.append(el('div', { className: 'row' }, button(L('Убрать готовые из списка', 'Clear finished'), () => void bridge.file.clearFinished().then(apply), 'link')));
   }
+
+  // «Расшифровка»: timed phrases; click seeks the source audio (chawo-media://).
+  const ed = s.editor ?? { available: false, reason: 'missing', audioPath: null, txtPath: null, segments: [], mediaUrl: null };
+  const editorBox = el('fieldset', { className: 'transcript-editor' },
+    el('legend', { textContent: L('Расшифровка', 'Transcript') }),
+  );
+  if (ed.available && ed.mediaUrl && ed.segments.length > 0) {
+    const audio = ensureEditorAudio(ed.mediaUrl);
+    const phrases = el('div', { className: 'phrases' });
+    const rows: HTMLElement[] = [];
+    for (let i = 0; i < ed.segments.length; i++) {
+      const seg = ed.segments[i]!;
+      const sp = typeof seg.speaker === 'number' ? L(`Спикер ${seg.speaker + 1}`, `Speaker ${seg.speaker + 1}`) + ' · ' : '';
+      const row = el('button', {
+        type: 'button',
+        className: 'phrase',
+      },
+        el('span', { className: 'phrase-time', textContent: formatSegTime(seg.start) }),
+        el('span', { className: 'phrase-body', textContent: sp + seg.text }),
+      );
+      row.addEventListener('click', () => {
+        audio.currentTime = Math.max(0, seg.start);
+        void audio.play().catch(() => { /* autoplay / decode */ });
+      });
+      rows.push(row);
+      phrases.append(row);
+    }
+    const paint = () => {
+      const t = audio.currentTime;
+      for (let i = 0; i < ed.segments.length; i++) {
+        const seg = ed.segments[i]!;
+        const next = ed.segments[i + 1];
+        const end = seg.end > seg.start ? seg.end : (next ? next.start : seg.start + 0.5);
+        rows[i]!.classList.toggle('active', t >= seg.start && t < end);
+      }
+    };
+    audio.ontimeupdate = paint;
+    audio.onplay = paint;
+    paint();
+    editorBox.append(
+      audio,
+      el('p', { className: 'muted hint', textContent: L('Нажмите фразу — воспроизведение с этого места.', 'Click a phrase to play from that time.') }),
+      phrases,
+    );
+    if (ed.txtPath) {
+      editorBox.append(el('div', { className: 'row' },
+        button(L('Показать файл', 'Show file'), () => void bridge.file.reveal(ed.txtPath!), 'link'),
+      ));
+    }
+  } else {
+    const why = ed.reason === 'no-timings'
+      ? L('Нет меток времени. Включите «Метки времени» или сохранение .srt / .json и расшифруйте снова.', 'No timings. Enable timestamps or .srt / .json and transcribe again.')
+      : ed.reason === 'no-audio'
+        ? L('Фразы есть, но исходный звук рядом не найден.', 'Phrases are here, but the source audio was not found beside them.')
+        : ed.txtPath
+          ? L('Расшифровка ещё без фраз со временем.', 'The transcript has no timed phrases yet.')
+          : L('После расшифровки здесь появятся фразы — нажмите, чтобы слушать с этого места.', 'After transcription, phrases appear here — click to play from that time.');
+    editorBox.append(el('p', { className: 'muted hint', textContent: why }));
+    if (ed.txtPath || s.lastOutput) {
+      editorBox.append(el('div', { className: 'row' },
+        button(L('Открыть расшифровку', 'Open transcript'), () => void bridge.file.openEditor(ed.txtPath || s.lastOutput || undefined).then(apply), 'link'),
+      ));
+    }
+  }
+  page.append(editorBox);
 
   page.append(el('p', { className: 'status', textContent: s.status }));
   renderMeeting();
