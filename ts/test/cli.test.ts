@@ -1195,3 +1195,12 @@ describe('runCli transcribe --brain --context («Контекст для Моз�
   });
 });
 
+describe('runCli transcribe --context without the Brain', () => {
+  it('is not silently ignored: a note says to add --brain', async () => {
+    const h = harness({ existing: ['/a.wav'] });
+    expect(await run(h, 'transcribe', '/a.wav', '--context', 'x')).toBe(EXIT_OK);
+    expect(h.err.join('')).toContain('add --brain');
+    expect([...h.files.keys()]).toEqual(['/a.txt']);
+  });
+});
+

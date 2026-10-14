@@ -894,6 +894,8 @@ async function transcribe(o: CliOptions, defaults: CliDefaults, d: CliDeps): Pro
   const cloud = (FileBrain ? fileBrain?.cloud : null) || (MeetingBrief ? briefBrain?.cloud : null);
   if (cloud) say(t(`Мозг: текст уходит в ${cloud}`, `Brain: the text goes to ${cloud}`));
   // «Контекст для Мозга» for .brain.txt (not for .brief.txt), only with --context / --context-file.
+  if (!useBrain && (o.context != null || o.contextFile != null))
+    say(t('--context без Мозга: «Прогнать через мозг» выключен, добавьте --brain.', '--context without the Brain: «Run through the Brain» is off, add --brain.'));
   let brainAsk = fileBrain?.ask ?? null;
   if (FileBrain && fileBrain) {
     const ctx = cliContext(o, d, fileBrain.cloud, say, (l) => d.err(l + '\n'));
