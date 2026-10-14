@@ -25,6 +25,8 @@ import {
 } from '../../core/takeBuffer';
 import { applyRules } from '../../core/wordReplace';
 import { applySpoken } from '../../core/spokenText';
+import { applySnippets, expandTokens, loadSnippets, snippetToken, type Snippet } from '../../core/snippets';
+import { snippetsPath } from '../paths';
 import { DICTATION_TIMEOUT_MS, failureText, logLine, runPostScript, scriptCommand, type PostScriptResult, type PostScriptRun } from '../../core/postScript';
 import { SilenceWatch } from '../../core/vad';
 import { trimTake } from '../vad/vadModel';
@@ -99,6 +101,8 @@ export interface SessionHooks {
   selection?: () => SelectionReaderLike | null;
   /** «Свой скрипт» runner (settings.PostScript); defaults to core runPostScript. */
   postScript?: (r: PostScriptRun) => Promise<PostScriptResult>;
+  /** Snippets for «вставь …»; defaults to snippets.json in the app data folder (tests inject). */
+  snippets?: () => Snippet[];
   /** Client role: RemoteSpeech.transcribe (tests pass a fake host). Throws RemoteHostException. */
   remote?: (s: SettingsData, samples: Float32Array, rate: number, signal: AbortSignal) => Promise<string>;
   /** The focused program at key press (per-app modes). Asked only while settings.AppRules is not empty. */
@@ -438,6 +442,8 @@ export class DictationSession {
       let editedSelection = false;
       let simpleOn = this.h.settings().SimpleSyntax;
       let raw = '';
+      let snippetList: Snippet[] = [];
+      let snippetsUsed: string[] = [];
       let command: string | null = null;
       let brainRan = false;
       if (!silent && samples.length > MIN_TAKE_SAMPLES) {
@@ -503,6 +509,15 @@ export class DictationSession {
           const spoken = applySpoken(text, this.h.settings());
           if (spoken !== text) Log.write(`spoken marks/numbers: ${text.length} -> ${spoken.length} chars`);
           text = spoken;
+          // Snippets («вставь подпись»): the saved text is held as a marker so the Brain and simple
+          // syntax never rewrite it; it is put back right before «Свой скрипт».
+          snippetList = (this.h.snippets ?? (() => loadSnippets(snippetsPath())))();
+          const sn = applySnippets(text, snippetList, snippetToken);
+          if (sn.used.length > 0) {
+            Log.write(`snippets: ${sn.used.length} inserted`);
+            snippetsUsed = sn.used;
+            text = sn.text;
+          }
         }
         raw = text;
         // Per-app mode: the rule for the program that had the focus at key press overrides the edit settings.
@@ -521,7 +536,7 @@ export class DictationSession {
           }
         }
         simpleOn = now.SimpleSyntax;
-        const selected = this.selectionAtPress && text.length > 0 ? await this.selectionAtPress : null;
+        const selected = this.selectionAtPress && text.length > 0 && snippetsUsed.length === 0 ? await this.selectionAtPress : null;
         this.selectionAtPress = null;
         if (this.abandon) {
           overlay?.hideNow();
@@ -545,7 +560,8 @@ export class DictationSession {
           editedSelection = true;
         } else if (text.length > 0 && this.brainUsable(now)) {
           const cmd = parseCommand(text);
-          if (cmd || now.BrainEveryTake) {
+          const onlySnippets = snippetsUsed.length > 0 && !/[\p{L}\p{N}]/u.test(text);
+          if (!onlySnippets && (cmd || now.BrainEveryTake)) {
             const body = cmd?.body ?? text;
             if (cmd) Log.write(`brain command, ${body.length} chars`);
             brainCommand = cmd !== null;
@@ -569,6 +585,11 @@ export class DictationSession {
         text = simple;
       } else if (text.length > 0) {
         Log.write(`insert as is: simple=${simpleOn} selection=${editedSelection} command=${brainCommand}`);
+      }
+
+      if (snippetsUsed.length > 0) {
+        text = expandTokens(text, snippetList, snippetsUsed);
+        raw = expandTokens(raw, snippetList, snippetsUsed);
       }
 
       // «Свой скрипт»: the very last step, on whatever is about to be inserted. Soft: on any failure

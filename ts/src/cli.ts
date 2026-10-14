@@ -16,7 +16,7 @@ import { diarizeHook } from './main/diarize/diarizeRuntime';
 import { runCli, EXIT_INTERRUPTED, type CliDefaults, type CliDeps, type Engine, type EngineConfig } from './cli/run';
 import * as Log from './main/log';
 import { findComplete, looksComplete } from './main/models/speechModelStore';
-import { historyFilePath, settingsPath } from './main/paths';
+import { historyFilePath, settingsPath, snippetsPath } from './main/paths';
 import { defaults as settingsDefaults, fromJsonObject, toCtcScript, toFileParallelism, toSpeechDeviceKind, toSpeechModelKind } from './main/settings';
 import { collectFromFolder, load16k, outputPath } from './main/file/fileTranscript';
 import * as MeetingBrief from './main/brain/meetingBrief';
@@ -140,6 +140,12 @@ export function realDeps(signal: AbortSignal): CliDeps {
     fetchAudio: (url, outDir, progress, signal) => YtDlp.fetchAudio(url, outDir, { progress, signal }),
     urlFolder: () => join(downloadsFolder(process.platform, homedir(), userDirs(), join), 'Chawo'),
     historyPath: historyFilePath,
+    snippetsPath,
+    readStdin: async () => {
+      const chunks: Buffer[] = [];
+      for await (const c of process.stdin) chunks.push(c as Buffer);
+      return Buffer.concat(chunks).toString('utf8');
+    },
     clock: () => Date.now(),
     log: (line) => Log.write(line),
     now: () => Date.now(),

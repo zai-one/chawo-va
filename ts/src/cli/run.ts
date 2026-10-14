@@ -147,6 +147,10 @@ export interface CliDeps {
   urlFolder?(): string;
   /** «Свой скрипт» runner; defaults to core runPostScript (tests may inject). */
   runScript?: (r: PostScriptRun) => Promise<PostScriptResult>;
+  /** snippets.json of the app (read and written by `chawo-va snippets`). */
+  snippetsPath?: () => string;
+  /** Whole stdin as text (for `snippets add <trigger> -`). */
+  readStdin?: () => Promise<string>;
   /** history.jsonl of the app (read, never written by the CLI). */
   historyPath?: () => string;
   /** Wall clock for history dates (defaults to Date.now; `now` above may be a test counter). */
@@ -185,6 +189,7 @@ export async function runCli(argv: readonly string[], d: CliDeps): Promise<numbe
   if (o.command === 'translate') return translate(o, d);
   if (o.command === 'history') return history(o, defaults, d);
   if (o.command === 'segments') return segmentsCommand(o, d);
+  if (o.command === 'snippets') return snippetsCommand(o, d);
   if (o.command === 'serve') {
     const serveDeps: ServeDeps = {
       t: d.t,
@@ -912,4 +917,64 @@ async function transcribe(o: CliOptions, defaults: CliDefaults, d: CliDeps): Pro
     return EXIT_INTERRUPTED;
   }
   return failed > 0 ? EXIT_FAILED : EXIT_OK;
+}
+
+/** `chawo-va snippets list|add|remove`: the «Сниппеты» block of «Словарь» from the command line. */
+async function snippetsCommand(o: CliOptions, d: CliDeps): Promise<number> {
+  const t = d.t;
+  const S = await import('../core/snippets');
+  if (!d.snippetsPath) {
+    d.err(t('Ошибка: сниппеты недоступны.', 'Error: snippets are not available.') + '\n');
+    return EXIT_FAILED;
+  }
+  const path = d.snippetsPath();
+  const list = S.loadSnippets(path);
+  const [action, a1, a2] = o.inputs;
+  if (action === 'list') {
+    if (o.json) d.out(JSON.stringify(list, null, 2) + '\n');
+    else if (list.length === 0) {
+      if (!o.quiet) d.err(t('Сниппетов нет. Добавить: chawo-va snippets add подпись "С уважением, …"', 'No snippets. Add one: chawo-va snippets add signature "Best regards, …"') + '\n');
+    } else {
+      for (const s of list) d.out(`${s.trigger}\t${s.text.replace(/\n/g, '\\n')}\n`);
+    }
+    d.log(`cli snippets list ${list.length}`);
+    return EXIT_OK;
+  }
+  if (action === 'add') {
+    let text = a2;
+    if (text === '-') {
+      if (!d.readStdin) {
+        d.err(t('Ошибка: stdin недоступен.', 'Error: stdin is not available.') + '\n');
+        return EXIT_FAILED;
+      }
+      text = (await d.readStdin()).replace(/\r\n?/g, '\n').replace(/\n+$/, '');
+    }
+    if (!S.normTrigger(a1)) {
+      d.err(t('Ошибка: фраза должна содержать буквы или цифры.', 'Error: the trigger needs letters or digits.') + '\n');
+      return EXIT_USAGE;
+    }
+    if (!text.trim()) {
+      d.err(t('Ошибка: пустой текст.', 'Error: empty text.') + '\n');
+      return EXIT_USAGE;
+    }
+    const existed = list.some((x) => S.normTrigger(x.trigger) === S.normTrigger(a1));
+    try {
+      S.saveSnippets(path, S.upsertSnippet(list, { trigger: a1, text }));
+    } catch (e) {
+      d.err(t(`Ошибка: не удалось сохранить ${path}: `, `Error: could not save ${path}: `) + (e instanceof Error ? e.message : String(e)) + '\n');
+      return EXIT_FAILED;
+    }
+    if (!o.quiet) d.err((existed ? t(`Заменён: «${a1}». Скажите «вставь ${a1}».`, `Replaced: «${a1}». Say «вставь ${a1}».`) : t(`Добавлен: «${a1}». Скажите «вставь ${a1}».`, `Added: «${a1}». Say «вставь ${a1}».`)) + '\n');
+    d.log(`cli snippets add ${existed ? 'replace' : 'new'}`);
+    return EXIT_OK;
+  }
+  const { list: next, removed } = S.removeSnippet(list, a1);
+  if (!removed) {
+    d.err(t(`Ошибка: сниппета «${a1}» нет.`, `Error: no snippet «${a1}».`) + '\n');
+    return EXIT_FAILED;
+  }
+  S.saveSnippets(path, next);
+  if (!o.quiet) d.err(t(`Удалён: «${a1}».`, `Removed: «${a1}».`) + '\n');
+  d.log('cli snippets remove');
+  return EXIT_OK;
 }

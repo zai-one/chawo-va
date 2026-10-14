@@ -27,6 +27,12 @@ export function registerDictionaryIpc(
     ctl.setSpoken(kind === 'numbers' ? 'numbers' : kind === 'punctuation' ? 'punctuation' : ('' as never), on === true));
   ipcMain.handle('dict:setScript', (_e, command: unknown) => ctl.setScript(str(command)));
   ipcMain.handle('dict:setScriptFiles', (_e, on: unknown) => ctl.setScriptFiles(on === true));
+  ipcMain.handle('dict:setSnippet', (_e, id: unknown, trigger: unknown, text: unknown) => ctl.setSnippet(num(id), str(trigger), str(text)));
+  ipcMain.handle('dict:addSnippet', () => {
+    const id = ctl.addSnippet();
+    return { id, state: ctl.state() };
+  });
+  ipcMain.handle('dict:removeSnippet', (_e, id: unknown) => ctl.removeSnippet(num(id)));
   ipcMain.handle('dict:testScript', () => ctl.testScript());
   return ctl;
 }

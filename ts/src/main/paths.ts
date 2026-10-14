@@ -66,6 +66,11 @@ export function logPath(): string {
   return join(localDataDir(), 'chawo-va.log');
 }
 
+/** Snippets («вставь подпись»): shared by the «Словарь» page, dictation and `chawo-va snippets`. */
+export function snippetsPath(): string {
+  return join(appDataDir(), 'snippets.json');
+}
+
 /** Dictation history (one JSON line per take); shared by the «История» page and `chawo-va history`. */
 export function historyFilePath(): string {
   return join(localDataDir(), 'history.jsonl');

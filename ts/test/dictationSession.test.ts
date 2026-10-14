@@ -736,3 +736,32 @@ describe('DictationSession idle unload (IDEAS №13)', () => {
     expect(c.pending()).toEqual([]);
   });
 });
+
+describe('DictationSession: snippets', () => {
+  const snippets = () => [{ trigger: 'подпись', text: 'с уважением,\nиван' }];
+  const open = (reply: string) => async (_d: string, kind: 'v3_e2e_rnnt' | 'multilingual_large_ctc') => {
+    const r = new FakeRecognizer(kind);
+    r.reply = reply;
+    return r;
+  };
+  it('«вставь подпись» puts the saved text in; simple syntax does not touch it', async () => {
+    const { sess, copied } = make({ snippets, open: open('спасибо вставь подпись') }, (x) => { x.SimpleSyntax = true; });
+    sess.startTake();
+    feed(sess, speech(1));
+    const text = await sess.stopTake();
+    expect(text).toBe('спасибо с уважением,\nиван');
+    expect(copied).toEqual([text]);
+  });
+  it('the trigger alone goes in exactly as saved', async () => {
+    const { sess } = make({ snippets, open: open('подпись') }, (x) => { x.SimpleSyntax = true; });
+    sess.startTake();
+    feed(sess, speech(1));
+    expect(await sess.stopTake()).toBe('с уважением,\nиван');
+  });
+  it('no trigger → dictation as usual', async () => {
+    const { sess } = make({ snippets, open: open('поставьте подпись') });
+    sess.startTake();
+    feed(sess, speech(1));
+    expect(await sess.stopTake()).toBe('поставьте подпись');
+  });
+});
