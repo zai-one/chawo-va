@@ -265,6 +265,15 @@ async function cliCases(brainPort) {
     try { doc = JSON.parse(r.out.trim()); } catch { /* checked below */ }
     check('cli stats --json', r.code === 0 && doc && doc.diarized === true && Array.isArray(doc.speakers) && doc.speakers.length >= 2 && Array.isArray(doc.trackers), brief(r));
   }
+  // A diarized .txt alone (the default format) still gives the talk ratio per speaker.
+  const diarTxt = join(segDir, 'diarized-only.txt');
+  writeFileSync(diarTxt, '[00:00:01] Спикер 1: Здравствуйте, меня зовут Аня.\n[00:00:05] Спикер 2: Нам нужна доставка.\n[00:00:09] Спикер 1: Сколько штук?\n', 'utf8');
+  r = await run(['stats', diarTxt, '--json']);
+  {
+    let doc = null;
+    try { doc = JSON.parse(r.out); } catch { /* checked below */ }
+    check('cli stats on a diarized .txt (speakers from «Спикер N:»)', r.code === 0 && doc && doc.diarized === true && Array.isArray(doc.speakers) && doc.speakers.length === 2, brief(r));
+  }
   r = await run(['stats', join(tmp, 'nope.srt')]);
   check('cli stats missing file → exit 1', r.code === 1, brief(r));
 

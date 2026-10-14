@@ -343,5 +343,11 @@ export function loadTimedTranscript(
   if (!back.timestamps || back.segments.length === 0) {
     return { available: false, segments: [], sourceHint: 'txt', reason: back.segments.length === 0 ? 'empty' : 'no-timings' };
   }
-  return { available: true, segments: back.segments, sourceHint: 'txt' };
+  // «Спикер N:» becomes `speaker`, as fromSrt does, so call stats and the editor see the speakers of a
+  // diarized .txt-only transcript (the default format). fromTxt keeps the prefix for the Brain.
+  const segments = back.segments.map((seg) => {
+    const { text, speaker } = splitSpeakerPrefix(seg.text);
+    return speaker === undefined || !text ? seg : { ...seg, text, speaker };
+  });
+  return { available: true, segments, sourceHint: 'txt' };
 }
