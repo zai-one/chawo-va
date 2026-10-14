@@ -515,7 +515,7 @@ interface AskApi {
   open(p: string): Promise<AskState>;
   onState(fn: (s: AskState) => void): () => void;
 }
-const bridge = (window as unknown as { chawo: { file: FileApi; meeting: MeetingApi; speech: SpeechApi; dict: DictApi; brain: BrainApi; dictation: DictationApi; network: NetworkApi; sales: SalesApi; history: HistoryApi; ask: AskApi } }).chawo;
+const bridge = (window as unknown as { chawo: { file: FileApi; meeting: MeetingApi; speech: SpeechApi; dict: DictApi; brain: BrainApi; dictation: DictationApi; network: NetworkApi; sales: SalesApi; history: HistoryApi; ask: AskApi; crm: CrmApi } }).chawo;
 
 const titlesEn: Record<string, string> = {
   dictation: 'Dictation',
@@ -640,6 +640,114 @@ function selectOf(choices: { value: string; label: string }[], value: string, on
   sel.addEventListener('change', () => onChange(sel.value));
   return sel;
 }
+
+// ---------- «В CRM» (brief card button + settings block) ----------
+type CrmTarget = 'amocrm' | 'bitrix' | 'hubspot' | 'webhook';
+interface CrmState {
+  targets: { id: CrmTarget; name: string; ready: boolean }[];
+  config: Record<CrmTarget, Record<string, string | boolean>>;
+  preview: string;
+  previewFor: { target: CrmTarget; id: string; score: boolean; path: string } | null;
+  duplicate: string;
+  status: string;
+  ok: boolean | null;
+  busy: boolean;
+}
+interface CrmApi {
+  state(): Promise<CrmState>;
+  setConfig(target: CrmTarget, fields: Record<string, unknown>): Promise<CrmState>;
+  preview(path: string, target: CrmTarget, id: string, score: boolean): Promise<CrmState>;
+  clearPreview(): Promise<CrmState>;
+  send(force: boolean): Promise<CrmState>;
+}
+let crmState: CrmState | null = null;
+const crmUi = { open: false, target: '' as CrmTarget | '', id: '', score: false };
+
+/** The «В CRM» panel under the brief card: target, record id, score, «Показать», then «Отправить». */
+function crmPanel(briefPath: string, host: HTMLElement): void {
+  const redraw = (st: CrmState) => { crmState = st; crmPanel(briefPath, host); };
+  host.replaceChildren();
+  const s = crmState;
+  if (!s) { void bridge.crm.state().then(redraw); return; }
+  const ready = s.targets.filter((x) => x.ready);
+  if (ready.length === 0) {
+    host.append(el('p', { className: 'muted hint', textContent: L('CRM не настроена — заполните «Настройки CRM» ниже.', 'No CRM set up — fill in «CRM settings» below.') }));
+    return;
+  }
+  if (!ready.some((x) => x.id === crmUi.target)) crmUi.target = ready[0]!.id;
+  const tgt = selectOf(ready.map((x) => ({ value: x.id, label: x.name })), crmUi.target, (v) => { crmUi.target = v as CrmTarget; void bridge.crm.clearPreview().then(redraw); });
+  tgt.dataset.crm = 'target';
+  tgt.setAttribute('aria-label', L('Куда', 'Where'));
+  const id = el('input', { type: 'text', value: crmUi.id, spellcheck: false, placeholder: crmUi.target === 'webhook' ? L('id (необязательно)', 'id (optional)') : L('id сделки / контакта', 'deal / contact id') });
+  id.dataset.crm = 'id';
+  id.className = 'crm-id';
+  id.addEventListener('input', () => { crmUi.id = id.value; if (s.preview) void bridge.crm.clearPreview().then(redraw); });
+  const sc = el('input', { type: 'checkbox', checked: crmUi.score });
+  sc.dataset.crm = 'score';
+  sc.addEventListener('change', () => { crmUi.score = sc.checked; void bridge.crm.clearPreview().then(redraw); });
+  const show = button(L('Показать, что уйдёт', 'Show what goes out'), () => void bridge.crm.preview(briefPath, crmUi.target as CrmTarget, crmUi.id, crmUi.score).then(redraw));
+  show.dataset.crm = 'preview';
+  host.append(el('div', { className: 'row inline crm-row' }, tgt, id, el('label', {}, sc, L(' + оценка', ' + score')), show));
+  const fresh = s.previewFor && s.previewFor.path === briefPath && s.previewFor.target === crmUi.target && s.previewFor.id === crmUi.id.trim() && s.previewFor.score === crmUi.score;
+  if (s.preview && fresh) {
+    const pre = el('pre', { className: 'crm-preview', textContent: s.preview });
+    pre.dataset.crm = 'previewText';
+    host.append(pre);
+    if (s.duplicate) host.append(el('p', { className: 'hint warn', textContent: s.duplicate }));
+    const send = button(s.busy ? L('Отправляю…', 'Sending…') : s.duplicate ? L('Отправить ещё раз', 'Send again') : L('Отправить', 'Send'), () => void bridge.crm.send(Boolean(s.duplicate)).then(redraw), 'primary');
+    send.dataset.crm = 'send';
+    send.disabled = s.busy;
+    host.append(el('div', { className: 'row' }, send, button(L('Отмена', 'Cancel'), () => { crmUi.open = false; void bridge.crm.clearPreview().then((st) => { crmState = st; host.replaceChildren(); }); }, 'link')));
+  }
+  if (s.status) {
+    const st = el('p', { className: `status line${s.ok === false ? ' warn' : ''}`, textContent: s.status });
+    st.dataset.crm = 'status';
+    host.append(st);
+  }
+}
+
+/** «Настройки CRM»: one compact row set per target; tokens are write-only («задан» when stored). */
+function crmSettings(): HTMLElement {
+  const box = el('details', { className: 'crm-settings' }, el('summary', { textContent: L('Настройки CRM', 'CRM settings') }));
+  box.dataset.crm = 'settings';
+  const s = crmState;
+  if (!s) { void bridge.crm.state().then((st) => { crmState = st; box.replaceWith(crmSettings()); }); return box; }
+  box.open = crmSettingsOpen;
+  box.addEventListener('toggle', () => { crmSettingsOpen = box.open; });
+  box.append(el('p', { className: 'muted hint', textContent: L('Уходит только карточка «Кратко и задачи» (и оценка, если отметить) и только по кнопке «Отправить» после просмотра. Токены хранятся только на этом компьютере (crm.json) и сюда не возвращаются.', 'Only the brief (and the score if ticked) goes out, and only by «Send» after the preview. Tokens stay on this computer (crm.json) and are never shown again.') }));
+  const field = (target: CrmTarget, key: string, ph: string, secret = false) => {
+    const cur = s.config[target][key];
+    const inp = el('input', { type: secret ? 'password' : 'text', value: secret ? '' : String(cur ?? ''), placeholder: secret ? (cur ? L('задан — введите новый, чтобы заменить', 'set — type a new one to replace') : ph) : ph, spellcheck: false });
+    inp.dataset.crm = `${target}.${key}`;
+    inp.autocomplete = 'off';
+    return inp;
+  };
+  const choice = (target: CrmTarget, key: string, opts: string[]) => {
+    const sel = selectOf(opts.map((v) => ({ value: v, label: v })), String(s.config[target][key] ?? opts[0]), () => undefined);
+    sel.dataset.crm = `${target}.${key}`;
+    return sel;
+  };
+  const rows: [CrmTarget, string, HTMLElement[]][] = [
+    ['amocrm', 'amoCRM', [field('amocrm', 'base', 'https://company.amocrm.ru'), choice('amocrm', 'entity', ['leads', 'contacts', 'companies']), field('amocrm', 'token', L('долгосрочный токен', 'long-lived token'), true)]],
+    ['bitrix', 'Bitrix24', [field('bitrix', 'webhook', 'https://portal.bitrix24.ru/rest/1/…/', true), choice('bitrix', 'entity', ['deal', 'lead', 'contact', 'company']), choice('bitrix', 'mode', ['comment', 'task']), field('bitrix', 'responsibleId', L('id ответственного (для задачи)', 'responsible id (task)'))]],
+    ['hubspot', 'HubSpot', [field('hubspot', 'token', L('токен private app', 'private app token'), true), choice('hubspot', 'object', ['contacts', 'deals', 'companies'])]],
+    ['webhook', 'Webhook', [field('webhook', 'url', 'https://example.com/hook'), field('webhook', 'secret', L('секрет подписи (необязательно)', 'signing secret (optional)'), true)]],
+  ];
+  for (const [target, name, inputs] of rows) {
+    const save = button(L('Сохранить', 'Save'), () => {
+      const fields: Record<string, unknown> = {};
+      for (const i of inputs) fields[(i.dataset.crm ?? '').split('.')[1]!] = (i as HTMLInputElement).value;
+      void bridge.crm.setConfig(target, fields).then((st) => { crmState = st; box.replaceWith(crmSettings()); });
+    });
+    save.dataset.crm = `${target}.save`;
+    const clr = button(L('Очистить', 'Clear'), () => void bridge.crm.setConfig(target, { clear: true }).then((st) => { crmState = st; box.replaceWith(crmSettings()); }), 'link');
+    const ready = s.targets.find((x) => x.id === target)?.ready;
+    box.append(el('div', { className: 'crm-target' }, el('strong', { textContent: name + (ready ? ' ✓' : '') }), ...inputs, save, clr));
+  }
+  if (s.status && !s.previewFor) box.append(el('p', { className: `status line${s.ok === false ? ' warn' : ''}`, textContent: s.status }));
+  return box;
+}
+let crmSettingsOpen = false;
 
 const applyNetwork = (st: NetworkState) => {
   const prev = networkState;
@@ -2213,12 +2321,20 @@ function renderFile(): void {
     const card = el('div', { className: 'card result brief-card' },
       el('div', { className: 'card-head' },
         el('strong', { textContent: L('Карточка', 'Card') }),
-        br.path ? button(L('Показать файл', 'Show file'), () => void bridge.file.reveal(br.path!), 'link') : el('span'),
+        el('span', { className: 'row inline' },
+          br.path ? (() => { const b = button(L('В CRM', 'To CRM'), () => { crmUi.open = !crmUi.open; void bridge.crm.clearPreview().then((st) => { crmState = st; crmUi.open ? crmPanel(br.path!, crmHost) : crmHost.replaceChildren(); }); }, 'link'); b.dataset.crm = 'open'; return b; })() : el('span'),
+          br.path ? button(L('Показать файл', 'Show file'), () => void bridge.file.reveal(br.path!), 'link') : el('span'),
+        ),
       ),
       el('pre', { className: 'last-text', textContent: br.text }),
     );
+    const crmHost = el('div', { className: 'crm-panel' });
+    crmHost.dataset.crm = 'panel';
+    card.append(crmHost);
+    if (crmUi.open && br.path) crmPanel(br.path, crmHost);
     briefBox.append(card);
   }
+  briefBox.append(crmSettings());
   page.append(briefBox);
 
   // «Проверка по чек-листу» — the Brain marks each item yes / partial / no with a quote (.score.json / .score.txt).
