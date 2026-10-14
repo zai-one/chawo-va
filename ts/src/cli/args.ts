@@ -62,7 +62,7 @@ export interface CliOptions {
   port: number | null;
   /** serve: job/transcript data directory. */
   dataDir: string | null;
-  /** brain: --context <text> — «Контекст для Мозга» (names, terms). Opt-in. */
+  /** brain / transcribe --brain: --context <text> — «Контекст для Мозга» (names, terms). Opt-in. */
   context: string | null;
   /** brain: --context-file <file> — the same, read from a text file. */
   contextFile: string | null;
@@ -408,7 +408,11 @@ export function parseArgs(argv: readonly string[]): ParseResult {
     if (o.inputs.length === 0) return { ok: false, error: 'no files given' };
     return { ok: true, options: o };
   }
-  if ((o.context != null || o.contextFile != null) && o.command !== 'brain') return { ok: false, error: '--context / --context-file are for brain' };
+  if ((o.context != null || o.contextFile != null) && o.command !== 'brain' && o.command !== 'transcribe') return { ok: false, error: '--context / --context-file are for brain and transcribe --brain' };
+  if ((o.context != null || o.contextFile != null) && o.command === 'transcribe') {
+    if (o.brain === false) return { ok: false, error: '--context needs the Brain; drop --no-brain' };
+    if (o.server != null) return { ok: false, error: '--context does not work with --server (the Brain is not run there)' };
+  }
   if (o.context != null && o.contextFile != null) return { ok: false, error: '--context and --context-file cannot be used together' };
   if (o.limit !== null || o.json || o.raw) return { ok: false, error: '-n, --json and --raw are for history ( --json also for segments)' };
   if (o.inputs.length === 0) return { ok: false, error: 'no files given' };
@@ -473,6 +477,8 @@ export function helpText(t: (ru: string, en: string) => string): string {
       --brain / --no-brain
                          ещё и «Прогнать через мозг» → .brain.txt (убрать слова-паразиты +
                          «Кратко»); по умолчанию — из настроек
+      --context <текст> / --context-file <файл>
+                         контекст для .brain.txt (как у brain; нужен Мозг)
       --brief / --no-brief
                          ещё и «Кратко и задачи» → .brief.txt (--template / --instruction — формат);
                          по умолчанию — из настроек. Сбой Мозга — пометка, .txt всё равно пишется
@@ -594,6 +600,8 @@ Options:
       --brain / --no-brain
                          also «Run through the Brain» → .brain.txt (filler words removed +
                          «Summary»); default: settings
+      --context <text> / --context-file <file>
+                         context for .brain.txt (as for brain; needs the Brain)
       --brief / --no-brief
                          also «Brief and tasks» → .brief.txt (--template / --instruction for the format);
                          default: settings. A Brain failure is a note; the .txt is written anyway

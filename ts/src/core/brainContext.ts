@@ -50,3 +50,9 @@ export function contextBlock(c: BrainContextInput | null | undefined): string {
     '<context>\n' + lines.join('\n') + '\n</context>'
   );
 }
+
+/** Appends the context block to every prompt an ask-style Brain call gets; '' leaves the call untouched. */
+export function withContext<A extends (prompt: string, ...rest: never[]) => unknown>(ask: A, block: string): A {
+  if (!block) return ask;
+  return ((prompt: string, ...rest: never[]) => ask(prompt + block, ...rest)) as A;
+}
