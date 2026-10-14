@@ -12,3 +12,6 @@ tools/hermes-telegram-bot/bot-config.json
 
 __pycache__/
 *.pyc
+
+# Worktree lock of the autonomous tick (never commit)
+.tick-lock
