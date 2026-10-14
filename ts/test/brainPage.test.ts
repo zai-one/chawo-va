@@ -348,3 +348,30 @@ describe('«Мозг» page: download card', () => {
     expect(st.local.fileStatus.endsWith(' Видеокарта не поднялась, мозг считает на процессоре.')).toBe(true);
   });
 });
+
+describe('«Контекст для Мозга» on the page', () => {
+  it('hidden with the Brain off, off by default, each switch saves on its own', () => {
+    expect(make().ctl.state().context.visible).toBe(false);
+    const m = make({}, (x) => { x.Brain = 'Local'; });
+    let st = m.ctl.state();
+    expect(st.context).toMatchObject({ visible: true, clipboard: false, app: false, warning: '' });
+    m.ctl.setContext({ clipboard: true });
+    expect(m.s.BrainContextClipboard).toBe(true);
+    expect(m.s.BrainContextApp).toBe(false);
+    expect(m.saves()).toBe(1);
+    m.ctl.setContext({ clipboard: true });
+    expect(m.saves()).toBe(1);
+    st = m.ctl.state();
+    expect(st.context.warning).toBe(''); // local Brain: nothing leaves the PC
+  });
+  it('cloud Brain with context on: a warning naming the host; loopback server: none', () => {
+    const m = make({}, (x) => { x.Brain = 'Server'; x.CleanupEndpointUrl = 'https://api.openai.com/v1'; x.CleanupModel = 'm'; x.CleanupApiKey = 'k'; });
+    expect(m.ctl.state().context.warning).toBe('');
+    m.ctl.setContext({ app: true });
+    expect(m.ctl.state().context.warning).toContain('api.openai.com');
+    expect(m.ctl.state().context.warning).toContain('уходит с компьютера');
+    m.s.CleanupEndpointUrl = 'http://127.0.0.1:8080/v1';
+    expect(m.ctl.state().context.warning).toBe('');
+  });
+});
+

@@ -152,6 +152,7 @@ const api = {
     setEveryTake: (v: boolean) => ipcRenderer.invoke('brain:everyTake', v),
     setInstruction: (v: string) => ipcRenderer.invoke('brain:instruction', v),
     setSelection: (v: boolean) => ipcRenderer.invoke('brain:selection', v),
+    setContext: (v: { clipboard?: boolean; app?: boolean }) => ipcRenderer.invoke('brain:context', v),
     setDevice: (v: string) => ipcRenderer.invoke('brain:device', v),
     setLocalModel: (v: string) => ipcRenderer.invoke('brain:localModel', v),
     setCustomUrl: (v: string) => ipcRenderer.invoke('brain:customUrl', v),

@@ -128,6 +128,7 @@ export function registerDictationIpc(
     micName: () => ctl.micName(),
     overlay: opts.overlay,
     foreground: () => detectForeground(),
+    clipboardText: () => clipboard.readText(),
     onApp: opts.onApp,
     record: opts.record,
     sales: opts.sales,

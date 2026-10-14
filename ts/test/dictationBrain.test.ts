@@ -379,3 +379,34 @@ describe('DictationSession → «История»', () => {
     expect(copied).toEqual(['привет']);
   });
 });
+
+describe('«Контекст для Мозга» in a take', () => {
+  it('off by default: the clipboard is not even read and the prompt has no context', async () => {
+    const srv = server(() => 'Привет.');
+    let reads = 0;
+    const { take } = make({ fetch: srv.fetch, clipboardText: () => (reads++, 'Зюйд-Вест'), foreground: async () => ({ exe: 'OUTLOOK.EXE', title: 'Письмо' }) }, (x) => { serverSettings(x); x.BrainEveryTake = true; });
+    await take('привет');
+    expect(reads).toBe(0);
+    expect(srv.calls[0].body.messages[0].content).not.toContain('<context>');
+  });
+  it('clipboard + program on: both go into the system prompt, the user text is untouched', async () => {
+    const srv = server(() => 'Привет, Зюйд-Вест.');
+    const { take } = make({ fetch: srv.fetch, clipboardText: () => 'ООО «Зюйд-Вест»', foreground: async () => ({ exe: 'OUTLOOK.EXE', title: 'Re: смета' }) }, (x) => {
+      serverSettings(x); x.BrainEveryTake = true; x.BrainContextClipboard = true; x.BrainContextApp = true;
+    });
+    expect(await take('привет зюйд вест')).toBe('Привет, Зюйд-Вест.');
+    const sys = srv.calls[0].body.messages[0].content;
+    expect(sys).toContain('ООО «Зюйд-Вест»');
+    expect(sys).toContain('Program: OUTLOOK.EXE — "Re: смета"');
+    expect(srv.calls[0].body.messages[1].content).toBe('привет зюйд вест');
+  });
+  it('a failing clipboard or window lookup never breaks the take', async () => {
+    const srv = server(() => 'Привет.');
+    const { take } = make({ fetch: srv.fetch, clipboardText: () => { throw new Error('busy'); }, foreground: async () => { throw new Error('no X'); } }, (x) => {
+      serverSettings(x); x.BrainEveryTake = true; x.BrainContextClipboard = true; x.BrainContextApp = true;
+    });
+    expect(await take('привет')).toBe('Привет.');
+    expect(srv.calls[0].body.messages[0].content).not.toContain('<context>');
+  });
+});
+
