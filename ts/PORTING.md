@@ -1069,3 +1069,8 @@ Re-align folder names and tooling with taptain-desktop once its layout is readab
   Тест packaging (+3). Live на Linux (`electron-builder --linux dir` с тем же конфигом): упакованный CLI
   `--version`, `segments`, `transcribe` настоящей моделью v3 из asar → текст, deviceid не создан; GUI под
   xvfb стартует и живёт.
+  Live на Windows (GitHub Actions run 38493034329, windows-latest): сборка и smoke зелёные — `chawo-va 2.0.0-alpha.0`,
+  segments 3 фразы, «native modules ok», окно живо 25 с, в логе «native helper ready, hook on», ChawoNative.exe
+  запущен. Артефакты: Setup.exe ≈ 115 МБ, zip ≈ 161 МБ. 850 тестов зелёные (847 до), `tsc`/build.
+  Gaps: без подписи (SmartScreen предупредит); установщик проверен сборкой, а не установкой на чистую
+  Windows; настоящая расшифровка из Windows-пакета не гонялась в CI (нет весов) — на Linux-пакете да.
