@@ -267,7 +267,7 @@ chawo-va ask скидка Ромашка --in ~/Calls --search -n 3
 ## Полный вывод `chawo-va --lang ru --help` (v2.0.0)
 
 ```
-Chawo Voice Assistant — расшифровка файлов, «Кратко и задачи», перевод и история диктовки из командной строки. Всё локально, ничего не отправляется (по ссылке — только скачивание).
+Chawo Voice Assistant — расшифровка файлов, «Кратко и задачи», чек-лист, статистика, вопросы к истории, словарь и сниппеты из командной строки. Всё локально, ничего не отправляется (по ссылке — только скачивание).
 
 Использование:
   chawo-va transcribe <файлы, папки или ссылки…> [параметры]
@@ -282,6 +282,7 @@ Chawo Voice Assistant — расшифровка файлов, «Кратко и
   chawo-va snippets list [--json] | add <фраза> <текст|-> | remove <фраза>
   chawo-va dictionary list|suggest [--json] | accept <как слышно> [как писать] | dismiss <как слышно>
   chawo-va dictionary learn <было.txt> <стало.txt> [--json] | auto on|off
+  chawo-va meeting detect [--json]
   chawo-va serve [--host 127.0.0.1|0.0.0.0] [--port 17831] [--token …] [--data-dir …]
 
 Параметры:
@@ -392,6 +393,10 @@ Chawo Voice Assistant — расшифровка файлов, «Кратко и
       dismiss <как слышно>              больше не предлагать
       learn <было.txt> <стало.txt>      запомнить ваши правки слов (--json: fixes, added, suggested)
       auto on|off        добавлять повторённые исправления в словарь сами (по умолчанию off)
+
+Параметры meeting (автоопределение встречи без запуска записи; настройки — из settings.json):
+      detect [--json]    есть ли сейчас встреча: приложения (Windows) и/или локальный .ics
+                         JSON: {active, appsSupported, apps, calendar, reasons}
 
 Параметры history (история диктовки, только чтение, новые сверху):
       слова…             поиск: каждое слово должно встретиться (ё = е), как на странице
