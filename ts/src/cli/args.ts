@@ -8,7 +8,7 @@ export const FORMATS = ['txt', 'srt', 'vtt', 'json', 'md', 'docx'] as const;
 export type OutputFormat = (typeof FORMATS)[number];
 
 export interface CliOptions {
-  command: 'transcribe' | 'brain' | 'brief' | 'translate' | 'history' | 'segments' | 'serve' | 'snippets' | 'help' | 'version';
+  command: 'transcribe' | 'brain' | 'brief' | 'translate' | 'history' | 'segments' | 'serve' | 'snippets' | 'dictionary' | 'help' | 'version';
   inputs: string[];
   /** Empty = not given (txt). */
   formats: OutputFormat[];
@@ -126,7 +126,7 @@ export function parseArgs(argv: readonly string[]): ParseResult {
   const first = args[0];
   if (first === '--help' || first === '-h' || first === 'help') return { ok: true, options: blank('help') };
   if (first === '--version' || first === '-v' || first === 'version') return { ok: true, options: blank('version') };
-  if (first !== 'transcribe' && first !== 'brain' && first !== 'brief' && first !== 'translate' && first !== 'history' && first !== 'segments' && first !== 'serve' && first !== 'snippets') return { ok: false, error: `unknown command: ${first}` };
+  if (first !== 'transcribe' && first !== 'brain' && first !== 'brief' && first !== 'translate' && first !== 'history' && first !== 'segments' && first !== 'serve' && first !== 'snippets' && first !== 'dictionary') return { ok: false, error: `unknown command: ${first}` };
 
   args.splice(1, 0, ...lead);
   const o = blank(first);
@@ -362,6 +362,34 @@ export function parseArgs(argv: readonly string[]): ParseResult {
     } else return { ok: false, error: `unknown snippets action: ${o.inputs[0]} (use list, add or remove)` };
     return { ok: true, options: o };
   }
+  if (o.command === 'dictionary') {
+    // dictionary list | suggest | accept <как слышно> [как писать] | dismiss <как слышно> | learn <было> <стало> | auto on|off
+    const speech = o.model || o.device || o.threads || o.script || o.modelDir;
+    const usage = 'dictionary takes list | suggest | accept <heard> [written] | dismiss <heard> | learn <before.txt> <after.txt> | auto on|off, and --json for list/suggest/learn';
+    if (o.formats.length > 0 || o.outDir || o.stdout || o.timestamps !== null || o.skipExisting || speech || o.instruction != null || o.to != null || o.postScript != null || o.noPostScript || o.limit !== null || o.raw)
+      return { ok: false, error: usage };
+    const sub = (o.inputs[0] ?? 'list').toLowerCase();
+    const rest = o.inputs.slice(1);
+    if (o.json && sub !== 'list' && sub !== 'ls' && sub !== 'suggest' && sub !== 'learn') return { ok: false, error: '--json is for dictionary list, suggest and learn' };
+    if (sub === 'list' || sub === 'ls' || sub === 'suggest') {
+      if (rest.length > 0) return { ok: false, error: `dictionary ${sub} takes no arguments` };
+      o.inputs = [sub === 'suggest' ? 'suggest' : 'list'];
+    } else if (sub === 'accept') {
+      if (rest.length < 1 || rest.length > 2) return { ok: false, error: 'dictionary accept needs a heard form and, optionally, the written form' };
+      o.inputs = ['accept', ...rest];
+    } else if (sub === 'dismiss') {
+      if (rest.length < 1 || rest.length > 2) return { ok: false, error: 'dictionary dismiss needs a heard form' };
+      o.inputs = ['dismiss', ...rest];
+    } else if (sub === 'learn') {
+      if (rest.length !== 2) return { ok: false, error: 'dictionary learn needs two files: the text before and after your fixes' };
+      o.inputs = ['learn', ...rest];
+    } else if (sub === 'auto') {
+      const v = (rest[0] ?? '').toLowerCase();
+      if (rest.length !== 1 || (v !== 'on' && v !== 'off')) return { ok: false, error: 'dictionary auto takes on or off' };
+      o.inputs = ['auto', v];
+    } else return { ok: false, error: `unknown dictionary action: ${o.inputs[0]} (use list, suggest, accept, dismiss, learn or auto)` };
+    return { ok: true, options: o };
+  }
   if (o.command === 'segments') {
     const speech = o.model || o.device || o.threads || o.script || o.modelDir;
     if (o.formats.length > 0 || o.outDir || o.stdout || o.timestamps !== null || o.skipExisting || speech)
@@ -407,6 +435,8 @@ export function helpText(t: (ru: string, en: string) => string): string {
   chawo-va history [слова для поиска…] [-n 20|all] [--json] [--raw]
   chawo-va segments <файлы.txt|.srt|.json…> [--json]
   chawo-va snippets list [--json] | add <фраза> <текст|-> | remove <фраза>
+  chawo-va dictionary list|suggest [--json] | accept <как слышно> [как писать] | dismiss <как слышно>
+  chawo-va dictionary learn <было.txt> <стало.txt> [--json] | auto on|off
   chawo-va serve [--host 127.0.0.1|0.0.0.0] [--port 17831] [--token …] [--data-dir …]
 
 Параметры:
@@ -484,6 +514,15 @@ export function helpText(t: (ru: string, en: string) => string): string {
       add <фраза> <текст> добавить или заменить; текст «-» — читать из stdin (несколько строк)
       remove <фраза>     удалить
 
+Параметры dictionary (словарь замен «Словаря» и «Из исправлений», learned-words.json; settings.json
+только читается — принятые строки приложение перенесёт в «Словарь» само):
+      list [--json]      правила: как слышно<TAB>как писать
+      suggest [--json]   исправления, повторённые 2+ раза: как слышно<TAB>как писать<TAB>сколько
+      accept <как слышно> [как писать]  в словарь (без «как писать» — из предложения)
+      dismiss <как слышно>              больше не предлагать
+      learn <было.txt> <стало.txt>      запомнить ваши правки слов (--json: fixes, added, suggested)
+      auto on|off        добавлять повторённые исправления в словарь сами (по умолчанию off)
+
 Параметры history (история диктовки, только чтение, новые сверху):
       слова…             поиск: каждое слово должно встретиться (ё = е), как на странице
   -n, --limit <N|all>    сколько записей (по умолчанию 20)
@@ -515,6 +554,8 @@ Usage:
   chawo-va history [search words…] [-n 20|all] [--json] [--raw]
   chawo-va segments <files.txt|.srt|.json…> [--json]
   chawo-va snippets list [--json] | add <trigger> <text|-> | remove <trigger>
+  chawo-va dictionary list|suggest [--json] | accept <heard> [written] | dismiss <heard>
+  chawo-va dictionary learn <before.txt> <after.txt> [--json] | auto on|off
   chawo-va serve [--host 127.0.0.1|0.0.0.0] [--port 17831] [--token …] [--data-dir …]
 
 Options:
@@ -591,6 +632,15 @@ snippets options (text for «вставь <trigger>» while dictating; the same 
       list [--json]      show them (JSON: [{trigger, text}])
       add <trigger> <text> add or replace; text «-» reads stdin (several lines)
       remove <trigger>   delete
+
+dictionary options (the Dictionary rules and «From your fixes», learned-words.json; settings.json is
+only read — the app moves accepted rows into the Dictionary by itself):
+      list [--json]      rules: heard<TAB>written
+      suggest [--json]   fixes repeated 2+ times: heard<TAB>written<TAB>count
+      accept <heard> [written]   into the dictionary (no written form = from the suggestion)
+      dismiss <heard>            do not suggest again
+      learn <before.txt> <after.txt>  remember your word fixes (--json: fixes, added, suggested)
+      auto on|off        add repeated fixes to the dictionary by themselves (default off)
 
 history options (dictation history, read-only, newest first):
       words…             search: every word must occur (ё = е), same as the page

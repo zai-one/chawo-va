@@ -1152,4 +1152,11 @@ Re-align folder names and tooling with taptain-desktop once its layout is readab
   разделы «Клиент … Что улучшить менеджеру»; `brief` без флага берёт шаблон из настроек («Протокол»).
   Документация: docs/user-guide.md, docs/cli.md. Следующее: статистика разговора (№3 / call stats).
 
-
+- 2026-10-14 tick (branch `ts/feat-self-dictionary`, competitor queue №4): **Словарь из исправлений** —
+  `src/core/selfDictionary.ts` (wordCorrections: LCS по словам, правки 1–3 слова, без регистра первой
+  буквы/вставок/цифр/переписанного текста; learn/suggestions с порогом 2, dismiss, autoAdd, очередь
+  pending для CLI), `learned-words.json`; «История» → «Исправить» (HistoryStore.setText, HistoryController.edit),
+  блок «Из исправлений» на «Словаре» (В словарь / Скрыть / «Добавлять в словарь сами»); CLI
+  `chawo-va dictionary list|suggest|accept|dismiss|learn|auto` (settings.json только читается, принятые строки
+  приложение забирает из pending при диктовке/показе страницы). Правки в поле чужой программы после вставки
+  не отслеживаются (нужен нативный хелпер) — источник правок: история и файлы.

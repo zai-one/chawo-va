@@ -11,7 +11,9 @@ import * as Log from '../log';
 import { DEFAULT_RULES, formatRules, type ReplacePair } from '../../core/wordReplace';
 import { suggestDictionary, type DictSuggestion } from '../sales';
 import { cleanSnippets, loadSnippets, saveSnippets, type Snippet } from '../../core/snippets';
-import { snippetsPath } from '../paths';
+import { learnedWordsPath, snippetsPath } from '../paths';
+import { applyPendingRules } from './learnedWords';
+import { dismiss, findPair, forget, loadLearned, saveLearned, suggestions as learnedSuggestions, SUGGEST_AT } from '../../core/selfDictionary';
 import { dictionaryRows, saveDictionary, type SettingsData } from '../settings';
 
 export interface DictRow {
@@ -42,6 +44,19 @@ export interface DictionaryStateDto {
   spoken: SpokenStateDto;
   script: ScriptStateDto;
   snippets: SnippetsStateDto;
+  learned: LearnedStateDto;
+}
+
+/** «Из исправлений»: fixes from history «Исправить» / `chawo-va dictionary learn`, seen twice or more. */
+export interface LearnedStateDto {
+  heading: string;
+  hint: string;
+  autoAdd: boolean;
+  autoLabel: string;
+  acceptLabel: string;
+  dismissLabel: string;
+  empty: string;
+  rows: { from: string; to: string; count: number; times: string }[];
 }
 
 export interface SnippetRow {
@@ -103,6 +118,8 @@ export interface DictionaryHooks {
   runScript?: (r: PostScriptRun) => Promise<PostScriptResult>;
   /** snippets.json; defaults to the app data folder (tests pass a temp file). */
   snippetsPath?: () => string;
+  /** learned-words.json; defaults to the app data folder (tests pass a temp file). */
+  learnedPath?: () => string;
 }
 
 function folderExists(p: string): boolean {
@@ -219,9 +236,71 @@ export class DictionaryController {
     return this.state();
   }
 
+  private learnPath(): string {
+    return (this.h.learnedPath ?? learnedWordsPath)();
+  }
+
+  private learnedState(): LearnedStateDto {
+    const d = loadLearned(this.learnPath());
+    const rules = this.rows.map((r) => ({ from: r.from, to: r.to }));
+    return {
+      heading: t('Из исправлений', 'From your fixes'),
+      hint: t(`Когда вы исправляете фразу в «Истории» (кнопка «Исправить»), Chawo запоминает заменённые слова. Одна и та же правка ${SUGGEST_AT} раза — и она появится здесь. Только на этом компьютере (learned-words.json).`,
+        `When you fix a phrase in History (the Fix button), Chawo remembers the replaced words. The same fix ${SUGGEST_AT} times and it shows up here. On this computer only (learned-words.json).`),
+      autoAdd: d.autoAdd,
+      autoLabel: t('Добавлять в словарь сами', 'Add to the dictionary by itself'),
+      acceptLabel: t('В словарь', 'Add'),
+      dismissLabel: t('Скрыть', 'Hide'),
+      empty: t('Пока нечего предложить.', 'Nothing to suggest yet.'),
+      rows: learnedSuggestions(d, rules).map((p) => ({ from: p.from, to: p.to, count: p.count, times: t(`×${p.count}`, `×${p.count}`) })),
+    };
+  }
+
+  /** «В словарь» on a learned fix: a dictionary row (replacing one with the same heard form). */
+  acceptLearned(from: string, to: string): DictionaryStateDto {
+    this.sync();
+    const path = this.learnPath();
+    const d = loadLearned(path);
+    const p = findPair(d, from, to);
+    if (!p) return this.state();
+    const f = p.from.trim().toLowerCase();
+    const same = this.rows.find((r) => r.from.trim().toLowerCase() === f);
+    if (same) {
+      same.to = p.to;
+      this.persist();
+    } else this.addRow(p.from, p.to);
+    try {
+      saveLearned(path, forget(d, p.from));
+    } catch (e) {
+      Log.write(`learned words save failed: ${e instanceof Error ? e.message : String(e)}`);
+    }
+    return this.state();
+  }
+
+  dismissLearned(from: string, to: string): DictionaryStateDto {
+    const path = this.learnPath();
+    try {
+      saveLearned(path, dismiss(loadLearned(path), from, to));
+    } catch (e) {
+      Log.write(`learned words save failed: ${e instanceof Error ? e.message : String(e)}`);
+    }
+    return this.state();
+  }
+
+  setLearnAuto(on: boolean): DictionaryStateDto {
+    const path = this.learnPath();
+    try {
+      saveLearned(path, { ...loadLearned(path), autoAdd: on });
+    } catch (e) {
+      Log.write(`learned words save failed: ${e instanceof Error ? e.message : String(e)}`);
+    }
+    return this.state();
+  }
+
   /** Picks up outside changes: rules edited elsewhere reload rows; a new folder clears suggestions. */
   private sync(): void {
     const s = this.h.settings();
+    if (applyPendingRules(s, this.h.save, this.learnPath())) this.h.changed?.();
     if (s.WordReplacementRules !== this.seenRules) this.load();
     else if (JSON.stringify(loadSnippets(this.snipPath())) !== this.seenSnippets) this.loadSnippetRows();
     const folder = (s.RagFolder ?? '').trim();
@@ -250,6 +329,7 @@ export class DictionaryController {
       spoken: this.spokenState(),
       script: this.scriptState(),
       snippets: this.snippetsState(),
+      learned: this.learnedState(),
     };
   }
 

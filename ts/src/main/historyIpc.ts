@@ -8,6 +8,7 @@ import type { SettingsData } from './settings';
 import { historyFilePath } from './paths';
 import { HistoryController } from './history/historyPage';
 import { HistoryStore, type HistoryKeep } from './history/historyStore';
+import { learnFromEdit } from './dictionary/learnedWords';
 
 export function historyPath(): string {
   return historyFilePath();
@@ -31,6 +32,7 @@ export function registerHistoryIpc(getWindow: () => BrowserWindow | null, settin
     settings: settings.get,
     save: Settings.save,
     copy: (text) => clipboard.writeText(text),
+    learn: (before, after) => learnFromEdit(settings.get(), Settings.save, before, after),
     push,
     confirm: async (message) => {
       const w = getWindow();
@@ -54,6 +56,7 @@ export function registerHistoryIpc(getWindow: () => BrowserWindow | null, settin
   ipcMain.handle('history:copy', (_e, id: unknown, which: unknown) => ctl.copy(str(id), which === 'raw' ? 'raw' : 'final'));
   ipcMain.handle('history:remove', (_e, id: unknown) => ctl.remove(str(id)));
   ipcMain.handle('history:clear', () => ctl.clearAll());
+  ipcMain.handle('history:edit', (_e, id: unknown, text: unknown) => ctl.edit(str(id), str(text)));
   ipcMain.handle('history:rerun', (_e, id: unknown) => ctl.rerun(str(id)));
   return ctl;
 }

@@ -150,6 +150,7 @@ interface DictState {
   suggestions: DictSuggestionRow[];
   spoken: { punctuation: boolean; numbers: boolean; punctuationLabel: string; punctuationHint: string; numbersLabel: string; numbersHint: string };
   script: { heading: string; command: string; placeholder: string; hint: string; files: boolean; filesLabel: string; testLabel: string; testLine: string; testOk: boolean | null; busy: boolean };
+  learned: { heading: string; hint: string; autoAdd: boolean; autoLabel: string; acceptLabel: string; dismissLabel: string; empty: string; rows: { from: string; to: string; count: number; times: string }[] };
   snippets: { heading: string; hint: string; triggerHeader: string; textHeader: string; triggerPlaceholder: string; textPlaceholder: string; addLabel: string; rows: { id: number; trigger: string; text: string }[] };
 }
 interface DictApi {
@@ -159,6 +160,9 @@ interface DictApi {
   setSnippet(id: number, trigger: string, text: string): Promise<DictState>;
   addSnippet(): Promise<{ id: number; state: DictState }>;
   removeSnippet(id: number): Promise<DictState>;
+  acceptLearned(from: string, to: string): Promise<DictState>;
+  dismissLearned(from: string, to: string): Promise<DictState>;
+  setLearnAuto(on: boolean): Promise<DictState>;
   setSpoken(kind: 'punctuation' | 'numbers', on: boolean): Promise<DictState>;
   state(): Promise<DictState>;
   setRow(id: number, from: string, to: string): Promise<DictState>;
@@ -417,7 +421,7 @@ interface HistoryState {
   canRerun: boolean;
   rerunTip: string;
   rerunningId: string | null;
-  labels: { copy: string; copyRaw: string; rerun: string; remove: string; clearAll: string; rawHeader: string };
+  labels: { copy: string; copyRaw: string; rerun: string; remove: string; clearAll: string; rawHeader: string; edit: string; save: string; cancel: string };
 }
 interface HistoryApi {
   state(): Promise<HistoryState>;
@@ -427,6 +431,7 @@ interface HistoryApi {
   remove(id: string): Promise<HistoryState>;
   clearAll(): Promise<HistoryState>;
   rerun(id: string): Promise<HistoryState>;
+  edit(id: string, text: string): Promise<HistoryState>;
   onState(fn: (s: HistoryState) => void): () => void;
 }
 const bridge = (window as unknown as { chawo: { file: FileApi; meeting: MeetingApi; speech: SpeechApi; dict: DictApi; brain: BrainApi; dictation: DictationApi; network: NetworkApi; sales: SalesApi; history: HistoryApi } }).chawo;
@@ -1320,7 +1325,22 @@ function fillHistoryList(s: HistoryState): void {
     const again = button(s.rerunningId === r.id ? '…' : s.labels.rerun, () => void bridge.history.rerun(r.id).then(applyHistory), 'link');
     again.disabled = !s.canRerun;
     if (s.rerunTip) again.title = s.rerunTip;
-    acts.append(again, button(s.labels.remove, () => void bridge.history.remove(r.id).then(applyHistory), 'link'));
+    // «Исправить»: the text becomes an editor in place; saving teaches «Словарь из исправлений».
+    const fix = button(s.labels.edit, () => {
+      const text = item.querySelector<HTMLElement>('.hist-text');
+      if (!text || item.querySelector('textarea')) return;
+      const area = el('textarea', { value: r.final, spellcheck: true, rows: Math.min(8, Math.max(2, Math.ceil(r.final.length / 90))) });
+      area.className = 'hist-edit';
+      area.dataset.history = 'edit';
+      const ok = button(s.labels.save, () => void bridge.history.edit(r.id, area.value).then(applyHistory));
+      ok.dataset.history = 'save';
+      const bar = el('div', { className: 'row hist-acts' }, ok, button(s.labels.cancel, () => fillHistoryList(historyState ?? s), 'link'));
+      text.replaceWith(area);
+      acts.replaceWith(bar);
+      area.focus();
+    }, 'link');
+    fix.dataset.history = 'fix';
+    acts.append(fix, again, button(s.labels.remove, () => void bridge.history.remove(r.id).then(applyHistory), 'link'));
     item.append(acts);
     list.append(item);
   }
@@ -1411,6 +1431,28 @@ function renderDictionary(focusId?: number): void {
     }
     page.append(list);
   }
+
+  // «Из исправлений»: fixes seen twice from «История» → «Исправить»; one switch, rows with two buttons.
+  const lr = s.learned;
+  const auto = el('input', { type: 'checkbox', checked: lr.autoAdd });
+  auto.dataset.dict = 'learnAuto';
+  auto.addEventListener('change', () => void bridge.dict.setLearnAuto(auto.checked).then((st) => applyDict(st)));
+  const lBox = el('fieldset', { className: 'learned' }, el('legend', { textContent: lr.heading }),
+    el('p', { className: 'muted hint', textContent: lr.hint }),
+    el('label', { className: 'check' }, auto, ' ' + lr.autoLabel));
+  lBox.dataset.dict = 'learned';
+  if (lr.rows.length === 0) lBox.append(el('p', { className: 'muted hint', textContent: lr.empty }));
+  for (const r of lr.rows) {
+    const add = button(lr.acceptLabel, () => void bridge.dict.acceptLearned(r.from, r.to).then((st) => applyDict(st)));
+    add.dataset.dict = 'learnAccept';
+    lBox.append(el('div', { className: 'learned-row' },
+      el('span', { className: 'cell', textContent: r.from }),
+      el('span', { className: 'cell', textContent: '→ ' + r.to }),
+      el('span', { className: 'muted', textContent: r.times }),
+      add,
+      button(lr.dismissLabel, () => void bridge.dict.dismissLearned(r.from, r.to).then((st) => applyDict(st)), 'link')));
+  }
+  page.append(lBox);
 
   // «Сниппеты»: compact block — trigger, text (grows with lines), delete.
   const sn = s.snippets;
