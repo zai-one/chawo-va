@@ -1095,5 +1095,7 @@ Re-align folder names and tooling with taptain-desktop once its layout is readab
   действия в одной ячейке `.acts`. Тесты: cliArgs (+2), fileBrain (+2), speechCleanup (+1). 855 зелёные
   (850 до), `tsc`/build. Live на боксе: с моделью v3 и 30-с русской записью 69/69 PASS; без модели
   59 PASS, 10 SKIP (как в CI).
+  (4) `ortPrivacy` child-process тест требовал веса Silero с бокса и падал в CI — теперь skipIf без весов/dist
+  (`CHAWO_VAD_TEST_MODEL`), deviceid в CI проверяет e2e.
   Gaps: CI без весов (настоящая расшифровка только локально); e2e GUI вызывает IPC-обработчики напрямую
   (клики только по навигации и редактору); Windows-пакет e2e не гоняет (там свой smoke в ts-windows).

@@ -5,7 +5,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { disableOrtTelemetry, isOrtTelemetryDisabled } from '../src/core/ortPrivacy';
 
-const MODEL = '/workspace/vad/silero_v512.onnx';
+// Real Silero weights + a built dist/ (not in CI): CHAWO_VAD_TEST_MODEL, else the box's copy.
+const MODEL = process.env.CHAWO_VAD_TEST_MODEL || '/workspace/vad/silero_v512.onnx';
+const canRun = existsSync(MODEL) && existsSync(join(__dirname, '../dist/core/ortPrivacy.js'));
 
 afterEach(() => {
   // Keep this process opted out for other tests that may load ORT in-process.
@@ -43,7 +45,7 @@ describe('ortPrivacy', () => {
     }
   });
 
-  it('child process: privacy shim then onnxruntime-node creates no deviceid under XDG_CACHE_HOME', () => {
+  it.skipIf(!canRun)('child process: privacy shim then onnxruntime-node creates no deviceid under XDG_CACHE_HOME', () => {
     expect(existsSync(MODEL), `need Silero fixture at ${MODEL}`).toBe(true);
 
     const root = mkdtempSync(join(tmpdir(), 'ort-privacy-'));
