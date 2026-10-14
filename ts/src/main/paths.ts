@@ -71,6 +71,11 @@ export function snippetsPath(): string {
   return join(appDataDir(), 'snippets.json');
 }
 
+/** Custom «Кратко и задачи» templates; shared by the File page and `chawo-va brief --template`. */
+export function briefTemplatesPath(): string {
+  return join(appDataDir(), 'brief-templates.json');
+}
+
 /** Dictation history (one JSON line per take); shared by the «История» page and `chawo-va history`. */
 export function historyFilePath(): string {
   return join(localDataDir(), 'history.jsonl');

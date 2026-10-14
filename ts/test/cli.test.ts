@@ -543,6 +543,29 @@ describe('runCli transcribe --brain / --brief (same as the page after the .txt)'
 });
 
 describe('runCli brief', () => {
+  it('--template: built-in, custom, list, unknown', async () => {
+    const seen: string[] = [];
+    const mk = () => {
+      const h = harness({ fileText: { '/a.txt': 'Клиент: дорого. Менеджер: дам скидку.' }, briefAsk: async (p) => { seen.push(p); return 'Клиент\n- ООО\n'; } });
+      h.deps.briefTemplates = () => [{ name: 'BANT', instruction: 'BANT по пунктам.' }];
+      return h;
+    };
+    let h = mk();
+    expect(await run(h, 'brief', '/a.txt', '--template', 'sales-call', '--stdout')).toBe(EXIT_OK);
+    expect(seen[0]).toMatch(/Objections|Возражения/);
+    h = mk();
+    expect(await run(h, 'brief', '/a.txt', '--template', 'bant', '--stdout')).toBe(EXIT_OK);
+    expect(seen[1]).toContain('BANT по пунктам.');
+    h = mk();
+    expect(await run(h, 'brief', '--template', 'list')).toBe(EXIT_OK);
+    const listed = h.out.join('');
+    for (const id of ['standard', 'sales-call', 'minutes', 'summary', 'BANT']) expect(listed).toContain(id);
+    h = mk();
+    expect(await run(h, 'brief', '/a.txt', '--template', 'zzz')).toBe(EXIT_USAGE);
+    expect(h.err.join('')).toContain('sales-call');
+    expect(seen).toHaveLength(2);
+  });
+
   it('writes .brief.txt beside the transcript via injected ask', async () => {
     const h = harness({
       fileText: { '/rec/meet.txt': 'Иван: сделаем отчёт к пятнице. Мария согласна.' },

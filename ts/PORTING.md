@@ -1138,5 +1138,18 @@ Re-align folder names and tooling with taptain-desktop once its layout is readab
   `tsc`/build. Live e2e на боксе: 64 PASS / 0 FAIL / 10 SKIP; CLI add/list/rm и GUI «Словарь» → snippets.json.
   Живой прогон: речь (TTS) «Спасибо за звонок, вставь подпись.» → DictationSession с GigaAM v3 на CPU →
   «Спасибо за звонок. С уважением,\nАлександр …». GigaAM часто слышит «вставь» как «ставь» — добавлено в
-  глаголы; окончания триггера («подписи», «реквизитов») сравниваются по основе. Следующее: шаблоны (№2).
+  глаголы; окончания триггера («подписи», «реквизитов») сравниваются по основе.
+
+- 2026-10-14 tick (branch `ts/feat-templates`, competitor queue №2 / top-10 #2): **Шаблоны карточки после встречи** —
+  `src/main/brain/briefTemplates.ts` (built-ins standard/sales-call/minutes/summary, aliases, custom
+  brief-templates.json, resolveInstruction), настройка `MeetingBriefTemplate`, GUI picker на «Расшифровке файла»
+  («Кратко и задачи»: выбор шаблона, правка builtin → «Своя инструкция», сохранить/удалить свой), CLI
+  `chawo-va brief --template <имя|list>` (+ `transcribe --brief --template`), IPC preload. Тесты:
+  briefTemplates (+9), cli `--template`. **914** зелёные (было 904), `tsc`/build. Live CLI: `--template list`
+  печатает built-ins. GUI+CLI. e2e с моделью и речью: 79 PASS / 0 FAIL / 0 SKIP (GUI: выбор, сохранение,
+  запуск и удаление шаблона; CLI: list / sales-call / свой / неизвестный → 2). Живой прогон: речь →
+  `transcribe --brief --template sales-call` (GigaAM v3, CPU, Мозг — сервер на 127.0.0.1) → в `.brief.txt`
+  разделы «Клиент … Что улучшить менеджеру»; `brief` без флага берёт шаблон из настроек («Протокол»).
+  Документация: docs/user-guide.md, docs/cli.md. Следующее: статистика разговора (№3 / call stats).
+
 

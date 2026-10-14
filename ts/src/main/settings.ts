@@ -70,6 +70,8 @@ export interface SettingsData {
   MeetingBriefEnabled: boolean;
   /** User-editable format instruction for the brief card; empty = built-in default. */
   MeetingBriefInstruction: string;
+  /** Selected «Кратко и задачи» template id/name; '' = own instruction (MeetingBriefInstruction). */
+  MeetingBriefTemplate: string;
   /** «Перевести»: last target language (code, name or free text); empty = auto (RU→EN, else →RU). */
   TranslateTarget: string;
   StartHintDismissed: boolean;
@@ -145,6 +147,7 @@ export function defaults(): SettingsData {
     MeetingSystemAudio: true,
     MeetingBriefEnabled: false,
     MeetingBriefInstruction: '',
+    MeetingBriefTemplate: '',
     TranslateTarget: '',
     StartHintDismissed: false,
     MicrophoneId: '',
@@ -398,6 +401,7 @@ export function fromJsonObject(raw: Record<string, unknown>): { settings: Settin
   d.MeetingSystemAudio = asBool(raw.MeetingSystemAudio, d.MeetingSystemAudio);
   d.MeetingBriefEnabled = asBool(raw.MeetingBriefEnabled, d.MeetingBriefEnabled);
   d.MeetingBriefInstruction = asString(raw.MeetingBriefInstruction, d.MeetingBriefInstruction);
+  d.MeetingBriefTemplate = asString(raw.MeetingBriefTemplate, d.MeetingBriefTemplate);
   d.TranslateTarget = asString(raw.TranslateTarget, d.TranslateTarget);
   d.StartHintDismissed = asBool(raw.StartHintDismissed, d.StartHintDismissed);
   d.MicrophoneId = asString(raw.MicrophoneId, d.MicrophoneId);
@@ -490,6 +494,7 @@ export function toJsonObject(s: SettingsData): Record<string, unknown> {
     MeetingSystemAudio: s.MeetingSystemAudio,
     MeetingBriefEnabled: s.MeetingBriefEnabled,
     MeetingBriefInstruction: s.MeetingBriefInstruction,
+    MeetingBriefTemplate: s.MeetingBriefTemplate,
     TranslateTarget: s.TranslateTarget,
     StartHintDismissed: s.StartHintDismissed,
     MicrophoneId: s.MicrophoneId,

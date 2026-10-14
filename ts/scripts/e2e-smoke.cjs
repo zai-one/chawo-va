@@ -98,7 +98,7 @@ function fakeBrain() {
       const msgs = j.messages ?? [];
       const system = msgs.find((m) => m.role === 'system')?.content ?? '';
       const user = [...msgs].reverse().find((m) => m.role === 'user')?.content ?? '';
-      asked.push({ system: system.slice(0, 120), auth: req.headers.authorization ?? '' });
+      asked.push({ system: system.slice(0, 120), full: system, auth: req.headers.authorization ?? '' });
       res.writeHead(200, { 'content-type': 'application/json' });
       res.end(JSON.stringify({ choices: [{ message: { content: answer(system, user) } }] }));
     });
@@ -250,6 +250,16 @@ async function cliCases(brainPort) {
   check('cli brief → .brief.txt', r.code === 0 && read(join(bd, 'meet.brief.txt')).includes('Задачи'), brief(r));
   r = await run(['brief', meet, '--instruction', 'Только задачи', '--stdout']);
   check('cli brief --instruction --stdout', r.code === 0 && r.out.includes('Задачи') && asked.some((a) => a.system.length > 0), brief(r));
+  r = await run(['brief', '--template', 'list']);
+  check('cli brief --template list', r.code === 0 && ['standard', 'sales-call', 'minutes', 'summary'].every((x) => r.out.includes(x)), brief(r));
+  r = await run(['brief', meet, '--template', 'sales-call', '--stdout']);
+  check('cli brief --template sales-call (prompt has the template)', r.code === 0 && r.out.includes('Задачи') && /Возражения/.test(asked[asked.length - 1]?.full ?? ''), brief(r));
+  writeFileSync(Paths.briefTemplatesPath(), JSON.stringify({ version: 1, templates: [{ name: 'E2E шаблон', instruction: 'Только задачи E2E-маркер.' }] }));
+  r = await run(['brief', meet, '--template', 'e2e шаблон', '--stdout']);
+  check('cli brief --template <custom>', r.code === 0 && /E2E-маркер/.test(asked[asked.length - 1]?.full ?? ''), brief(r));
+  r = await run(['brief', meet, '--template', 'nope']);
+  check('cli brief --template unknown → exit 2', r.code === 2 && /sales-call/.test(r.err), brief(r));
+  rmSync(Paths.briefTemplatesPath(), { force: true });
   r = await run(['translate', meet, '--to', 'de']);
   check('cli translate --to de → .translate.txt', r.code === 0 && read(join(bd, 'meet.translate.txt')).includes('Guten Tag'), brief(r));
   const outDir = join(tmp, 'brain-out');

@@ -26,6 +26,8 @@ export interface CliOptions {
   lang: 'Russian' | 'English' | null;
   /** Override MeetingBriefInstruction; null = settings / built-in default. */
   instruction: string | null;
+  /** brief / transcribe --brief: «Кратко и задачи» template (built-in alias or custom name); 'list' prints them. */
+  template: string | null;
   /** translate: target language (code, name or free text); null = settings TranslateTarget / auto. */
   to: string | null;
   /** transcribe: «Свой скрипт» command for the text; null = settings (PostScript when PostScriptFiles is on). */
@@ -74,7 +76,7 @@ const SCRIPTS: Record<string, CtcScript> = { auto: 'auto', ru: 'russian', russia
 const LANGS: Record<string, 'Russian' | 'English'> = { ru: 'Russian', russian: 'Russian', en: 'English', english: 'English' };
 
 /** Options that take a value: --out DIR and --out=DIR both work. */
-const VALUED = new Set(['--format', '-f', '--out', '-o', '--model', '--device', '--threads', '-j', '--script', '--model-dir', '--lang', '--instruction', '--to', '--post-script', '--limit', '-n', '--server', '--token', '--host', '--port', '--data-dir']);
+const VALUED = new Set(['--format', '-f', '--out', '-o', '--model', '--device', '--threads', '-j', '--script', '--model-dir', '--lang', '--instruction', '--template', '--to', '--post-script', '--limit', '-n', '--server', '--token', '--host', '--port', '--data-dir']);
 
 function blank(command: CliOptions['command']): CliOptions {
   return {
@@ -93,6 +95,7 @@ function blank(command: CliOptions['command']): CliOptions {
     quiet: false,
     lang: null,
     instruction: null,
+    template: null,
     to: null,
     postScript: null,
     noPostScript: false,
@@ -219,6 +222,10 @@ export function parseArgs(argv: readonly string[]): ParseResult {
         if (!v) return { ok: false, error: '--instruction is empty' };
         o.instruction = v;
         break;
+      case '--template':
+        if (!v) return { ok: false, error: '--template is empty' };
+        o.template = v;
+        break;
       case '--to':
         if (!v) return { ok: false, error: '--to is empty' };
         o.to = v;
@@ -302,11 +309,20 @@ export function parseArgs(argv: readonly string[]): ParseResult {
   if ((o.brain !== null || o.brief !== null) && o.command !== 'transcribe')
     return { ok: false, error: o.command === 'brain' || o.command === 'brief' ? `--brain / --brief are switches for transcribe; \`${o.command}\` already does it` : '--brain and --brief are for transcribe' };
   if (o.server != null && o.command !== 'transcribe') return { ok: false, error: '--server is for transcribe' };
+  if (o.template != null) {
+    if (o.command !== 'brief' && o.command !== 'transcribe') return { ok: false, error: '--template is for brief (or transcribe --brief)' };
+    if (o.instruction != null) return { ok: false, error: '--template and --instruction cannot be used together' };
+    if (o.command === 'brief' && o.template.toLowerCase() === 'list') {
+      if (o.inputs.length > 0) return { ok: false, error: '--template list takes no files' };
+      return { ok: true, options: o };
+    }
+  }
   if ((o.host != null || o.port != null || o.dataDir != null) && o.command !== 'serve')
     return { ok: false, error: '--host, --port and --data-dir are for serve' };
   if (o.token != null && o.command !== 'serve' && o.command !== 'transcribe')
     return { ok: false, error: '--token is for serve or transcribe --server' };
   if (o.command === 'serve') {
+    if (o.template != null) return { ok: false, error: 'serve does not take --template' };
     if (o.inputs.length > 0) return { ok: false, error: 'serve takes no file arguments' };
     if (o.formats.length > 0 || o.outDir || o.stdout || o.timestamps !== null || o.skipExisting)
       return { ok: false, error: 'serve does not take --format / --out / --stdout / --timestamps / --skip-existing' };
@@ -418,7 +434,7 @@ export function helpText(t: (ru: string, en: string) => string): string {
                          ещё и «Прогнать через мозг» → .brain.txt (убрать слова-паразиты +
                          «Кратко»); по умолчанию — из настроек
       --brief / --no-brief
-                         ещё и «Кратко и задачи» → .brief.txt (--instruction — свой формат);
+                         ещё и «Кратко и задачи» → .brief.txt (--template / --instruction — формат);
                          по умолчанию — из настроек. Сбой Мозга — пометка, .txt всё равно пишется
       --server <URL>     расшифровать на удалённом 'chawo-va serve' (job API; локальной модели нет)
       --token <секрет>   Bearer для --server / для serve (или CHAWO_SERVE_TOKEN)
@@ -441,7 +457,9 @@ export function helpText(t: (ru: string, en: string) => string): string {
   -q, --quiet
 
 Параметры brief:
-      --instruction «…»  своя инструкция формата (иначе — из настроек / встроенная)
+      --template <имя>   шаблон: standard, sales-call (разбор звонка продаж), minutes (протокол встречи),
+                         summary (краткое резюме) или имя своего шаблона; --template list — показать все
+      --instruction «…»  своя инструкция формата (иначе — шаблон из настроек / встроенная)
       --stdout           печатать карточку в stdout вместо .brief.txt
   -o, --out <папка>      куда писать .brief.txt
       --lang ru|en       язык сообщений
@@ -524,7 +542,7 @@ Options:
                          also «Run through the Brain» → .brain.txt (filler words removed +
                          «Summary»); default: settings
       --brief / --no-brief
-                         also «Brief and tasks» → .brief.txt (--instruction for your format);
+                         also «Brief and tasks» → .brief.txt (--template / --instruction for the format);
                          default: settings. A Brain failure is a note; the .txt is written anyway
       --server <URL>     transcribe on a remote 'chawo-va serve' (job API; no local model)
       --token <secret>   Bearer for --server / for serve (or CHAWO_SERVE_TOKEN)
@@ -547,7 +565,9 @@ brain options (same as «Run through the Brain» on the page):
   -q, --quiet
 
 brief options:
-      --instruction "…"  custom format instruction (else settings / built-in)
+      --template <name>  template: standard, sales-call, minutes, summary or your own template's name;
+                         --template list shows them all
+      --instruction "…"  custom format instruction (else the template from settings / built-in)
       --stdout           print the card to stdout instead of .brief.txt
   -o, --out <dir>        where to write .brief.txt
       --lang ru|en       message language
