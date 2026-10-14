@@ -1,13 +1,18 @@
 // IPC for the «История» page. The main process owns the history file, the clipboard and the
 // confirm box; the renderer only asks and redraws.
 
-import { BrowserWindow, clipboard, dialog, ipcMain } from 'electron';
+import { BrowserWindow, clipboard, dialog, ipcMain, shell } from 'electron';
 import { t } from '../core/strings';
 import * as Settings from './settings';
 import type { SettingsData } from './settings';
-import { historyFilePath } from './paths';
+import { env, historyFilePath } from './paths';
 import { HistoryController } from './history/historyPage';
 import { HistoryStore, type HistoryKeep } from './history/historyStore';
+import { AskController } from './history/askPage';
+import * as FileBrain from './brain/fileBrain';
+import { meetingsDir } from './meetingIpc';
+import { existsSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 
 export function historyPath(): string {
   return historyFilePath();
@@ -26,8 +31,9 @@ export function registerHistoryIpc(getWindow: () => BrowserWindow | null, settin
       send('history:state', ctl.state());
     }, 60);
   };
+  const store = new HistoryStore(historyPath());
   const ctl: HistoryController = new HistoryController({
-    store: new HistoryStore(historyPath()),
+    store,
     settings: settings.get,
     save: Settings.save,
     copy: (text) => clipboard.writeText(text),
@@ -55,5 +61,55 @@ export function registerHistoryIpc(getWindow: () => BrowserWindow | null, settin
   ipcMain.handle('history:remove', (_e, id: unknown) => ctl.remove(str(id)));
   ipcMain.handle('history:clear', () => ctl.clearAll());
   ipcMain.handle('history:rerun', (_e, id: unknown) => ctl.rerun(str(id)));
+
+  // «Спросить историю»
+  let askTimer: NodeJS.Timeout | null = null;
+  const askPush = () => {
+    if (askTimer) return;
+    askTimer = setTimeout(() => {
+      askTimer = null;
+      send('ask:state', ask.state());
+    }, 60);
+  };
+  const ask = new AskController({
+    store,
+    settings: settings.get,
+    save: Settings.save,
+    meetingFolders: () => {
+      // The folder is named by the UI language at recording time: look at both spellings
+      // (CHAWO_MEETINGS_DIR, when set, is the only one).
+      const dir = meetingsDir();
+      if (env('MEETINGS_DIR')) return existsSync(dir) ? [dir] : [];
+      const parent = dirname(dir);
+      return [...new Set([dir, join(parent, 'Встречи'), join(parent, 'Meetings')])].filter((p) => existsSync(p));
+    },
+    brain: (s) => {
+      const target = FileBrain.target(s);
+      return { target, cloud: FileBrain.cloudName(s), describe: FileBrain.describe(s), ask: FileBrain.createAsk(s, target === 'None' ? 'Local' : target) };
+    },
+    pickFolder: async () => {
+      const w = getWindow();
+      const opts = { properties: ['openDirectory' as const], title: t('Папка с расшифровками', 'Folder with transcripts') };
+      const r = w ? await dialog.showOpenDialog(w, opts) : await dialog.showOpenDialog(opts);
+      return r.canceled ? null : (r.filePaths[0] ?? null);
+    },
+    confirm: async (message) => {
+      const w = getWindow();
+      const opts = { type: 'question' as const, buttons: [t('Да', 'Yes'), t('Нет, только поиск', 'No, search only')], defaultId: 0, cancelId: 1, message, noLink: true };
+      const r = w ? await dialog.showMessageBox(w, opts) : await dialog.showMessageBox(opts);
+      return r.response === 0;
+    },
+    copy: (text) => clipboard.writeText(text),
+    open: (p) => void shell.openPath(p),
+    push: askPush,
+  });
+  ipcMain.handle('ask:state', () => ask.state());
+  ipcMain.handle('ask:run', (_e, q: unknown) => ask.ask(str(q)));
+  ipcMain.handle('ask:cancel', () => ask.cancel());
+  ipcMain.handle('ask:history', (_e, on: unknown) => ask.setHistory(on === true));
+  ipcMain.handle('ask:addFolder', () => ask.addFolder());
+  ipcMain.handle('ask:removeFolder', (_e, p: unknown) => ask.removeFolder(str(p)));
+  ipcMain.handle('ask:copy', () => ask.copyAnswer());
+  ipcMain.handle('ask:open', (_e, p: unknown) => ask.openSource(str(p)));
   return ctl;
 }

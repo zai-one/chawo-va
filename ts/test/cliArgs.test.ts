@@ -303,3 +303,25 @@ describe('--lang before the command', () => {
   });
 
 });
+
+describe('ask command', () => {
+  it('question words, --in (repeatable), --no-history, --search, -n, --json', () => {
+    const o = ok(['ask', 'что', 'обещали', 'Иванову?', '--in', '/a', '--in=/b', '--no-history', '--search', '-n', '5', '--json']);
+    expect(o.command).toBe('ask');
+    expect(o.inputs).toEqual(['что', 'обещали', 'Иванову?']);
+    expect(o.askIn).toEqual(['/a', '/b']);
+    expect(o.noHistory).toBe(true);
+    expect(o.searchOnly).toBe(true);
+    expect(o.limit).toBe(5);
+    expect(o.json).toBe(true);
+    expect(ok(['ask', 'x', '-n', 'all']).limit).toBe(30);
+  });
+
+  it('refuses a missing question, file options and ask flags elsewhere', () => {
+    expect(err(['ask'])).toContain('needs a question');
+    expect(err(['ask', 'x', '--out', '/o'])).toContain('ask prints to stdout');
+    expect(err(['ask', 'x', '--in'])).toContain('--in needs a value');
+    expect(err(['history', '--search'])).toContain('are for ask');
+    expect(err(['transcribe', 'a.wav', '--in', '/a'])).toContain('are for ask');
+  });
+});

@@ -8,7 +8,7 @@ export const FORMATS = ['txt', 'srt', 'vtt', 'json', 'md', 'docx'] as const;
 export type OutputFormat = (typeof FORMATS)[number];
 
 export interface CliOptions {
-  command: 'transcribe' | 'brain' | 'brief' | 'translate' | 'history' | 'segments' | 'stats' | 'serve' | 'snippets' | 'help' | 'version';
+  command: 'transcribe' | 'brain' | 'brief' | 'translate' | 'history' | 'ask' | 'segments' | 'stats' | 'serve' | 'snippets' | 'help' | 'version';
   inputs: string[];
   /** Empty = not given (txt). */
   formats: OutputFormat[];
@@ -40,6 +40,12 @@ export interface CliOptions {
   noPostScript: boolean;
   /** history: how many entries to print; null = default (20), Infinity = all. */
   limit: number | null;
+  /** ask: folders / transcript files to search instead of the meetings folder and AskFolders. */
+  askIn: string[];
+  /** ask: leave the dictation phrases out. */
+  noHistory: boolean;
+  /** ask: only print the found excerpts, no Brain. */
+  searchOnly: boolean;
   /** history: JSON Lines instead of text. */
   json: boolean;
   /** history: also print the text as recognized (before the Brain) when it differs. */
@@ -80,7 +86,7 @@ const SCRIPTS: Record<string, CtcScript> = { auto: 'auto', ru: 'russian', russia
 const LANGS: Record<string, 'Russian' | 'English'> = { ru: 'Russian', russian: 'Russian', en: 'English', english: 'English' };
 
 /** Options that take a value: --out DIR and --out=DIR both work. */
-const VALUED = new Set(['--format', '-f', '--out', '-o', '--model', '--device', '--threads', '-j', '--script', '--model-dir', '--lang', '--instruction', '--template', '--track', '--to', '--post-script', '--limit', '-n', '--server', '--token', '--host', '--port', '--data-dir']);
+const VALUED = new Set(['--format', '-f', '--out', '-o', '--model', '--device', '--threads', '-j', '--script', '--model-dir', '--lang', '--instruction', '--template', '--track', '--to', '--post-script', '--limit', '-n', '--server', '--token', '--host', '--port', '--data-dir', '--in']);
 
 function blank(command: CliOptions['command']): CliOptions {
   return {
@@ -106,6 +112,9 @@ function blank(command: CliOptions['command']): CliOptions {
     postScript: null,
     noPostScript: false,
     limit: null,
+    askIn: [],
+    noHistory: false,
+    searchOnly: false,
     json: false,
     raw: false,
     vad: null,
@@ -132,7 +141,7 @@ export function parseArgs(argv: readonly string[]): ParseResult {
   const first = args[0];
   if (first === '--help' || first === '-h' || first === 'help') return { ok: true, options: blank('help') };
   if (first === '--version' || first === '-v' || first === 'version') return { ok: true, options: blank('version') };
-  if (first !== 'transcribe' && first !== 'brain' && first !== 'brief' && first !== 'translate' && first !== 'history' && first !== 'segments' && first !== 'stats' && first !== 'serve' && first !== 'snippets') return { ok: false, error: `unknown command: ${first}` };
+  if (first !== 'transcribe' && first !== 'brain' && first !== 'brief' && first !== 'translate' && first !== 'history' && first !== 'ask' && first !== 'segments' && first !== 'stats' && first !== 'serve' && first !== 'snippets') return { ok: false, error: `unknown command: ${first}` };
 
   args.splice(1, 0, ...lead);
   const o = blank(first);
@@ -256,6 +265,16 @@ export function parseArgs(argv: readonly string[]): ParseResult {
       case '--json':
         o.json = true;
         break;
+      case '--in':
+        if (!v) return { ok: false, error: '--in is empty' };
+        o.askIn.push(v);
+        break;
+      case '--no-history':
+        o.noHistory = true;
+        break;
+      case '--search':
+        o.searchOnly = true;
+        break;
       case '--hits':
         o.hits = true;
         break;
@@ -322,6 +341,7 @@ export function parseArgs(argv: readonly string[]): ParseResult {
   if ((o.brain !== null || o.brief !== null) && o.command !== 'transcribe')
     return { ok: false, error: o.command === 'brain' || o.command === 'brief' ? `--brain / --brief are switches for transcribe; \`${o.command}\` already does it` : '--brain and --brief are for transcribe' };
   if (o.server != null && o.command !== 'transcribe') return { ok: false, error: '--server is for transcribe' };
+  if ((o.askIn.length > 0 || o.noHistory || o.searchOnly) && o.command !== 'ask') return { ok: false, error: '--in, --no-history and --search are for ask' };
   if ((o.track.length > 0 || o.hits) && o.command !== 'stats') return { ok: false, error: '--track and --hits are for stats' };
   if (o.template != null) {
     if (o.command !== 'brief' && o.command !== 'transcribe') return { ok: false, error: '--template is for brief (or transcribe --brief)' };
@@ -354,6 +374,15 @@ export function parseArgs(argv: readonly string[]): ParseResult {
       return { ok: false, error: 'history prints to stdout; it takes search words, -n, --json, --raw' };
     if (o.instruction != null || o.to != null || o.postScript != null || o.noPostScript)
       return { ok: false, error: 'history takes search words, -n, --json, --raw' };
+    return { ok: true, options: o };
+  }
+  if (o.command === 'ask') {
+    // Words after `ask` are the question; -n = how many excerpts.
+    const speech = o.model || o.device || o.threads || o.script || o.modelDir;
+    if (o.formats.length > 0 || o.outDir || o.stdout || o.timestamps !== null || o.skipExisting || speech || o.instruction != null || o.to != null || o.postScript != null || o.noPostScript || o.raw)
+      return { ok: false, error: 'ask prints to stdout; it takes a question, --in, --no-history, --search, -n, --json' };
+    if (o.inputs.join(' ').trim().length === 0) return { ok: false, error: 'ask needs a question' };
+    if (o.limit === Number.POSITIVE_INFINITY) o.limit = 30;
     return { ok: true, options: o };
   }
   if (o.command === 'snippets') {
@@ -428,6 +457,7 @@ export function helpText(t: (ru: string, en: string) => string): string {
   chawo-va brief <расшифровки.txt…> [параметры]
   chawo-va translate <тексты.txt…> [--to язык] [параметры]
   chawo-va history [слова для поиска…] [-n 20|all] [--json] [--raw]
+  chawo-va ask <вопрос…> [--in папка|файл.txt]… [--no-history] [--search] [-n 8] [--json]
   chawo-va segments <файлы.txt|.srt|.json…> [--json]
   chawo-va stats <файлы.txt|.srt|.json…> [--track «Название: слово, слов*»] [--hits] [--json]
   chawo-va snippets list [--json] | add <фраза> <текст|-> | remove <фраза>
@@ -523,6 +553,14 @@ export function helpText(t: (ru: string, en: string) => string): string {
       --raw              ещё и текст до Мозга, если он отличается
   -q, --quiet            без строки «Найдено …»
 
+Параметры ask («Спросить историю»: вопрос по фразам диктовки и расшифровкам встреч):
+      вопрос…            например: что обещали клиенту Иванову?
+      --in <папка|файл>  где искать вместо папки встреч и папок из настроек (можно несколько)
+      --no-history       без фраз диктовки
+      --search           только найденные отрывки, без Мозга
+  -n, --limit <N>        сколько отрывков (по умолчанию 8, до 30)
+      --json             {question, answer, cited, excerpts[…]}
+
 Чего нет в параметрах, берётся из настроек приложения (settings.json, только чтение).
 Модели не скачиваются (речь, VAD, спикеры): сначала скачайте их в приложении.
 WAV и Ogg/Opus читаются сами, остальные форматы (MP3, M4A, FLAC, …) — через ffmpeg.
@@ -535,6 +573,7 @@ brief читает готовый .txt (рядом с записью или .bra
 translate переводит готовый .txt через Мозг (локальный по умолчанию) и пишет .translate.txt.
 segments печатает фразы со временем (как карточка «Расшифровка»): .srt → .json → метки в .txt.
 stats печатает статистику разговора по готовой расшифровке (как «Статистика разговора» на странице «Файл»).
+ask ищет ответ локально; в Мозг уходят только вопрос и несколько найденных отрывков (как «Спросить» на «Истории»).
 
 Коды выхода: 0 — всё готово, 1 — часть файлов не удалась, 2 — ошибка параметров,
 3 — нет модели / Мозга / yt-dlp, 130 — прервано (Ctrl+C).`,
@@ -546,6 +585,7 @@ Usage:
   chawo-va brief <transcript.txt…> [options]
   chawo-va translate <text.txt…> [--to language] [options]
   chawo-va history [search words…] [-n 20|all] [--json] [--raw]
+  chawo-va ask <question…> [--in folder|file.txt]… [--no-history] [--search] [-n 8] [--json]
   chawo-va segments <files.txt|.srt|.json…> [--json]
   chawo-va stats <files.txt|.srt|.json…> [--track "Name: word, wor*"] [--hits] [--json]
   chawo-va snippets list [--json] | add <trigger> <text|-> | remove <trigger>
@@ -641,6 +681,14 @@ history options (dictation history, read-only, newest first):
       --raw              also the text before the Brain, when it differs
   -q, --quiet            no «Found …» line
 
+ask options («Ask history»: a question over dictation phrases and meeting transcripts):
+      question…          e.g.: what did we promise client Ivanov?
+      --in <dir|file>    where to look instead of the meetings folder and folders from settings (repeatable)
+      --no-history       leave dictation phrases out
+      --search           only the found excerpts, no Brain
+  -n, --limit <N>        how many excerpts (default 8, up to 30)
+      --json             {question, answer, cited, excerpts[…]}
+
 Anything not given falls back to the app's settings (settings.json, read-only).
 No model is downloaded (speech, VAD, speakers): download them in the app first.
 WAV and Ogg/Opus are read natively; other formats (MP3, M4A, FLAC, …) need ffmpeg.
@@ -653,6 +701,7 @@ brief reads a finished .txt (beside the recording or .brain.txt) and writes .bri
 translate translates a finished .txt via the Brain (local by default) and writes .translate.txt.
 segments prints timed phrases (like the Transcript card): .srt → .json → stamps in .txt.
 stats prints call stats for a finished transcript (like «Call stats» on the File page).
+ask searches locally; only the question and a few found excerpts go to the Brain (like «Ask» on History).
 
 Exit codes: 0 all done, 1 some files failed, 2 bad arguments, 3 no model/Brain/yt-dlp, 130 interrupted (Ctrl+C).`,
   );

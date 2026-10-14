@@ -156,6 +156,10 @@ export interface CliDeps {
   readStdin?: () => Promise<string>;
   /** Custom «Кратко и задачи» templates (brief-templates.json, read-only here). */
   briefTemplates?: () => import('../main/brain/briefTemplates').CustomTemplate[];
+  /** Brain for `ask` (Local / Server), the same target as brief. Tests inject a fake ask. */
+  askBrain?(): FileBrainDep;
+  /** Default `ask` folders: the meetings folder(s) plus Settings.AskFolders. */
+  askFolders?(): string[];
   /** history.jsonl of the app (read, never written by the CLI). */
   historyPath?: () => string;
   /** Wall clock for history dates (defaults to Date.now; `now` above may be a test counter). */
@@ -193,6 +197,7 @@ export async function runCli(argv: readonly string[], d: CliDeps): Promise<numbe
   if (o.command === 'brief') return brief(o, d);
   if (o.command === 'translate') return translate(o, d);
   if (o.command === 'history') return history(o, defaults, d);
+  if (o.command === 'ask') return askCommand(o, defaults, d);
   if (o.command === 'segments') return segmentsCommand(o, d);
   if (o.command === 'stats') return statsCommand(o, defaults, d);
   if (o.command === 'snippets') return snippetsCommand(o, d);
@@ -681,6 +686,93 @@ async function history(o: CliOptions, defaults: CliDefaults, d: CliDeps): Promis
   else if (shown.length < total) say(t(`Показаны последние ${shown.length} из ${total} (-n all — все).`, `Showing the last ${shown.length} of ${total} (-n all for every one).`));
   else say(t(`Всего фраз: ${total}.`, `${total} phrases.`));
   d.log(`cli history q=${query.trim() ? 'yes' : 'no'} shown=${shown.length} of ${total}`);
+  return EXIT_OK;
+}
+
+/**
+ * `chawo-va ask <вопрос…>`: «Спросить историю» from the command line. Local search over the
+ * dictation phrases (within «Хранить») and transcripts (meetings folder + AskFolders, or --in);
+ * the Brain gets only the question and the found excerpts. --search, or no Brain: excerpts only.
+ */
+async function askCommand(o: CliOptions, defaults: CliDefaults, d: CliDeps): Promise<number> {
+  const t = d.t;
+  const say = (line: string) => {
+    if (!o.quiet) d.err(line + '\n');
+  };
+  const question = o.inputs.join(' ').trim();
+  const Ask = await import('../core/askHistory');
+  const Sources = await import('../main/history/askSources');
+
+  let history: HistoryEntry[] = [];
+  const keep = defaults.historyKeep ?? 'Week';
+  if (!o.noHistory && keep !== 'Off' && d.historyPath) {
+    const now = (d.clock ?? Date.now)();
+    try {
+      history = new HistoryStore(d.historyPath(), () => now).list('').filter((e) => e.ts >= now - keepMs(keep));
+    } catch (e) {
+      say(t(`История не читается: ${message(e)}`, `History cannot be read: ${message(e)}`));
+    }
+  }
+  const folders = o.askIn.length > 0 ? o.askIn : (d.askFolders?.() ?? []);
+  for (const f of o.askIn) if (!d.exists(f)) say(t(`Нет такой папки или файла: ${f}`, `No such folder or file: ${f}`));
+  const sources = Sources.loadSources({ history, inputs: folders }, t);
+  if (sources.length === 0) {
+    d.err(t('Искать негде: нет фраз диктовки и расшифровок (папка встреч пуста; добавьте папку через --in).',
+      'Nothing to search: no dictation phrases and no transcripts (the meetings folder is empty; add a folder with --in).') + '\n');
+    return EXIT_FAILED;
+  }
+
+  const brain = o.searchOnly ? null : (d.askBrain ?? d.fileBrain)?.() ?? null;
+  const useBrain = brain && brain.target !== 'None' ? brain : null;
+  if (!o.searchOnly && !useBrain) say(t('Мозг не настроен: покажу найденные отрывки.', 'The Brain is not set up: showing the found excerpts.'));
+  if (useBrain?.cloud) say(t(`Вопрос и найденные отрывки уйдут в ${useBrain.cloud}.`, `The question and the found excerpts will go to ${useBrain.cloud}.`));
+  const budget = useBrain?.target === 'Cloud' ? Ask.CLOUD_CONTEXT_CHARS : Ask.LOCAL_CONTEXT_CHARS;
+
+  let r: import('../core/askHistory').AskResult;
+  try {
+    r = await Ask.runAsk({
+      question,
+      sources,
+      ask: useBrain ? useBrain.ask : null,
+      budget,
+      top: o.limit ?? Ask.DEFAULT_TOP,
+      status: (line) => say(line),
+      signal: d.signal,
+    });
+  } catch (e) {
+    if (d.signal.aborted) {
+      d.err(t('Прервано.', 'Interrupted.') + '\n');
+      return EXIT_INTERRUPTED;
+    }
+    d.err(t(`Ошибка: Мозг не ответил: ${message(e)}`, `Error: the Brain did not answer: ${message(e)}`) + '\n');
+    d.log(`cli ask failed: ${message(e)}`);
+    return EXIT_FAILED;
+  }
+  d.log(`cli ask sources=${r.sources} passages=${r.passages} excerpts=${r.excerpts.length} brain=${r.answer ? 'yes' : 'no'}`);
+
+  if (o.json) {
+    d.out(JSON.stringify({
+      question: r.question,
+      answer: r.answer,
+      cited: r.cited,
+      excerpts: r.excerpts.map((e) => ({ n: e.n, source: e.title, kind: e.kind, date: e.when ? new Date(e.when).toISOString() : null, path: e.path, score: e.score, text: e.text })),
+      searched: { sources: r.sources, passages: r.passages },
+    }, null, 2) + '\n');
+    return EXIT_OK;
+  }
+  if (r.excerpts.length === 0) {
+    say(t(`Ничего не нашлось (просмотрено источников: ${r.sources}).`, `Nothing found (${r.sources} sources searched).`));
+    return EXIT_OK;
+  }
+  if (r.answer) d.out(r.answer + '\n\n' + t('Источники:', 'Sources:') + '\n');
+  const shown = r.answer && r.cited.length > 0 ? r.excerpts.filter((e) => r.cited.includes(e.n)) : r.excerpts;
+  for (const e of shown) {
+    const when = Ask.dateText(e.when);
+    const head = `[${e.n}] ${e.title}${when ? ` · ${when}` : ''}${e.path ? ` · ${e.path}` : ''}`;
+    if (r.answer) d.out(head + '\n');
+    else d.out(`${head}\n${e.text}\n\n`);
+  }
+  say(t(`Отрывков: ${r.excerpts.length} из ${r.passages} (источников: ${r.sources}).`, `${r.excerpts.length} excerpts of ${r.passages} (${r.sources} sources).`));
   return EXIT_OK;
 }
 

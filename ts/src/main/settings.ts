@@ -74,6 +74,8 @@ export interface SettingsData {
   MeetingBriefTemplate: string;
   /** «Статистика разговора» trackers: «Название: термин, …» per line; '' = built-in (core/callStats). */
   CallTrackers: string;
+  /** «Спросить историю»: extra folders with transcripts, one per line (the meetings folder is always searched). */
+  AskFolders: string;
   /** «Перевести»: last target language (code, name or free text); empty = auto (RU→EN, else →RU). */
   TranslateTarget: string;
   StartHintDismissed: boolean;
@@ -151,6 +153,7 @@ export function defaults(): SettingsData {
     MeetingBriefInstruction: '',
     MeetingBriefTemplate: '',
     CallTrackers: '',
+    AskFolders: '',
     TranslateTarget: '',
     StartHintDismissed: false,
     MicrophoneId: '',
@@ -406,6 +409,7 @@ export function fromJsonObject(raw: Record<string, unknown>): { settings: Settin
   d.MeetingBriefInstruction = asString(raw.MeetingBriefInstruction, d.MeetingBriefInstruction);
   d.MeetingBriefTemplate = asString(raw.MeetingBriefTemplate, d.MeetingBriefTemplate);
   d.CallTrackers = asString(raw.CallTrackers, d.CallTrackers).slice(0, 8000);
+  d.AskFolders = asString(raw.AskFolders, d.AskFolders).slice(0, 8000);
   d.TranslateTarget = asString(raw.TranslateTarget, d.TranslateTarget);
   d.StartHintDismissed = asBool(raw.StartHintDismissed, d.StartHintDismissed);
   d.MicrophoneId = asString(raw.MicrophoneId, d.MicrophoneId);
@@ -500,6 +504,7 @@ export function toJsonObject(s: SettingsData): Record<string, unknown> {
     MeetingBriefInstruction: s.MeetingBriefInstruction,
     MeetingBriefTemplate: s.MeetingBriefTemplate,
     CallTrackers: s.CallTrackers,
+    AskFolders: s.AskFolders,
     TranslateTarget: s.TranslateTarget,
     StartHintDismissed: s.StartHintDismissed,
     MicrophoneId: s.MicrophoneId,
