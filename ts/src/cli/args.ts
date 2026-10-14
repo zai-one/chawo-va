@@ -8,7 +8,7 @@ export const FORMATS = ['txt', 'srt', 'vtt', 'json', 'md', 'docx'] as const;
 export type OutputFormat = (typeof FORMATS)[number];
 
 export interface CliOptions {
-  command: 'transcribe' | 'brain' | 'brief' | 'score' | 'translate' | 'history' | 'ask' | 'segments' | 'stats' | 'serve' | 'snippets' | 'dictionary' | 'help' | 'version';
+  command: 'transcribe' | 'brain' | 'brief' | 'score' | 'translate' | 'history' | 'ask' | 'segments' | 'stats' | 'serve' | 'snippets' | 'dictionary' | 'meeting' | 'help' | 'version';
   inputs: string[];
   /** Empty = not given (txt). */
   formats: OutputFormat[];
@@ -153,7 +153,7 @@ export function parseArgs(argv: readonly string[]): ParseResult {
   const first = args[0];
   if (first === '--help' || first === '-h' || first === 'help') return { ok: true, options: blank('help') };
   if (first === '--version' || first === '-v' || first === 'version') return { ok: true, options: blank('version') };
-  if (first !== 'transcribe' && first !== 'brain' && first !== 'brief' && first !== 'score' && first !== 'translate' && first !== 'history' && first !== 'ask' && first !== 'segments' && first !== 'stats' && first !== 'serve' && first !== 'snippets' && first !== 'dictionary') return { ok: false, error: `unknown command: ${first}` };
+  if (first !== 'transcribe' && first !== 'brain' && first !== 'brief' && first !== 'score' && first !== 'translate' && first !== 'history' && first !== 'ask' && first !== 'segments' && first !== 'stats' && first !== 'serve' && first !== 'snippets' && first !== 'dictionary' && first !== 'meeting') return { ok: false, error: `unknown command: ${first}` };
 
   args.splice(1, 0, ...lead);
   const o = blank(first);
@@ -473,6 +473,17 @@ export function parseArgs(argv: readonly string[]): ParseResult {
     } else return { ok: false, error: `unknown dictionary action: ${o.inputs[0]} (use list, suggest, accept, dismiss, learn or auto)` };
     return { ok: true, options: o };
   }
+  if (o.command === 'meeting') {
+    // meeting detect [--json]
+    const speech = o.model || o.device || o.threads || o.script || o.modelDir;
+    if (o.formats.length > 0 || o.outDir || o.stdout || o.timestamps !== null || o.skipExisting || speech || o.instruction != null || o.to != null || o.postScript != null || o.noPostScript || o.limit !== null || o.raw)
+      return { ok: false, error: 'meeting detect takes optional --json only' };
+    const sub = (o.inputs[0] ?? 'detect').toLowerCase();
+    if (sub !== 'detect') return { ok: false, error: `unknown meeting action: ${o.inputs[0] ?? ''} (use detect)` };
+    if (o.inputs.length > 1) return { ok: false, error: 'meeting detect takes no file arguments' };
+    o.inputs = ['detect'];
+    return { ok: true, options: o };
+  }
   if (o.command === 'stats') {
     const speech = o.model || o.device || o.threads || o.script || o.modelDir;
     if (o.formats.length > 0 || o.outDir || o.stdout || o.timestamps !== null || o.skipExisting || speech)
@@ -544,6 +555,7 @@ export function helpText(t: (ru: string, en: string) => string): string {
   chawo-va snippets list [--json] | add <фраза> <текст|-> | remove <фраза>
   chawo-va dictionary list|suggest [--json] | accept <как слышно> [как писать] | dismiss <как слышно>
   chawo-va dictionary learn <было.txt> <стало.txt> [--json] | auto on|off
+  chawo-va meeting detect [--json]
   chawo-va serve [--host 127.0.0.1|0.0.0.0] [--port 17831] [--token …] [--data-dir …]
 
 Параметры:
@@ -655,6 +667,10 @@ export function helpText(t: (ru: string, en: string) => string): string {
       learn <было.txt> <стало.txt>      запомнить ваши правки слов (--json: fixes, added, suggested)
       auto on|off        добавлять повторённые исправления в словарь сами (по умолчанию off)
 
+Параметры meeting (автоопределение встречи без запуска записи; настройки — из settings.json):
+      detect [--json]    есть ли сейчас встреча: приложения (Windows) и/или локальный .ics
+                         JSON: {active, appsSupported, apps, calendar, reasons}
+
 Параметры history (история диктовки, только чтение, новые сверху):
       слова…             поиск: каждое слово должно встретиться (ё = е), как на странице
   -n, --limit <N|all>    сколько записей (по умолчанию 20)
@@ -702,6 +718,7 @@ Usage:
   chawo-va snippets list [--json] | add <trigger> <text|-> | remove <trigger>
   chawo-va dictionary list|suggest [--json] | accept <heard> [written] | dismiss <heard>
   chawo-va dictionary learn <before.txt> <after.txt> [--json] | auto on|off
+  chawo-va meeting detect [--json]
   chawo-va serve [--host 127.0.0.1|0.0.0.0] [--port 17831] [--token …] [--data-dir …]
 
 Options:
@@ -812,6 +829,10 @@ only read — the app moves accepted rows into the Dictionary by itself):
       dismiss <heard>            do not suggest again
       learn <before.txt> <after.txt>  remember your word fixes (--json: fixes, added, suggested)
       auto on|off        add repeated fixes to the dictionary by themselves (default off)
+
+meeting options (meeting auto-detect without starting a recording; settings from settings.json):
+      detect [--json]    whether a meeting looks active: apps (Windows) and/or a local .ics
+                         JSON: {active, appsSupported, apps, calendar, reasons}
 
 history options (dictation history, read-only, newest first):
       words…             search: every word must occur (ё = е), same as the page

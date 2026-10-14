@@ -280,6 +280,30 @@ app.whenReady().then(async () => {
       check('gui: «Статистика разговора» (talk ratio, trackers, edit, reset)', false, e.message);
     }
 
+    // «Автоопределение встречи»: off by default; enabling shows apps/calendar; stub offer via meeting:state fields.
+    try {
+      let st = await call('meeting:state');
+      const off = st.autoDetect === false && st.offer === null;
+      await js(`document.querySelector('.nav button[data-page="file"]').click(); true`);
+      await sleep(500);
+      const before = await js(`(() => { const c = document.getElementById('meeting-auto-detect'); return c ? { checked: c.checked, appsShown: !!document.getElementById('meeting-auto-apps'), calShown: !!document.getElementById('meeting-auto-cal') } : null; })()`);
+      await js(`document.getElementById('meeting-auto-detect').click(); true`);
+      await sleep(600);
+      st = await call('meeting:state');
+      const on = st.autoDetect === true;
+      const after = await js(`(() => ({ checked: document.getElementById('meeting-auto-detect')?.checked, appsShown: !!document.getElementById('meeting-auto-apps'), calShown: !!document.getElementById('meeting-auto-cal') }))()`);
+      if (shots) {
+        await js(`document.querySelector('fieldset.meeting')?.scrollIntoView(); true`);
+        await sleep(200);
+        writeFileSync(join(shots, 'file-meeting-detect.png'), (await w.webContents.capturePage()).toPNG());
+      }
+      st = await call('meeting:autoDetect', false);
+      check('gui: meeting auto-detect opt-in (off by default, shows apps/calendar when on)', off && before && !before.checked && !before.appsShown && on && after && after.checked && after.appsShown && after.calShown && !st.autoDetect, JSON.stringify({ off, before, on, after }));
+    } catch (e) {
+      check('gui: meeting auto-detect opt-in (off by default, shows apps/calendar when on)', false, e.message);
+    }
+
+
     // «Кратко и задачи» and «Перевести» through the fake local Brain server (settings by the orchestrator).
     const tx = join(work, 'gui-brain');
     mkdirSync(tx, { recursive: true });
