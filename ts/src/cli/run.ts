@@ -151,6 +151,8 @@ export interface CliDeps {
   snippetsPath?: () => string;
   /** Whole stdin as text (for `snippets add <trigger> -`). */
   readStdin?: () => Promise<string>;
+  /** Custom «Кратко и задачи» templates (brief-templates.json, read-only here). */
+  briefTemplates?: () => import('../main/brain/briefTemplates').CustomTemplate[];
   /** history.jsonl of the app (read, never written by the CLI). */
   historyPath?: () => string;
   /** Wall clock for history dates (defaults to Date.now; `now` above may be a test counter). */
@@ -386,12 +388,35 @@ async function translate(o: CliOptions, d: CliDeps): Promise<number> {
   return failed > 0 ? EXIT_FAILED : EXIT_OK;
 }
 
+/** --template: 'list' prints every template; a name gives its instruction; unknown → null (usage error printed). */
+async function templateInstruction(o: CliOptions, d: CliDeps): Promise<{ list: true } | { instruction: string | null } | null> {
+  if (o.template == null) return { instruction: null };
+  const T = await import('../main/brain/briefTemplates');
+  const custom = d.briefTemplates?.() ?? [];
+  if (o.template.toLowerCase() === 'list') {
+    for (const x of T.allTemplates(custom)) d.out(`${x.builtin ? x.id : x.name}\t${x.builtin ? x.name : d.t('свой', 'custom')}\n`);
+    return { list: true };
+  }
+  const tpl = T.findTemplate(o.template, custom);
+  if (!tpl) {
+    const names = T.allTemplates(custom).map((x) => (x.builtin ? x.id : x.name)).join(', ');
+    d.err(d.t(`chawo-va: нет шаблона «${o.template}». Есть: ${names}\n`, `chawo-va: no template «${o.template}». Available: ${names}\n`));
+    return null;
+  }
+  d.log(`cli brief template ${tpl.builtin ? tpl.id : 'custom'}`);
+  return { instruction: tpl.instruction };
+}
+
 async function brief(o: CliOptions, d: CliDeps): Promise<number> {
   const t = d.t;
   const say = (line: string) => {
     if (!o.quiet) d.err(line + '\n');
   };
   const fail = (line: string) => d.err(line + '\n');
+  const tpl = await templateInstruction(o, d);
+  if (!tpl) return EXIT_USAGE;
+  if ('list' in tpl) return EXIT_OK;
+  if (tpl.instruction) o = { ...o, instruction: tpl.instruction };
 
   const picked = textInputs(o, d, fail);
   const files = picked.files;
@@ -726,6 +751,12 @@ async function transcribe(o: CliOptions, defaults: CliDefaults, d: CliDeps): Pro
   const diarize = o.diarize ?? defaults.diarize ?? false;
   const useBrain = o.brain ?? defaults.brain ?? false;
   const useBrief = o.brief ?? defaults.brief ?? false;
+  if (o.template != null) {
+    const tpl = await templateInstruction(o, d);
+    if (!tpl || 'list' in tpl) return EXIT_USAGE;
+    if (!useBrief) say(t('--template без --brief: карточки не будет.', '--template without --brief: no card.'));
+    o = { ...o, instruction: tpl.instruction };
+  }
   // Output collisions and --skip-existing are settled before any model is loaded.
   const targets = new Map<string, string>();
   const work: { src: string; txt: string; prefix: string }[] = [];

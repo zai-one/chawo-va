@@ -7,6 +7,8 @@ import { FileQueue, FileRunner, Ffmpeg, UrlImport, YtDlp, OPEN_FILTERS, load16k,
 import { diarizeHook, getDiarizeRuntime } from './diarize';
 import * as FileBrain from './brain/fileBrain';
 import * as MeetingBrief from './brain/meetingBrief';
+import * as BriefTemplates from './brain/briefTemplates';
+import { briefTemplatesPath as BriefTemplates_path } from './paths';
 import * as Translate from './brain/translate';
 import { BrainException } from './brain/speechCleanup';
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
@@ -65,6 +67,11 @@ export interface FileStateDto {
     instruction: string;
     /** Built-in default shown when the saved instruction is empty. */
     defaultInstruction: string;
+    /** Selected template id ('' = own instruction). */
+    template: string;
+    templates: { id: string; name: string; builtin: boolean; instruction: string }[];
+    /** Last save/delete problem, '' when fine. */
+    templateNote: string;
     /** Where the Brain would run (empty when unavailable). */
     where: string;
     available: boolean;
@@ -105,6 +112,10 @@ export function registerFileIpc(getWindow: () => BrowserWindow | null, settings:
   let lastBriefText = '';
   let lastBriefPath: string | null = null;
   let briefBusy = false;
+  let briefTemplateNote = '';
+  const customTemplates = () => BriefTemplates.loadCustom(BriefTemplates_path());
+  /** Instruction for the Brain: the selected template, else the own instruction, else the default. */
+  const briefInstructionFor = (s: SettingsData) => BriefTemplates.resolveInstruction(s.MeetingBriefTemplate, s.MeetingBriefInstruction, customTemplates()).instruction;
   let briefAbort: AbortController | null = null;
   /** Cloud confirm for this queue run: null = not asked yet, true/false = answer. */
   let briefCloudOk: boolean | null = null;
@@ -232,6 +243,9 @@ export function registerFileIpc(getWindow: () => BrowserWindow | null, settings:
         enabled: s.MeetingBriefEnabled,
         instruction: s.MeetingBriefInstruction,
         defaultInstruction: MeetingBrief.defaultInstruction(),
+        template: BriefTemplates.resolveInstruction(s.MeetingBriefTemplate, s.MeetingBriefInstruction, customTemplates()).id,
+        templates: BriefTemplates.allTemplates(customTemplates()).map((x) => ({ id: x.id, name: x.name, builtin: x.builtin, instruction: x.instruction })),
+        templateNote: briefTemplateNote,
         where: MeetingBrief.target(s) === 'None' ? '' : MeetingBrief.describe(s),
         available: MeetingBrief.target(s) !== 'None',
         text: lastBriefText,
@@ -335,7 +349,7 @@ export function registerFileIpc(getWindow: () => BrowserWindow | null, settings:
           settings: s,
           targetKind: kind,
           transcript,
-          instruction: s.MeetingBriefInstruction,
+          instruction: briefInstructionFor(s),
           status,
           signal,
         });
@@ -511,10 +525,61 @@ export function registerFileIpc(getWindow: () => BrowserWindow | null, settings:
   });
 
 
+  ipcMain.handle('file:briefTemplate', (_e, id: unknown) => {
+    const s = settings.get();
+    briefTemplateNote = '';
+    if (typeof id === 'string' && (id === BriefTemplates.OWN || BriefTemplates.findTemplate(id, customTemplates()))) {
+      s.MeetingBriefTemplate = id;
+      Settings.save(s);
+    }
+    return state();
+  });
+
+  ipcMain.handle('file:saveBriefTemplate', (_e, name: unknown, instruction: unknown) => {
+    const s = settings.get();
+    const n = typeof name === 'string' ? name.trim() : '';
+    const body = typeof instruction === 'string' ? instruction.trim() : '';
+    const list = customTemplates();
+    // Updates reuse an existing custom name; new names go through nameProblem (empty / builtin / too long).
+    const exists = list.some((x) => x.name.toLowerCase().replace(/ё/g, 'е') === n.toLowerCase().replace(/ё/g, 'е'));
+    const nameErr = exists ? null : BriefTemplates.nameProblem(n);
+    const bodyErr = body ? null : t('Инструкция пустая.', 'The instruction is empty.');
+    briefTemplateNote = nameErr ?? bodyErr ?? '';
+    if (!briefTemplateNote) {
+      try {
+        BriefTemplates.saveCustom(BriefTemplates_path(), BriefTemplates.upsertCustom(list, { name: n, instruction: body }));
+        s.MeetingBriefTemplate = BriefTemplates.findTemplate(n, customTemplates())?.id ?? n;
+        Settings.save(s);
+      } catch (e) {
+        briefTemplateNote = t('Не удалось сохранить шаблон: ', 'Could not save the template: ') + (e instanceof Error ? e.message : String(e));
+      }
+    }
+    return state();
+  });
+
+  ipcMain.handle('file:deleteBriefTemplate', (_e, name: unknown) => {
+    const s = settings.get();
+    briefTemplateNote = '';
+    if (typeof name === 'string') {
+      const tpl = BriefTemplates.findTemplate(name, customTemplates());
+      if (tpl && !tpl.builtin) {
+        BriefTemplates.saveCustom(BriefTemplates_path(), BriefTemplates.removeCustom(customTemplates(), tpl.name));
+        if (BriefTemplates.findTemplate(s.MeetingBriefTemplate, customTemplates()) === null) {
+          s.MeetingBriefTemplate = BriefTemplates.OWN;
+          Settings.save(s);
+        }
+      }
+    }
+    return state();
+  });
+
   ipcMain.handle('file:briefInstruction', (_e, text: unknown) => {
     const s = settings.get();
     if (typeof text === 'string') {
       s.MeetingBriefInstruction = text;
+      // Free-text wins: clear any template selection so resolveInstruction uses this body.
+      s.MeetingBriefTemplate = BriefTemplates.OWN;
+      briefTemplateNote = '';
       Settings.save(s);
     }
     return state();
@@ -559,7 +624,7 @@ export function registerFileIpc(getWindow: () => BrowserWindow | null, settings:
         settings: s,
         targetKind: kind,
         transcript,
-        instruction: s.MeetingBriefInstruction,
+        instruction: briefInstructionFor(s),
         status: (line) => {
           ffmpegStatus = line;
           push();

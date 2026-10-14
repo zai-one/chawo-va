@@ -171,6 +171,28 @@ app.whenReady().then(async () => {
     } catch (e) {
       check('gui: «Кратко и задачи» via the Brain', false, e.message);
     }
+    // Templates: pick a built-in, save a custom one, the page shows the picker; the Brain gets the template.
+    try {
+      let st = await call('file:briefTemplate', 'minutes');
+      const ok1 = st.brief.template === 'minutes' && st.brief.templates.length >= 4;
+      st = await call('file:saveBriefTemplate', 'GUI шаблон', 'Только задачи списком.');
+      const ok2 = st.brief.template === 'GUI шаблон' && st.brief.templates.some((x) => x.name === 'GUI шаблон' && !x.builtin);
+      await js(`document.querySelector('.nav button[data-page="file"]').click(); true`);
+      await sleep(600);
+      const ui = await js(`(() => { const s = document.querySelector('[data-brief="template"]'); return s ? { value: s.value, n: s.options.length } : null; })()`);
+      await call('file:runBrief', txt);
+      const okRun = existsSync(join(tx, 'meet.brief.txt'));
+      if (shots) {
+        await js(`document.querySelector('[data-brief="template"]').scrollIntoView(); true`);
+        writeFileSync(join(shots, 'file-brief-templates.png'), (await w.webContents.capturePage()).toPNG());
+      }
+      st = await call('file:deleteBriefTemplate', 'GUI шаблон');
+      const ok3 = st.brief.template === '' && !st.brief.templates.some((x) => x.name === 'GUI шаблон');
+      await call('file:briefTemplate', '');
+      check('gui: «Кратко и задачи» templates (pick, save, use, delete)', ok1 && ok2 && ok3 && okRun && ui && ui.value === 'GUI шаблон' && ui.n >= 6, JSON.stringify({ ok1, ok2, ok3, okRun, ui }));
+    } catch (e) {
+      check('gui: «Кратко и задачи» templates (pick, save, use, delete)', false, e.message);
+    }
     try {
       step('file:runTranslate');
       const st = await call('file:runTranslate', 'de', txt);

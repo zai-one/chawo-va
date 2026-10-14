@@ -16,7 +16,8 @@ import { diarizeHook } from './main/diarize/diarizeRuntime';
 import { runCli, EXIT_INTERRUPTED, type CliDefaults, type CliDeps, type Engine, type EngineConfig } from './cli/run';
 import * as Log from './main/log';
 import { findComplete, looksComplete } from './main/models/speechModelStore';
-import { historyFilePath, settingsPath, snippetsPath } from './main/paths';
+import { briefTemplatesPath, historyFilePath, settingsPath, snippetsPath } from './main/paths';
+import * as BriefTemplates from './main/brain/briefTemplates';
 import { defaults as settingsDefaults, fromJsonObject, toCtcScript, toFileParallelism, toSpeechDeviceKind, toSpeechModelKind } from './main/settings';
 import { collectFromFolder, load16k, outputPath } from './main/file/fileTranscript';
 import * as MeetingBrief from './main/brain/meetingBrief';
@@ -117,7 +118,7 @@ export function realDeps(signal: AbortSignal): CliDeps {
       const target = MeetingBrief.target(s);
       return {
         target,
-        instruction: s.MeetingBriefInstruction,
+        instruction: BriefTemplates.resolveInstruction(s.MeetingBriefTemplate, s.MeetingBriefInstruction, BriefTemplates.loadCustom(briefTemplatesPath())).instruction,
         cloud: MeetingBrief.cloudName(s),
         ask: FileBrain.createAsk(s, target === 'None' ? 'Local' : target),
       };
@@ -141,6 +142,7 @@ export function realDeps(signal: AbortSignal): CliDeps {
     urlFolder: () => join(downloadsFolder(process.platform, homedir(), userDirs(), join), 'Chawo'),
     historyPath: historyFilePath,
     snippetsPath,
+    briefTemplates: () => BriefTemplates.loadCustom(briefTemplatesPath()),
     readStdin: async () => {
       const chunks: Buffer[] = [];
       for await (const c of process.stdin) chunks.push(c as Buffer);

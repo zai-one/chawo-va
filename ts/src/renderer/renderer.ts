@@ -22,6 +22,9 @@ interface FileState {
     enabled: boolean;
     instruction: string;
     defaultInstruction: string;
+    template: string;
+    templates: { id: string; name: string; builtin: boolean; instruction: string }[];
+    templateNote: string;
     where: string;
     available: boolean;
     text: string;
@@ -63,6 +66,9 @@ interface FileApi {
   downloadYtDlp(): Promise<FileState>;
   downloadDiarize(): Promise<FileState>;
   setBriefInstruction(text: string): Promise<FileState>;
+  setBriefTemplate(id: string): Promise<FileState>;
+  saveBriefTemplate(name: string, instruction: string): Promise<FileState>;
+  deleteBriefTemplate(name: string): Promise<FileState>;
   runBrief(path?: string): Promise<FileState>;
   setTranslateTarget(text: string): Promise<FileState>;
   runTranslate(to?: string, path?: string): Promise<FileState>;
@@ -1801,25 +1807,52 @@ function renderFile(): void {
 
 
   // «Кратко и задачи» — after a meeting/file transcript, via the Brain (local by default).
-  const br = s.brief ?? { enabled: false, instruction: '', defaultInstruction: '', where: '', available: false, text: '', path: null, busy: false };
+  const br = s.brief ?? { enabled: false, instruction: '', defaultInstruction: '', template: '', templates: [], templateNote: '', where: '', available: false, text: '', path: null, busy: false };
   const briefOn = el('input', { type: 'checkbox', checked: br.enabled || s.options.brief, disabled: !br.available && !br.enabled });
   briefOn.addEventListener('change', () => void bridge.file.setOptions({ brief: briefOn.checked }).then(apply));
+  // Template picker: built-ins, the user's own templates, then «Своя инструкция» (the free text).
+  const templates = br.templates ?? [];
+  const picked = templates.find((x) => x.id === br.template) ?? null;
+  const tplSel = selectOf([
+    ...templates.map((x) => ({ value: x.id, label: x.builtin ? x.name : `${x.name} ${L('(свой)', '(custom)')}` })),
+    { value: '', label: L('Своя инструкция', 'Own instruction') },
+  ], picked ? picked.id : '', (v) => void bridge.file.setBriefTemplate(v).then(apply));
+  tplSel.dataset.brief = 'template';
+  tplSel.setAttribute('aria-label', L('Шаблон', 'Template'));
   const instr = el('textarea', { rows: 4, spellcheck: true }) as HTMLTextAreaElement;
-  instr.value = br.instruction || br.defaultInstruction;
+  instr.dataset.brief = 'instruction';
+  instr.value = picked ? picked.instruction : br.instruction || br.defaultInstruction;
   instr.placeholder = br.defaultInstruction;
-  instr.addEventListener('change', () => void bridge.file.setBriefInstruction(instr.value).then((st) => { fileState = st; }));
+  // Built-ins stay editable: changing the text copies it into «Своя инструкция» and selects OWN.
+  instr.addEventListener('change', () => {
+    if (picked && !picked.builtin) void bridge.file.saveBriefTemplate(picked.name, instr.value).then(apply);
+    else void bridge.file.setBriefInstruction(instr.value).then(apply);
+  });
+  const tplName = el('input', { type: 'text', spellcheck: false, placeholder: L('название нового шаблона', 'new template name') });
+  tplName.dataset.brief = 'templateName';
+  tplName.className = 'grow';
+  const saveTpl = button(L('Сохранить как шаблон', 'Save as template'), () => void bridge.file.saveBriefTemplate(tplName.value, instr.value).then(apply));
+  saveTpl.dataset.brief = 'saveTemplate';
+  const tplRow = el('div', { className: 'row tpl-row' }, tplName, saveTpl);
+  if (picked && !picked.builtin) {
+    const del = button(L('Удалить шаблон', 'Delete template'), () => void bridge.file.deleteBriefTemplate(picked.name).then(apply), 'link');
+    del.dataset.brief = 'deleteTemplate';
+    tplRow.append(del);
+  }
   const make = button(L('Составить по последней расшифровке', 'Build from the last transcript'), () => void bridge.file.runBrief().then(apply), 'primary');
   make.disabled = s.busy || br.busy || !br.available || !s.lastOutput;
   const briefBox = el('fieldset', { className: 'meeting-brief' },
     el('legend', { textContent: L('Кратко и задачи', 'Brief and tasks') }),
     el('label', {}, briefOn, L(' После расшифровки писать .brief.txt', ' After transcription also write .brief.txt')),
     el('p', { className: 'muted hint', textContent: br.available
-      ? L(`Мозг: ${br.where}. Инструкцию формата можно править — Мозг следует ей.`, `Brain: ${br.where}. You can edit the format instruction — the Brain follows it.`)
+      ? L(`Мозг: ${br.where}. Выберите шаблон или впишите свою инструкцию — Мозг следует ей. В терминале: chawo-va brief --template …`, `Brain: ${br.where}. Pick a template or write your own instruction — the Brain follows it. In the terminal: chawo-va brief --template …`)
       : L('Нужен Мозг: скачайте локальную модель на «Мозге» или настройте свой сервер. Расшифровка без этого всё равно работает.', 'Needs the Brain: download a local model on Brain, or set up your own server. Transcription still works without it.') }),
-    el('label', {}, L('Инструкция формата вывода', 'Output format instruction')),
+    el('div', { className: 'row' }, el('label', {}, L('Шаблон ', 'Template ')), tplSel),
     instr,
-    el('div', { className: 'row' }, make),
+    tplRow,
   );
+  if (br.templateNote) briefBox.append(el('p', { className: 'hint warn', textContent: br.templateNote }));
+  briefBox.append(el('div', { className: 'row' }, make));
   if (br.text) {
     const card = el('div', { className: 'card result brief-card' },
       el('div', { className: 'card-head' },
