@@ -13,6 +13,7 @@ import {
   parseIcsDateTime,
   parseIcsDuration,
   parseIcsEvents,
+  parseRrule,
   detectCalendar,
   unfoldIcs,
 } from '../src/main/meeting/meetingCalendar';
@@ -259,5 +260,155 @@ describe('meetingDetect combine + poller', () => {
     active = false;
     await poller.tick();
     expect(poller.isOffering).toBe(false);
+  });
+});
+
+
+describe('meetingCalendar RRULE / CANCELLED / EXDATE', () => {
+  const lead = 10 * 60_000;
+
+  it('skips STATUS:CANCELLED', () => {
+    const ics = `BEGIN:VCALENDAR
+BEGIN:VEVENT
+SUMMARY:Отмена
+STATUS:CANCELLED
+DTSTART:20261014T100000
+DTEND:20261014T110000
+END:VEVENT
+BEGIN:VEVENT
+SUMMARY:Живая
+DTSTART:20261014T100000
+DTEND:20261014T110000
+END:VEVENT
+END:VCALENDAR`;
+    const events = parseIcsEvents(ics, undefined, { nowMs: new Date(2026, 9, 14, 10, 30).getTime(), leadMs: lead });
+    expect(events.map((e) => e.summary)).toEqual(['Живая']);
+  });
+
+  it('weekly BYDAY hits now and soon', () => {
+    // Wednesday 2026-10-14 — weekly WE from earlier Wednesday
+    const ics = `BEGIN:VCALENDAR
+BEGIN:VEVENT
+SUMMARY:Стендап
+DTSTART:20261007T100000
+DTEND:20261007T103000
+RRULE:FREQ=WEEKLY;BYDAY=WE
+END:VEVENT
+END:VCALENDAR`;
+    const now = new Date(2026, 9, 14, 10, 10).getTime(); // during 10:00–10:30 occurrence
+    const events = parseIcsEvents(ics, undefined, { nowMs: now, leadMs: lead });
+    expect(events.length).toBeGreaterThanOrEqual(1);
+    const hits = activeCalendarHits(events, now, lead);
+    expect(hits).toHaveLength(1);
+    expect(hits[0]!.kind).toBe('now');
+    expect(hits[0]!.summary).toBe('Стендап');
+
+    const before = new Date(2026, 9, 14, 9, 55).getTime();
+    const soonEvents = parseIcsEvents(ics, undefined, { nowMs: before, leadMs: lead });
+    const soon = activeCalendarHits(soonEvents, before, lead);
+    expect(soon).toHaveLength(1);
+    expect(soon[0]!.kind).toBe('soon');
+  });
+
+  it('EXDATE removes an occurrence', () => {
+    const ics = `BEGIN:VCALENDAR
+BEGIN:VEVENT
+SUMMARY:Стендап
+DTSTART:20261007T100000
+DTEND:20261007T103000
+RRULE:FREQ=WEEKLY;BYDAY=WE
+EXDATE:20261014T100000
+END:VEVENT
+END:VCALENDAR`;
+    const now = new Date(2026, 9, 14, 10, 10).getTime();
+    const events = parseIcsEvents(ics, undefined, { nowMs: now, leadMs: lead });
+    expect(activeCalendarHits(events, now, lead)).toEqual([]);
+    // Previous week still visible if we look then
+    const prev = new Date(2026, 9, 7, 10, 10).getTime();
+    const prevEvents = parseIcsEvents(ics, undefined, { nowMs: prev, leadMs: lead });
+    expect(activeCalendarHits(prevEvents, prev, lead)[0]?.summary).toBe('Стендап');
+  });
+
+  it('UNTIL and COUNT bound expansion', () => {
+    const untilIcs = `BEGIN:VEVENT
+SUMMARY:До UNTIL
+DTSTART:20261007T100000
+DTEND:20261007T110000
+RRULE:FREQ=WEEKLY;BYDAY=WE;UNTIL=20261010T235959
+END:VEVENT`;
+    const now = new Date(2026, 9, 14, 10, 10).getTime();
+    expect(parseIcsEvents(untilIcs, undefined, { nowMs: now, leadMs: lead })).toEqual([]);
+
+    const countIcs = `BEGIN:VEVENT
+SUMMARY:Два раза
+DTSTART:20261007T150000
+DTEND:20261007T160000
+RRULE:FREQ=DAILY;COUNT=2
+END:VEVENT`;
+    // COUNT=2 → Oct 7 and Oct 8 only; Oct 14 must not appear
+    const mid = new Date(2026, 9, 8, 15, 30).getTime();
+    const midEvents = parseIcsEvents(countIcs, undefined, { nowMs: mid, leadMs: lead });
+    expect(activeCalendarHits(midEvents, mid, lead)[0]?.summary).toBe('Два раза');
+    const later = new Date(2026, 9, 14, 15, 30).getTime();
+    expect(parseIcsEvents(countIcs, undefined, { nowMs: later, leadMs: lead })).toEqual([]);
+  });
+
+  it('non-recurring events unchanged; malformed RRULE skipped', () => {
+    const ics = `BEGIN:VCALENDAR
+BEGIN:VEVENT
+SUMMARY:Разовая
+DTSTART:20261014T120000
+DTEND:20261014T130000
+END:VEVENT
+BEGIN:VEVENT
+SUMMARY:Сломанная
+DTSTART:20261014T120000
+DTEND:20261014T130000
+RRULE:FREQ=YEARLY;COUNT=3
+END:VEVENT
+END:VCALENDAR`;
+    const now = new Date(2026, 9, 14, 12, 30).getTime();
+    const events = parseIcsEvents(ics, undefined, { nowMs: now, leadMs: lead });
+    expect(events.map((e) => e.summary)).toEqual(['Разовая']);
+    expect(parseRrule('FREQ=YEARLY')).toBeNull();
+    expect(parseRrule('FREQ=WEEKLY;BYDAY=MO,WE')).toEqual({
+      freq: 'WEEKLY',
+      interval: 1,
+      count: undefined,
+      untilMs: undefined,
+      byDay: [1, 3],
+    });
+  });
+
+  it('TZID + weekly RRULE: Moscow wall time is now at the right UTC instant', () => {
+    const ics = `BEGIN:VCALENDAR
+BEGIN:VEVENT
+SUMMARY:Москва стендап
+DTSTART;TZID=Europe/Moscow:20261007T100000
+DTEND;TZID=Europe/Moscow:20261007T103000
+RRULE:FREQ=WEEKLY;BYDAY=WE
+END:VEVENT
+END:VCALENDAR`;
+    // 2026-10-14 10:10 Moscow = 07:10 UTC
+    const now = Date.UTC(2026, 9, 14, 7, 10, 0);
+    const events = parseIcsEvents(ics, undefined, { nowMs: now, leadMs: lead });
+    const hits = activeCalendarHits(events, now, lead);
+    expect(hits).toHaveLength(1);
+    expect(hits[0]!.kind).toBe('now');
+    expect(hits[0]!.startMs).toBe(Date.UTC(2026, 9, 14, 7, 0, 0));
+  });
+
+  it('missing DTSTART yields nothing; MONTHLY day-of-month works', () => {
+    expect(parseIcsEvents('BEGIN:VEVENT\nSUMMARY:X\nRRULE:FREQ=DAILY\nEND:VEVENT\n')).toEqual([]);
+    const ics = `BEGIN:VEVENT
+SUMMARY:Раз в месяц
+DTSTART:20260914T110000
+DTEND:20260914T120000
+RRULE:FREQ=MONTHLY;INTERVAL=1
+END:VEVENT`;
+    const now = new Date(2026, 9, 14, 11, 30).getTime();
+    const hits = activeCalendarHits(parseIcsEvents(ics, undefined, { nowMs: now, leadMs: lead }), now, lead);
+    expect(hits[0]?.summary).toBe('Раз в месяц');
+    expect(hits[0]?.kind).toBe('now');
   });
 });

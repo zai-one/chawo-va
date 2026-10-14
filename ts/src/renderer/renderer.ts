@@ -2761,8 +2761,8 @@ function renderMeeting(): void {
       );
       box.append(calRow);
       box.append(el('p', { className: 'muted hint', textContent: L(
-        'Выкл. по умолчанию. Не запускает запись сама — только спрашивает. «Не сейчас» — пауза ~20 мин. Календарь только локальный .ics, без облака.',
-        'Off by default. Never starts recording by itself — only asks. “Not now” snoozes ~20 min. Calendar is a local .ics only, no cloud.',
+        'Выкл. по умолчанию. Не запускает запись сама — только спрашивает. «Не сейчас» — пауза ~20 мин. Календарь только локальный .ics (RRULE/EXDATE, без отменённых), без облака.',
+        'Off by default. Never starts recording by itself — only asks. “Not now” snoozes ~20 min. Calendar is a local .ics only (RRULE/EXDATE, skips cancelled), no cloud.',
       )}));
     }
     box.append(el('p', { className: 'muted hint', textContent: L(`Запись остаётся только на этом компьютере: ${m.folder}. Текст сохранится рядом.`, `The recording stays on this PC only: ${m.folder}. The text is saved next to it.`) }));
