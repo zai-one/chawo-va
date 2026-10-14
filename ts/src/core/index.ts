@@ -1,4 +1,5 @@
 // Platform-neutral core: no Electron, no Windows APIs. Shared by the desktop app and a future CLI/server.
+export { disableOrtTelemetry, isOrtTelemetryDisabled } from './ortPrivacy';
 export * from './transcriptFormat';
 export * from './localMedia';
 export * from './wordReplace';

@@ -15,6 +15,7 @@
 import { readFileSync, existsSync } from 'node:fs';
 import { cpus } from 'node:os';
 import { join } from 'node:path';
+import './ortPrivacy';
 import * as ort from 'onnxruntime-node';
 import { resample, silences, chunkBounds } from './audio';
 import { chooseScript } from './ctcScriptDecoder';

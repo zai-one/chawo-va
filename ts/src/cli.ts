@@ -2,6 +2,7 @@
 // chawo-va CLI entry: `chawo-va transcribe <files, folders or links…>` (and brief / translate / history). Plain Node (no Electron window, no
 // Chromium decoder). Settings are read, never written. See src/cli/run.ts.
 
+import './core/ortPrivacy';
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { homedir } from 'node:os';

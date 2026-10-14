@@ -3,6 +3,7 @@
 // The model is never loaded from here: the caller passes a frame scorer (a real ORT session wrapped
 // by `sileroScorer`, or a fake in tests). Segment rules follow silero-vad `get_speech_timestamps`.
 
+import './ortPrivacy';
 import * as ort from 'onnxruntime-node';
 import { resample } from './audio';
 

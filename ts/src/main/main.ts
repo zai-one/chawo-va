@@ -1,6 +1,7 @@
 // Electron main process. Dark theme only, no telemetry, nothing leaves the PC unless the user
 // turns on a network feature. This is the shell the WPF features get ported into, piece by piece.
 
+import '../core/ortPrivacy';
 import { app, BrowserWindow, Menu, Tray, nativeImage, nativeTheme, session } from 'electron';
 import { handleMediaProtocol, registerMediaScheme } from './localMediaProtocol';
 import { join } from 'node:path';

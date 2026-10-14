@@ -6,6 +6,7 @@
 
 import { existsSync, mkdirSync, renameSync, rmSync, statSync } from 'node:fs';
 import { dirname, join } from 'node:path';
+import { disableOrtTelemetry } from '../../core/ortPrivacy';
 import { Vad, gapMidpoints, sileroScorer, type VadSessionLike } from '../../core/vad';
 import * as Log from '../log';
 import { fetchFile, verifySha } from '../models/modelDownloader';
@@ -66,6 +67,7 @@ export async function downloadVadModel(signal?: AbortSignal, fetchTo?: FetchToFi
 export type SessionFactory = (path: string) => Promise<VadSessionLike & { release?: () => Promise<void> }>;
 
 async function ortSession(path: string): Promise<VadSessionLike & { release?: () => Promise<void> }> {
+  disableOrtTelemetry();
   const ort = await import('onnxruntime-node');
   return (await ort.InferenceSession.create(path, {
     executionProviders: ['cpu'],
