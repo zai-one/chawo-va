@@ -156,6 +156,44 @@ app.whenReady().then(async () => {
       check('gui: history finds the seeded take', false, e.message);
     }
 
+    // «История» → «Исправить» twice with the same word fix → «Словарь» → «Из исправлений» offers it → «В словарь».
+    try {
+      await js(`document.querySelector('.nav button[data-page="history"]').click(); true`);
+      await sleep(600);
+      const fixRow = async (orig, next) => {
+        const ok = await js(`(() => { const it = Array.from(document.querySelectorAll('.hist-item')).find((x) => x.querySelector('.hist-text')?.textContent === ${JSON.stringify(orig)}); if (!it) return false; it.querySelector('[data-history="fix"]').click(); const a = it.querySelector('[data-history="edit"]'); a.value = ${JSON.stringify(next)}; it.querySelector('[data-history="save"]').click(); return true; })()`);
+        await sleep(600);
+        return ok;
+      };
+      const a1 = await fixRow('Лес в тумане.', 'Лес в Tumanne.');
+      const a2 = await fixRow('Поле в тумане.', 'Поле в Tumanne.');
+      const status = await js(`document.querySelector('[data-history="status"]').textContent`);
+      check('gui: «История» → «Исправить» saves and learns the fix', a1 && a2 && /тумане → Tumanne/.test(status), status);
+      await js(`document.querySelector('.nav button[data-page="dictionary"]').click(); true`);
+      await sleep(600);
+      const offered = await js(`document.querySelector('[data-dict="learned"]')?.textContent ?? ''`);
+      if (shots) {
+        await js(`document.querySelector('[data-dict="learned"]').scrollIntoView({ block: 'center' }); true`);
+        await sleep(300);
+        writeFileSync(join(shots, 'dictionary-learned.png'), (await w.webContents.capturePage()).toPNG());
+      }
+      await js(`document.querySelector('[data-dict="learnAccept"]').click(); true`);
+      await sleep(600);
+      const st = await call('dict:state');
+      const cliName = 'gui: a row accepted in the CLI (`dictionary accept`) reaches «Словарь»';
+      if (process.env.CHAWO_E2E_CLI_RAN === '1') check(cliName, st.rows.some((r) => r.from === 'гигачад' && r.to === 'GigaChad'), JSON.stringify(st.rows).slice(0, 300));
+      else skip(cliName, '--no-cli');
+      check('gui: «Из исправлений» offers the fix and «В словарь» adds the row',
+        offered.includes('Tumanne') && st.rows.some((r) => r.from === 'тумане' && r.to === 'Tumanne') && st.learned.rows.length === 0, offered.slice(0, 300));
+      await js(`document.querySelector('[data-dict="learnAuto"]').click(); true`);
+      await sleep(500);
+      const paths = require('../dist/main/paths.js');
+      const learned = JSON.parse(readFileSync(paths.learnedWordsPath(), 'utf8'));
+      check('gui: «Добавлять в словарь сами» saves to learned-words.json', learned.autoAdd === true, JSON.stringify(learned).slice(0, 200));
+    } catch (e) {
+      check('gui: «Словарь из исправлений»', false, e.message);
+    }
+
     // «Словарь» → «Сниппеты»: add a row through the page UI, it lands in snippets.json; dictation matcher uses it.
     try {
       await js(`document.querySelector('.nav button[data-page="dictionary"]').click(); true`);
@@ -188,6 +226,13 @@ app.whenReady().then(async () => {
       await sleep(600);
       const rows = await js(`document.querySelectorAll('.transcript-editor .phrase').length`);
       check('gui: transcript editor shows phrases', rows >= 3, `${rows} rows`);
+      // Double-click a phrase → fix it → the .txt and .srt beside it change, the note says so.
+      await js(`(() => { const r = document.querySelectorAll('.transcript-editor .phrase')[2]; r.dispatchEvent(new MouseEvent('dblclick', { bubbles: true })); const i = document.querySelector('[data-editor="phraseEdit"]'); i.value = 'Третья без Speakera'; i.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' })); return true; })()`);
+      await sleep(800);
+      const note = await js(`document.querySelector('[data-editor="note"]')?.textContent ?? ''`);
+      const tTxt = readFileSync(join(ed, 'sample.txt'), 'utf8');
+      const tSrt = readFileSync(join(ed, 'sample.srt'), 'utf8');
+      check('gui: transcript editor phrase fix writes .txt/.srt and learns', tTxt.includes('Третья без Speakera') && tSrt.includes('Третья без Speakera') && !tTxt.includes('без спикера') && /Исправлено в 2/.test(note), note + ' | ' + tTxt.slice(0, 200));
     } catch (e) {
       check('gui: transcript editor opens', false, e.message);
     }

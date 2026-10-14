@@ -11,6 +11,7 @@ import { HOTKEY_CHOICES } from './settings';
 import * as Settings from './settings';
 import type { SettingsData } from './settings';
 import { lastTakePath } from './paths';
+import { applyPendingRules } from './dictionary/learnedWords';
 import { DictationController, type MicDevice } from './dictation/dictationPage';
 import { DictationSession, type TakeRecord } from './dictation/dictationSession';
 import type { OverlayWindow } from './overlay/overlayWindow';
@@ -118,6 +119,7 @@ export function registerDictationIpc(
 
   const session: DictationSession = new DictationSession({
     settings: settings.get,
+    pendingRules: () => void applyPendingRules(settings.get(), Settings.save),
     push,
     copy: (text) => clipboard.writeText(text),
     writeWav: (samples, rate) => {

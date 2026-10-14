@@ -23,6 +23,8 @@ import * as Settings from './settings';
 import { asExtraFormats, type FileExtraFormat, type SettingsData, type SettingsFileParallelism } from './settings';
 import { isRussian, t } from '../core/strings';
 import * as Log from './log';
+import { editTranscriptPhrase } from '../core/transcriptEdit';
+import { learnFromEdit } from './dictionary/learnedWords';
 
 export interface FileOptionsDto {
   timestamps: boolean;
@@ -54,6 +56,8 @@ export interface FileEditorDto {
   mediaUrl: string | null;
   /** Which timed file fed the phrases: srt | json | txt */
   sourceHint?: string;
+  /** Result of the last phrase fix («Исправлено…»), empty before one. */
+  note?: string;
 }
 
 export interface FileStateDto {
@@ -170,6 +174,8 @@ export function registerFileIpc(getWindow: () => BrowserWindow | null, settings:
 
   /** Transcript the editor card shows; null = follow queue.lastOutput. */
   let editorFocus: string | null = null;
+  /** Line under the editor after a phrase fix. */
+  let editorNote = '';
   let editorCache: FileEditorDto = emptyEditor();
 
   // Stats are recomputed only when the editor's phrases or the trackers text change.
@@ -327,7 +333,7 @@ export function registerFileIpc(getWindow: () => BrowserWindow | null, settings:
         busy: translateBusy,
       },
       ru: ruLang,
-      editor: refreshEditor(),
+      editor: { ...refreshEditor(), note: editorNote },
       callStats: callStatsDto(s.CallTrackers),
     };
   };
@@ -916,6 +922,30 @@ export function registerFileIpc(getWindow: () => BrowserWindow | null, settings:
   ipcMain.handle('file:openEditor', (_e, path: unknown) => {
     const p = typeof path === 'string' && path.length > 0 ? path : queue.lastOutput;
     editorFocus = p;
+    editorNote = '';
+    refreshEditor(true);
+    return state();
+  });
+
+  // A phrase fixed in the editor: the same text in .txt/.srt/.vtt/.md/.json beside it, then the fix
+  // goes to «Словарь из исправлений» like «История» → «Исправить».
+  ipcMain.handle('file:editPhrase', (_e, index: unknown, text: unknown) => {
+    const ed = refreshEditor();
+    const i = typeof index === 'number' && Number.isInteger(index) ? index : -1;
+    const seg = ed.segments[i];
+    const next = typeof text === 'string' ? text.replace(/\s+/g, ' ').trim() : '';
+    if (!ed.txtPath || !seg || !next || next === seg.text.trim()) return state();
+    const changed = editTranscriptPhrase(ed.txtPath, seg.text, next, readText, (p, d) => writeFileSync(p, d, 'utf8'));
+    if (changed.length === 0) {
+      editorNote = t('Не исправлено: фраза встречается в файле не один раз или файла нет.', 'Not fixed: the phrase is not found exactly once in the files.');
+    } else {
+      const r = learnFromEdit(settings.get(), Settings.save, seg.text, next);
+      const pairs = (l: { from: string; to: string }[]) => l.map((p) => `${p.from} → ${p.to}`).join(', ');
+      editorNote = t(`Исправлено в ${changed.length} файл(ах).`, `Fixed in ${changed.length} file(s).`)
+        + (r.added.length ? t(` В словарь добавлено: ${pairs(r.added)}.`, ` Added to the dictionary: ${pairs(r.added)}.`)
+          : r.suggested.length ? t(` На «Словаре» предложено: ${pairs(r.suggested)}.`, ` Suggested on Dictionary: ${pairs(r.suggested)}.`) : '');
+      Log.write(`editor phrase fixed in ${changed.length} files`);
+    }
     refreshEditor(true);
     return state();
   });

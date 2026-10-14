@@ -16,7 +16,7 @@ import { diarizeHook } from './main/diarize/diarizeRuntime';
 import { runCli, EXIT_INTERRUPTED, type CliDefaults, type CliDeps, type Engine, type EngineConfig } from './cli/run';
 import * as Log from './main/log';
 import { findComplete, looksComplete } from './main/models/speechModelStore';
-import { briefTemplatesPath, checklistsPath, historyFilePath, settingsPath, snippetsPath } from './main/paths';
+import { briefTemplatesPath, checklistsPath, historyFilePath, learnedWordsPath, settingsPath, snippetsPath } from './main/paths';
 import * as BriefTemplates from './main/brain/briefTemplates';
 import * as CallScore from './main/brain/callScore';
 import { defaults as settingsDefaults, fromJsonObject, toCtcScript, toFileParallelism, toSpeechDeviceKind, toSpeechModelKind } from './main/settings';
@@ -146,6 +146,8 @@ export function realDeps(signal: AbortSignal): CliDeps {
     urlFolder: () => join(downloadsFolder(process.platform, homedir(), userDirs(), join), 'Chawo'),
     historyPath: historyFilePath,
     snippetsPath,
+    learnedPath: learnedWordsPath,
+    settingsFile: settingsPath,
     briefTemplates: () => BriefTemplates.loadCustom(briefTemplatesPath()),
     checklists: () => CallScore.loadCustom(checklistsPath()),
     readStdin: async () => {
