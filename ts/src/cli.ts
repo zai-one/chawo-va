@@ -65,6 +65,7 @@ export function readDefaults(): CliDefaults {
     brief: s.MeetingBriefEnabled,
     score: s.CallScoreEnabled,
     checklist: s.CallScoreChecklist,
+    callTrackers: s.CallTrackers,
   };
 }
 

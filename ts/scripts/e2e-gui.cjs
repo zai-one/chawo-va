@@ -110,6 +110,25 @@ app.whenReady().then(async () => {
       check('gui: IPC brain:state', false, e.message);
     }
 
+    // «Контекст для Мозга»: off by default, two compact checkboxes on the «Мозг» page, a click turns one on.
+    try {
+      let st = await call('brain:state');
+      const off = st.context && st.context.visible && !st.context.clipboard && !st.context.app;
+      await js(`document.querySelector('.nav button[data-page="brain"]').click(); true`);
+      await sleep(600);
+      const ui = await js(`(() => { const c = document.getElementById('brain-context-clipboard'); const a = document.getElementById('brain-context-app'); return c && a ? { c: c.checked, a: a.checked } : null; })()`);
+      await js(`document.getElementById('brain-context-clipboard').click(); true`);
+      await sleep(600);
+      st = await call('brain:state');
+      const on = st.context.clipboard && !st.context.app && st.context.warning === '';
+      const after = await js(`document.getElementById('brain-context-clipboard')?.checked ?? null`);
+      if (shots) writeFileSync(join(shots, 'brain-context.png'), (await w.webContents.capturePage()).toPNG());
+      st = await call('brain:context', { clipboard: false });
+      check('gui: «Контекст для Мозга» opt-in checkboxes', off && ui && !ui.c && !ui.a && on && after === true && !st.context.clipboard, JSON.stringify({ off, ui, on, after }));
+    } catch (e) {
+      check('gui: «Контекст для Мозга» opt-in checkboxes', false, e.message);
+    }
+
     // History: the seeded take is found by a search word (ё = е), same as `chawo-va history`.
     try {
       const st = await call('history:query', 'еж');
@@ -154,6 +173,29 @@ app.whenReady().then(async () => {
       check('gui: transcript editor shows phrases', rows >= 3, `${rows} rows`);
     } catch (e) {
       check('gui: transcript editor opens', false, e.message);
+    }
+    // «Статистика разговора» for the same transcript: talk bars, trackers; edit trackers through the page.
+    try {
+      let st = await call('file:state');
+      const okState = st.callStats?.stats?.diarized === true && st.callStats.stats.speakers.length >= 2 && st.callStats.trackers.includes('Цена');
+      await js(`(() => { const a = document.querySelector('[data-stats="trackers"]'); a.value = 'Тест: фраз*'; a.dispatchEvent(new Event('change')); return true; })()`);
+      await sleep(700);
+      st = await call('file:state');
+      const tr = st.callStats?.stats?.trackers ?? [];
+      const okTrack = tr.length === 1 && tr[0].name === 'Тест' && tr[0].count === 1;
+      const ui = await js(`(() => ({ bars: document.querySelectorAll('.call-stats .talk-row').length, tracker: !!document.querySelector('.call-stats [data-tracker="Тест"]'), legend: document.querySelector('.call-stats legend')?.textContent }))()`);
+      const Settings = require('../dist/main/settings.js');
+      const saved = Settings.load ? Settings.load().CallTrackers : null;
+      if (shots) {
+        await js(`(() => { document.querySelectorAll('.call-stats details').forEach((d) => { d.open = true; }); document.querySelector('.call-stats').scrollIntoView(); return true; })()`);
+        await sleep(200);
+        writeFileSync(join(shots, 'file-call-stats.png'), (await w.webContents.capturePage()).toPNG());
+      }
+      st = await call('file:callTrackers', '');
+      const okReset = st.callStats.trackers === st.callStats.defaultTrackers;
+      check('gui: «Статистика разговора» (talk ratio, trackers, edit, reset)', okState && okTrack && okReset && ui.bars >= 2 && ui.tracker && (saved === null || saved === 'Тест: фраз*'), JSON.stringify({ okState, okTrack, okReset, ui, saved }));
+    } catch (e) {
+      check('gui: «Статистика разговора» (talk ratio, trackers, edit, reset)', false, e.message);
     }
 
     // «Кратко и задачи» and «Перевести» through the fake local Brain server (settings by the orchestrator).

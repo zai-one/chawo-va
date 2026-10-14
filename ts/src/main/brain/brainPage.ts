@@ -25,7 +25,7 @@ import { serverConfigured } from './brain';
 import * as LocalBrain from './localBrain';
 import { ModelDownloadException, type DownloadFailure } from '../models/modelDownloader';
 import { failureText, progressText } from '../speech/speechPage';
-import { getModelsAsync, hostOf, isInsecureRemote, probeAsync, tryGetCompletionsUrl, type FetchLike } from './speechCleanup';
+import { getModelsAsync, hostOf, isLoopbackEndpoint, isInsecureRemote, probeAsync, tryGetCompletionsUrl, type FetchLike } from './speechCleanup';
 
 export const LOCAL_KINDS: readonly LocalBrainKind[] = ['Qwen3', 'Qwen35', 'Custom'];
 
@@ -87,6 +87,8 @@ export interface BrainStateDto {
   everyTake: { visible: boolean; on: boolean; hint: string };
   instruction: { visible: boolean; text: string; hint: string };
   selection: { visible: boolean; on: boolean; hint: string };
+  /** «Контекст для Мозга» (opt-in): clipboard text and the focused program. warning: cloud Brain, the context leaves the PC. */
+  context: { visible: boolean; clipboard: boolean; app: boolean; hint: string; warning: string };
   download: BrainDownloadDto | null;
   appRules: AppRulesDto;
 }
@@ -312,6 +314,21 @@ export class BrainController {
     if (on === s.BrainOnSelection) return;
     s.BrainOnSelection = on;
     this.persist();
+  }
+
+  /** «Контекст для Мозга»: each switch on its own; both off by default. */
+  setContext(patch: { clipboard?: boolean; app?: boolean }): void {
+    const s = this.s();
+    let changed = false;
+    if (typeof patch.clipboard === 'boolean' && patch.clipboard !== s.BrainContextClipboard) {
+      s.BrainContextClipboard = patch.clipboard;
+      changed = true;
+    }
+    if (typeof patch.app === 'boolean' && patch.app !== s.BrainContextApp) {
+      s.BrainContextApp = patch.app;
+      changed = true;
+    }
+    if (changed) this.persist();
   }
 
   // ── per-app modes ──────────────────────────────────────
@@ -808,6 +825,22 @@ export class BrainController {
           'Выделите текст, зажмите клавишу и скажите, что сделать. Выключите, если хотите диктовать поверх выделения.',
           'Select text, hold the key, and say what to do. Turn off to dictate over a selection.',
         ),
+      },
+      context: {
+        visible: b !== 'Off',
+        clipboard: s.BrainContextClipboard,
+        app: s.BrainContextApp,
+        hint: t(
+          'Выключено по умолчанию. Включите, и Мозг увидит текст из буфера обмена и название программы с заголовком окна в момент нажатия клавиши: так точнее имена и термины. Сам контекст не вставляется.',
+          'Off by default. Turn on, and the Brain sees the clipboard text and the program with its window title at key press: names and terms come out right. The context itself is never inserted.',
+        ),
+        warning:
+          b === 'Server' && (s.BrainContextClipboard || s.BrainContextApp) && !isLoopbackEndpoint(s.CleanupEndpointUrl)
+            ? t(
+                `Внимание: Мозг в облаке — контекст (буфер обмена, заголовок окна) уходит с компьютера на ${hostOf(s.CleanupEndpointUrl)}.`,
+                `Warning: cloud Brain — the context (clipboard, window title) leaves this PC for ${hostOf(s.CleanupEndpointUrl)}.`,
+              )
+            : '',
       },
       download: this.dl,
       appRules: this.appRulesState(s),

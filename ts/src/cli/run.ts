@@ -4,9 +4,11 @@
 // for every file. Everything is injected so tests run without a model.
 
 import { basename, join } from 'node:path';
+import { clip, contextBlock, CONTEXT_MAX_CHARS } from '../core/brainContext';
 import { progressLine } from '../core/fileParallel';
 import type { FileParallelismKind } from '../core/fileParallel';
 import type { CtcScript, SpeechDeviceKind, SpeechModelKind } from '../core/speechModels';
+import { computeCallStats, formatCallStats, parseTrackers } from '../core/callStats';
 import { clock, fromTxt, loadTimedTranscript, srtTime, toSrt, toTxt, type TranscriptSegment } from '../core/transcriptFormat';
 import { writeExtras } from '../main/file/transcriptExport';
 import { applyDiarization, type FileDiarizeHook } from '../main/file/fileRunner';
@@ -48,6 +50,8 @@ export interface CliDefaults {
   score?: boolean;
   /** settings CallScoreChecklist: the checklist picked in the app ('' = built-in sales). */
   checklist?: string;
+  /** settings CallTrackers: «Название: термин, …» per line; '' = built-in trackers. */
+  callTrackers?: string;
 }
 
 export interface EngineConfig {
@@ -198,6 +202,7 @@ export async function runCli(argv: readonly string[], d: CliDeps): Promise<numbe
   if (o.command === 'translate') return translate(o, d);
   if (o.command === 'history') return history(o, defaults, d);
   if (o.command === 'segments') return segmentsCommand(o, d);
+  if (o.command === 'stats') return statsCommand(o, defaults, d);
   if (o.command === 'snippets') return snippetsCommand(o, d);
   if (o.command === 'serve') {
     const serveDeps: ServeDeps = {
@@ -252,6 +257,24 @@ async function brainCommand(o: CliOptions, d: CliDeps): Promise<number> {
   }
   if (brain.cloud) say(t(`Мозг: текст уходит в ${brain.cloud}`, `Brain: the text goes to ${brain.cloud}`));
 
+  // «Контекст для Мозга»: only when asked for (--context / --context-file), appended to every prompt.
+  let contextText = o.context;
+  if (o.contextFile != null) {
+    try {
+      contextText = d.readFile(o.contextFile);
+    } catch (e) {
+      fail(t(`Не прочитать --context-file: ${o.contextFile}: ${message(e)}`, `Cannot read --context-file: ${o.contextFile}: ${message(e)}`));
+      return EXIT_FAILED;
+    }
+  }
+  const context = contextBlock({ text: contextText });
+  const ask: typeof brain.ask = context ? (prompt, ...rest) => brain.ask(prompt + context, ...rest) : brain.ask;
+  if (context) {
+    say(brain.cloud
+      ? t(`Контекст для Мозга: ${clip(contextText, CONTEXT_MAX_CHARS).length} знаков, уходит в ${brain.cloud}`, `Brain context: ${clip(contextText, CONTEXT_MAX_CHARS).length} characters, goes to ${brain.cloud}`)
+      : t(`Контекст для Мозга: ${clip(contextText, CONTEXT_MAX_CHARS).length} знаков`, `Brain context: ${clip(contextText, CONTEXT_MAX_CHARS).length} characters`));
+  }
+
   const FileBrain = await import('../main/brain/fileBrain');
   if (o.outDir && !o.stdout) d.mkdirp(o.outDir);
 
@@ -262,7 +285,7 @@ async function brainCommand(o: CliOptions, d: CliDeps): Promise<number> {
     say(prefix + src);
     try {
       const parsed = fromTxt(d.readFile(src));
-      const result = noAnswer(await FileBrain.runWithAsk(brain.target, parsed.segments, o.timestamps ?? parsed.timestamps, (line) => say(prefix + line), d.signal, brain.ask), t);
+      const result = noAnswer(await FileBrain.runWithAsk(brain.target, parsed.segments, o.timestamps ?? parsed.timestamps, (line) => say(prefix + line), d.signal, ask), t);
       const note = brainNote(result, t);
       if (o.stdout) {
         if (files.length > 1) d.out(`==> ${src} <==\n`);
@@ -635,6 +658,68 @@ async function segmentsCommand(o: CliOptions, d: CliDeps): Promise<number> {
   if (printed > 0) say(t(`Фраз: ${printed}.`, `${printed} phrases.`));
   d.log(`cli segments files=${o.inputs.length} phrases=${printed} failed=${failed}`);
   if (failed > 0 && printed === 0) return EXIT_FAILED;
+  return failed > 0 ? EXIT_FAILED : EXIT_OK;
+}
+
+/** Why a timed transcript could not be read, in the message language. */
+function timedReason(reason: string, t: (ru: string, en: string) => string): string {
+  return reason === 'no-timings'
+    ? t('нет меток времени (включите .srt / метки в .txt)', 'no timings (enable .srt / timestamps in .txt)')
+    : reason === 'empty'
+      ? t('файл пуст', 'file is empty')
+      : reason === 'bad'
+        ? t('не удалось прочитать JSON', 'could not parse JSON')
+        : t('файл не найден', 'file not found');
+}
+
+/**
+ * `chawo-va stats <file…>`: «Статистика разговора» from the command line — talk ratio per speaker,
+ * monologues, questions, pace and keyword trackers. Same parsers and numbers as the File page card.
+ * --track replaces the trackers from settings (CallTrackers; empty = built-in). Read-only.
+ */
+async function statsCommand(o: CliOptions, defaults: CliDefaults, d: CliDeps): Promise<number> {
+  const t = d.t;
+  const trackers = parseTrackers(o.track.length > 0 ? o.track.join('\n') : defaults.callTrackers ?? '');
+  let failed = 0;
+  let done = 0;
+  for (const input of o.inputs) {
+    if (!d.exists(input)) {
+      d.err(t(`Ошибка: нет файла ${input}`, `Error: no such file ${input}`) + '\n');
+      failed++;
+      continue;
+    }
+    const loaded = loadTimedTranscript(input, (p) => {
+      try {
+        return d.exists(p) ? d.readFile(p) : null;
+      } catch {
+        return null;
+      }
+    });
+    if (!loaded.available) {
+      d.err(t(`Ошибка: ${input}: ${timedReason(loaded.reason, t)}`, `Error: ${input}: ${timedReason(loaded.reason, t)}`) + '\n');
+      failed++;
+      continue;
+    }
+    const st = computeCallStats(loaded.segments, trackers);
+    if (o.json) {
+      // One JSON object per file (JSON Lines); speakers 1-based like «Спикер N», null = no labels.
+      const out = {
+        file: input,
+        source: loaded.sourceHint,
+        ...st,
+        speakers: st.speakers.map((s) => ({ ...s, speaker: s.speaker < 0 ? null : s.speaker + 1, share: Math.round(s.share * 1000) / 1000 })),
+        longestMonologue: st.longestMonologue ? { ...st.longestMonologue, speaker: st.longestMonologue.speaker < 0 ? null : st.longestMonologue.speaker + 1 } : null,
+        trackers: st.trackers.map((r) => ({ ...r, hits: r.hits.map((h) => ({ ...h, speaker: typeof h.speaker === 'number' ? h.speaker + 1 : null })) })),
+      };
+      d.out(JSON.stringify(out) + '\n');
+    } else {
+      if (o.inputs.length > 1) d.out(`— ${input}\n`);
+      d.out(formatCallStats(st, t, { hits: o.hits }));
+      if (o.inputs.length > 1) d.out('\n');
+    }
+    done++;
+  }
+  d.log(`cli stats files=${o.inputs.length} done=${done} failed=${failed} trackers=${trackers.length}`);
   return failed > 0 ? EXIT_FAILED : EXIT_OK;
 }
 
