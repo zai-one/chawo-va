@@ -1,54 +1,119 @@
-# Linux-сервер расшифровки — план (без кода)
+# Linux-сервер расшифровки — `chawo-va serve`
 
-Согласованный план будущего сервера транскрипции. **Кода пока нет** — только решения и открытые вопросы. Реализация отдельным этапом.
-
-## Что уже есть на Windows
-
-- **Хост Hermes** на порту **17831**: `POST /v1/transcribe`, `GET /v1/health`; по умолчанию `127.0.0.1`, в LAN — после открытия брандмауэра.
-- **Клиент** шлёт звук на тот же HTTP-эндпоинт; местную речевую модель не качает.
-- **Telegram-бот** (`tools/hermes-telegram-bot`) — голос → тот же `POST /v1/transcribe`.
-- CLI `--transcribe` на Windows; параллельные воркеры для длинных файлов на CPU/GPU в приложении.
-
-## Чего нет на Linux
-
-Отдельного CPU-сервера с тем же API, CLI «файл → txt/srt», токеном до публикации порта и автоочисткой транскриптов на диске. Windows-хост для 1–5 человек и пачки длинных файлов в фоне не рассчитан как выделенный VPS.
+Headless CPU-сервер транскрипции на том же Node/TS + ONNX стеке, что CLI `chawo-va transcribe`. **Никуда не деплоим из этого репозитория** — хостинг выбираете сами (VPS / своя машина).
 
 ## Согласованные решения
 
 | Тема | Решение |
 |------|---------|
-| Железо | Свой Linux VPS / dedicated, **только CPU** (без GPU) |
-| Нагрузка | 1–5 человек **и** много длинных файлов параллельно |
-| API | Hermes HTTP `/v1/transcribe` — **та же локальная форма**, что на Windows; не платный OpenAI. OpenAPI-схему можно добавить позже как описание этого API |
-| CLI | На сервере: файл → `.txt` / `.srt` |
-| Доступ | **Токен обязателен** до того, как порт торчит наружу |
-| Хранение | Транскрипты на диске **2 часа**, затем автоудаление (TTL позже сделать настраиваемым) |
-| Мозг | Облачный мозг **вне scope**, пока нет локального на сервере |
+| Железо | Linux, **только CPU** (без GPU) |
+| Нагрузка | 1–5 человек **и** несколько длинных файлов параллельно (очередь + пул воркеров) |
+| API | Hermes HTTP `/v1/health`, `/v1/transcribe` — **та же JSON-форма**, что Windows Hermes; плюс async Job API |
+| CLI | На сервере: `chawo-va serve`; с клиента: `chawo-va transcribe --server URL --token …` |
+| Доступ | **Токен обязателен**, чтобы слушать не-localhost (`--token` / `CHAWO_SERVE_TOKEN`) |
+| Хранение | Артефакты заданий на диске **2 часа**, затем автоудаление |
+| Мозг / Telegram / OpenAI SaaS | **Вне scope** |
+| Стек | Node 20+ / TypeScript / `onnxruntime-node` (не Python, не .NET) |
+| Модель по умолчанию | `v3_e2e_rnnt` (как CLI), CPU |
+| Токен | Только `Authorization: Bearer …` (не query) |
+| Форматы | Hermes POST: raw WAV/Ogg как раньше; jobs: тот же decode chain, что CLI (WAV/Ogg native, ffmpeg при наличии) |
+| Порт | **17831** (как Hermes), переопределяется `--port` |
 
-## Черновая архитектура
+## Установка (кратко)
 
-1. **HTTP-сервис** с тем же контрактом, что Windows Hermes (`/v1/health`, `/v1/transcribe`), плюс проверка токена на защищённых методах.
-2. **Пул CPU-воркеров** — несколько параллельных заданий (длинные файлы и запросы людей); число воркеров и потоков ONNX — по ядрам и RAM, без GPU.
-3. **CLI** рядом с сервисом: тот же движок, выход txt/srt (метки времени — по решению на этапе реализации).
-4. **Диск**: входные/выходные артефакты с TTL **2 ч** (конфиг позже); фоновая чистка.
-5. Порт наружу только после токена (и по возможности reverse proxy / firewall). Без токена — localhost или закрытый порт.
+```bash
+git clone https://github.com/zai-one/chawo-va.git
+cd chawo-va/ts
+npm ci
+npm run build
+# Модель v3 скачайте в приложении или положите в каталог и укажите --model-dir / CHAWO_MODEL_DIR
+```
 
-## Вне scope сейчас
+### Только localhost (без токена)
 
-- Код, пакеты, релизы, bump версии.
-- GPU / облачный ASR / платный OpenAI-совместимый SaaS.
-- Облачный «мозг», если на сервере нет локальной модели.
-- Полная OpenAPI-спека (можно добавить позже как описание уже согласованного API).
+```bash
+node dist/cli.js serve --port 17831 --model-dir /path/to/v3_e2e_rnnt
+# слушает 127.0.0.1:17831
+```
 
-## Открытые вопросы (до кода)
+### Наружу / LAN (токен обязателен)
 
-1. Стек: Python, .NET на Linux, или тонкая обёртка над тем же ONNX, что Windows?
-2. Модель по умолчанию: `multilingual_large_ctc` / `v3_e2e_rnnt` — какая первая на CPU VPS?
-3. Как передаётся токен (заголовок `Authorization`, query) и ротация?
-4. Лимит одновременных jobs и очередь при перегрузке?
-5. Нужен ли тот же Telegram-бот на сервере или достаточно HTTP + CLI?
-6. Форматы входа на сервере: только WAV/Ogg или сразу ffmpeg как на Windows?
+```bash
+export CHAWO_SERVE_TOKEN='замените-на-длинный-секрет'
+node dist/cli.js serve --host 0.0.0.0 --port 17831 --token "$CHAWO_SERVE_TOKEN" --model-dir /path/to/v3_e2e_rnnt
+```
 
----
+Без токена процесс **откажется** биндиться на `0.0.0.0`.
 
-Когда вопросы закрыты — отдельная задача на код. Этот файл не обещает сроков и не описывает реализацию.
+### Данные и TTL
+
+- Каталог: `--data-dir` / `CHAWO_SERVE_DATA_DIR`, иначе `~/.local/share/chawo-serve` (или `/tmp/chawo-serve`).
+- Подкаталог `jobs/<id>/`: исходное аудио, `meta.json`, `result.txt`.
+- Через **2 часа** после создания задания файлы удаляются фоновым sweeper.
+
+### systemd
+
+Юнит-пример: [`packaging/systemd/chawo-va-serve.service`](../packaging/systemd/chawo-va-serve.service).
+
+```bash
+sudo cp packaging/systemd/chawo-va-serve.service /etc/systemd/system/
+# поправьте пути, User=, CHAWO_SERVE_TOKEN (лучше EnvironmentFile)
+sudo systemctl daemon-reload
+sudo systemctl enable --now chawo-va-serve
+```
+
+## HTTP API
+
+### `GET /v1/health` (и `/health`)
+
+```json
+{ "ok": true, "model_loaded": true, "model": "v3_e2e_rnnt", "device": "cpu", "provider": "cpu",
+  "port": 17831, "listen": "127.0.0.1", "jobs": { "workers": 2, "queued": 0, "active": 0 } }
+```
+
+### `POST /v1/transcribe` (и `/transcribe`)
+
+Как Hermes: тело — raw WAV/Ogg или первый part `multipart/form-data`, нужен `Content-Length`. Ответ:
+
+```json
+{ "text": "…", "model": "v3_e2e_rnnt", "device": "cpu", "provider": "cpu", "sample_rate": 16000, "seconds": 1.23 }
+```
+
+### Job API (длинные файлы)
+
+| Метод | Путь | Смысл |
+|-------|------|--------|
+| `POST` | `/v1/jobs` | Загрузить аудио → `{ id, status: "queued", … }` (201) |
+| `GET` | `/v1/jobs/:id` | Статус / текст / ошибка |
+| `DELETE` | `/v1/jobs/:id` | Удалить задание и файлы |
+
+Статусы: `queued` → `running` → `done` | `error`.
+
+### Авторизация
+
+- Запросы с **не-loopback** адреса: нужен `Authorization: Bearer <token>` (если токен задан; без токена наружу сервер не слушает).
+- **Loopback** (`127.0.0.1` / `::1`): без заголовка можно (удобно для локальной проверки).
+
+## Клиент
+
+```bash
+chawo-va transcribe запись.wav --server http://127.0.0.1:17831
+chawo-va transcribe длинный.mp3 --server http://host:17831 --token "$CHAWO_SERVE_TOKEN" -o /tmp/out
+```
+
+Без `--server` поведение CLI как раньше (локальная модель).
+
+## Проверка
+
+```bash
+curl -s http://127.0.0.1:17831/v1/health
+curl -s -X POST http://127.0.0.1:17831/v1/transcribe \
+  -H 'Content-Type: audio/wav' --data-binary @short.wav
+```
+
+## Вне scope (по-прежнему)
+
+- Деплой на конкретный хостинг / bump до 2.1.0
+- GPU, облачный ASR, платный OpenAI-совместимый SaaS
+- Облачный «мозг», Telegram-бот на сервере
+- Полная OpenAPI-спека (можно добавить позже)

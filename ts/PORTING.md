@@ -1113,3 +1113,20 @@ Re-align folder names and tooling with taptain-desktop once its layout is readab
   Workflow `.github/workflows/ts-windows.yml`: push на `main` / `ts-port` / `ts/**` и теги `v*`;
   на теге — softprops/action-gh-release прикрепляет Setup.exe + portable zip к GitHub Release
   (`contents: write`). Веса моделей по-прежнему не в пакете. Legacy WPF workflows не трогали.
+
+- 2026-10-13 tick (branch `ts/feat-linux-serve`, queue B): headless **`chawo-va serve`** — CPU-only Linux
+  transcription server on the existing TS/ONNX stack (не Python/.NET). Hermes-совместимые
+  `GET /v1/health|/health` и `POST /v1/transcribe|/transcribe` (те же JSON, `extractAudio` /
+  Content-Length из `hermesServer.ts`). Async Job API: `POST/GET/DELETE /v1/jobs[/:id]` (очередь +
+  пул воркеров 1–5 из FileParallel, каждое задание — свой FileJob). Токен: `--token` /
+  `CHAWO_SERVE_TOKEN`; без токена только `127.0.0.1`, с токеном можно `0.0.0.0`; non-loopback →
+  `Authorization: Bearer`; loopback без заголовка OK. Артефакты в `--data-dir` /
+  `CHAWO_SERVE_DATA_DIR` (по умолчанию `~/.local/share/chawo-serve`), TTL **2 ч** + sweeper.
+  CLI: `transcribe --server URL [--token]` через job API; локальный путь без `--server` не тронут.
+  systemd: `packaging/systemd/chawo-va-serve.service`; `docs/linux-server.md` — установка вместо плана.
+  Тесты: serveAuth (+5), serveJobs (+3), serveServer (+4), cliArgs (+2). **879** зелёные (было ~863),
+  `tsc`/build. Live на боксе: `serve` на 127.0.0.1:17999 с v3 из `/workspace/models-bench/…`, health
+  `model_loaded`, fixture WAV → HTTP/job пути, 30 с русская запись → текст «Русский язык…» (~381
+  символов) через `/v1/transcribe` и job; CLI `--server` пишет `.txt`; bind `0.0.0.0` без токена → exit 2.
+  Версия остаётся **2.0.0**. Gaps: деплой/хостинг не делали; Brain/Telegram/SaaS вне scope; без
+  OpenAPI; `--server` пока только txt (не srt/vtt/…).

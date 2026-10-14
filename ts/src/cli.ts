@@ -149,10 +149,12 @@ export function realDeps(signal: AbortSignal): CliDeps {
 
 if (require.main === module) {
   const ac = new AbortController();
-  process.on('SIGINT', () => {
+  const onStop = () => {
     if (ac.signal.aborted) process.exit(EXIT_INTERRUPTED);
     ac.abort();
-  });
+  };
+  process.on('SIGINT', onStop);
+  process.on('SIGTERM', onStop);
   runCli(process.argv.slice(2), realDeps(ac.signal))
     .then(async (code) => {
       // A local Brain (llama-server child) started for brain / brief / translate must not outlive the run.
