@@ -18,6 +18,7 @@ vi.mock('electron', () => ({
   },
   session: { defaultSession: { setDisplayMediaRequestHandler: (fn: typeof h.display) => (h.display = fn) } },
   desktopCapturer: { getSources: async () => h.sources },
+  dialog: { showOpenDialog: async () => ({ canceled: true, filePaths: [] }) },
   BrowserWindow: class {},
 }));
 
@@ -93,5 +94,26 @@ describe('meetingIpc', () => {
     expect(r.system).toEqual({ kind: 'none' });
     expect(r.state.systemSupported).toBe(false);
     await h.handlers.get('meeting:cancel')!({});
+  });
+
+  it('auto-detect off by default; toggling persists and offerNever turns it off', async () => {
+    const s = Settings.defaults();
+    expect(s.MeetingAutoDetect).toBe(false);
+    const { poller } = registerMeetingIpc(() => null, { get: () => s }, { enqueue: () => undefined }, {
+      exec: async () => 'Zoom|Zoom Meeting\nchrome|Google Meet - Interview\n',
+    });
+    const st0 = (await h.handlers.get('meeting:state')!({})) as { autoDetect: boolean; offer: unknown };
+    expect(st0.autoDetect).toBe(false);
+    expect(st0.offer).toBeNull();
+    const st1 = (await h.handlers.get('meeting:autoDetect')!({}, true)) as { autoDetect: boolean };
+    expect(st1.autoDetect).toBe(true);
+    expect(s.MeetingAutoDetect).toBe(true);
+    await poller.tick();
+    const st2 = (await h.handlers.get('meeting:state')!({})) as { offer: { reasons: string[] } | null };
+    expect(st2.offer?.reasons.some((r) => r === 'Zoom' || r === 'Google Meet')).toBe(true);
+    const st3 = (await h.handlers.get('meeting:offerNever')!({})) as { autoDetect: boolean; offer: unknown };
+    expect(st3.autoDetect).toBe(false);
+    expect(st3.offer).toBeNull();
+    poller.stop();
   });
 });

@@ -19,6 +19,7 @@
 | `stats <.txt/.srt/.json…>` | «Статистика разговора»: доля речи, монологи, вопросы, темп, трекеры слов | stdout |
 | `snippets list\|add\|remove` | Сниппеты для «вставь …» при диктовке (тот же `snippets.json`, что на «Словаре») | stdout / `snippets.json` |
 | `dictionary list\|suggest\|accept\|dismiss\|learn\|auto` | Словарь замен и «Из исправлений» (тот же `learned-words.json`, что на «Словаре») | stdout / `learned-words.json` |
+| `meeting detect` | Автоопределение встречи (приложения Windows / локальный `.ics`) без запуска записи | stdout |
 | `serve` | Headless CPU-сервер расшифровки ([linux-server.md](linux-server.md)) | — |
 | `--help`, `--version` | Справка / версия (`chawo-va 2.0.0`) | stdout |
 
@@ -182,6 +183,19 @@ chawo-va dictionary accept гигачад
 
 `слова…` (поиск, ё = е), `-n/--limit <N|all>` (по умолчанию 20), `--json` (JSON Lines: `id, ts,
 seconds, final, raw, command, brain, brainFailed`), `--raw`, `-q`.
+
+### `meeting detect`
+
+Одноразовая проверка: похоже ли, что идёт встреча. **Запись не запускает.**
+
+```bash
+chawo-va meeting detect
+chawo-va meeting detect --json
+```
+
+Берутся настройки приложения `MeetingAutoDetectApps` и `MeetingAutoDetectCalendar` (мастер-флаг в CLI не нужен — проверка всегда выполняется). На не-Windows список приложений пуст (`appsSupported: false`); календарь `.ics` работает везде.
+
+`--json` печатает `{ active, appsSupported, apps, calendar, reasons }`.
 
 ### `serve`
 

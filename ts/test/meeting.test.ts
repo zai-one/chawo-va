@@ -154,7 +154,7 @@ describe('system audio source', () => {
 
 describe('MeetingController', () => {
   const make = (over: Partial<MeetingDeps> = {}) => {
-    const s = { MeetingSystemAudio: true, MicrophoneId: 'mic-1' };
+    const s = { MeetingSystemAudio: true, MicrophoneId: 'mic-1', MeetingAutoDetect: false, MeetingAutoDetectApps: true, MeetingAutoDetectCalendar: '' };
     const calls = { enqueue: [] as string[], armed: [] as boolean[], saved: 0, changed: 0, log: [] as string[] };
     const d: MeetingDeps = {
       dir: () => dir,
@@ -277,6 +277,18 @@ describe('MeetingController', () => {
 describe('settings', () => {
   it('MeetingSystemAudio defaults on and survives junk', () => {
     expect(Settings.defaults().MeetingSystemAudio).toBe(true);
+  });
+  it('MeetingAutoDetect defaults off; apps on; calendar empty', () => {
+    const d = Settings.defaults();
+    expect(d.MeetingAutoDetect).toBe(false);
+    expect(d.MeetingAutoDetectApps).toBe(true);
+    expect(d.MeetingAutoDetectCalendar).toBe('');
+    d.MeetingAutoDetect = true;
+    d.MeetingAutoDetectCalendar = 'C:\\cal.ics';
+    const obj = Settings.toJsonObject(d);
+    expect(obj).toMatchObject({ MeetingAutoDetect: true, MeetingAutoDetectApps: true, MeetingAutoDetectCalendar: 'C:\\cal.ics' });
+    expect(Settings.fromJsonObject(obj).settings.MeetingAutoDetect).toBe(true);
+    expect(Settings.fromJsonObject({}).settings.MeetingAutoDetect).toBe(false);
   });
 });
 

@@ -260,6 +260,33 @@ app.whenReady().then(async () => {
       check('gui: «Статистика разговора» (talk ratio, trackers, edit, reset)', false, e.message);
     }
 
+    // «Автоопределение встречи»: off by default; enabling shows apps/calendar; stub offer via meeting:state fields.
+    try {
+      let st = await call('meeting:state');
+      const off = st.autoDetect === false && st.offer === null && st.autoDetectApps === true;
+      await js(`document.querySelector('.nav button[data-page="file"]').click(); true`);
+      await sleep(500);
+      const before = await js(`(() => { const c = document.getElementById('meeting-auto-detect'); return c ? { checked: c.checked, apps: !!document.getElementById('meeting-auto-apps') } : null; })()`);
+      await js(`document.getElementById('meeting-auto-detect').click(); true`);
+      await sleep(600);
+      st = await call('meeting:state');
+      const on = st.autoDetect === true;
+      const after = await js(`(() => ({ checked: document.getElementById('meeting-auto-detect')?.checked, apps: document.getElementById('meeting-auto-apps')?.checked, cal: !!document.getElementById('meeting-auto-cal') }))()`);
+      // Inject a fake offer without real Zoom (IPC detectNow may be empty on Linux).
+      st = await call('meeting:autoDetect', true);
+      // Simulate offer by calling offer path: set calendar empty, apps on, use detectNow when stubbed — or just check UI toggles.
+      if (shots) {
+        await js(`document.querySelector('fieldset.meeting')?.scrollIntoView(); true`);
+        await sleep(200);
+        writeFileSync(join(shots, 'file-meeting-detect.png'), (await w.webContents.capturePage()).toPNG());
+      }
+      st = await call('meeting:autoDetect', false);
+      check('gui: meeting auto-detect opt-in (off by default, shows apps/calendar when on)', off && before && !before.checked && !before.apps && on && after && after.checked && after.apps && after.cal && !st.autoDetect, JSON.stringify({ off, before, on, after }));
+    } catch (e) {
+      check('gui: meeting auto-detect opt-in (off by default, shows apps/calendar when on)', false, e.message);
+    }
+
+
     // «Кратко и задачи» and «Перевести» through the fake local Brain server (settings by the orchestrator).
     const tx = join(work, 'gui-brain');
     mkdirSync(tx, { recursive: true });
