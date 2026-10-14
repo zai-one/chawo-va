@@ -7,7 +7,7 @@ import { basename, join } from 'node:path';
 import { progressLine } from '../core/fileParallel';
 import type { FileParallelismKind } from '../core/fileParallel';
 import type { CtcScript, SpeechDeviceKind, SpeechModelKind } from '../core/speechModels';
-import { clock, fromTxt, toSrt, toTxt, type TranscriptSegment } from '../core/transcriptFormat';
+import { clock, fromTxt, loadTimedTranscript, srtTime, toSrt, toTxt, type TranscriptSegment } from '../core/transcriptFormat';
 import { writeExtras } from '../main/file/transcriptExport';
 import { applyDiarization, type FileDiarizeHook } from '../main/file/fileRunner';
 import { helpText, langFromArgv, parseArgs, type CliOptions } from './args';
@@ -182,6 +182,7 @@ export async function runCli(argv: readonly string[], d: CliDeps): Promise<numbe
   if (o.command === 'brief') return brief(o, d);
   if (o.command === 'translate') return translate(o, d);
   if (o.command === 'history') return history(o, defaults, d);
+  if (o.command === 'segments') return segmentsCommand(o, d);
   return transcribe(o, defaults, d);
 }
 
@@ -456,6 +457,63 @@ export function historyJson(e: HistoryEntry): string {
  * (`matches`: every word, ё = е, over final/raw/command), same «Хранить» period, newest first.
  * Read-only: nothing is pruned or rewritten here; the app does that when the page is opened.
  */
+
+/**
+ * `chawo-va segments <file…>`: print timed phrases from a finished transcript (.srt / .json / timed .txt).
+ * Same parsers as the File page «Расшифровка» card. Playback stays GUI-only.
+ */
+async function segmentsCommand(o: CliOptions, d: CliDeps): Promise<number> {
+  const t = d.t;
+  const say = (line: string) => {
+    if (!o.quiet) d.err(line + '\n');
+  };
+  let failed = 0;
+  let printed = 0;
+  for (const input of o.inputs) {
+    if (!d.exists(input)) {
+      d.err(t(`Ошибка: нет файла ${input}`, `Error: no such file ${input}`) + '\n');
+      failed++;
+      continue;
+    }
+    const loaded = loadTimedTranscript(input, (p) => {
+      try {
+        return d.exists(p) ? d.readFile(p) : null;
+      } catch {
+        return null;
+      }
+    });
+    if (!loaded.available) {
+      const why =
+        loaded.reason === 'no-timings'
+          ? t('нет меток времени (включите .srt / метки в .txt)', 'no timings (enable .srt / timestamps in .txt)')
+          : loaded.reason === 'empty'
+            ? t('файл пуст', 'file is empty')
+            : loaded.reason === 'bad'
+              ? t('не удалось прочитать JSON', 'could not parse JSON')
+              : t('файл не найден', 'file not found');
+      d.err(t(`Ошибка: ${input}: ${why}`, `Error: ${input}: ${why}`) + '\n');
+      failed++;
+      continue;
+    }
+    if (o.inputs.length > 1) say(t(`— ${input} (${loaded.sourceHint})`, `— ${input} (${loaded.sourceHint})`));
+    for (const seg of loaded.segments) {
+      if (o.json) {
+        const row: Record<string, unknown> = { start: seg.start, end: seg.end, text: seg.text };
+        if (typeof seg.speaker === 'number') row.speaker = seg.speaker + 1;
+        d.out(JSON.stringify(row) + '\n');
+      } else {
+        const sp = typeof seg.speaker === 'number' ? t(`Спикер ${seg.speaker + 1}: `, `Speaker ${seg.speaker + 1}: `) : '';
+        d.out(`${srtTime(seg.start)} → ${srtTime(seg.end)}  ${sp}${seg.text}\n`);
+      }
+      printed++;
+    }
+  }
+  if (printed > 0) say(t(`Фраз: ${printed}.`, `${printed} phrases.`));
+  d.log(`cli segments files=${o.inputs.length} phrases=${printed} failed=${failed}`);
+  if (failed > 0 && printed === 0) return EXIT_FAILED;
+  return failed > 0 ? EXIT_FAILED : EXIT_OK;
+}
+
 async function history(o: CliOptions, defaults: CliDefaults, d: CliDeps): Promise<number> {
   const t = d.t;
   const say = (line: string) => {

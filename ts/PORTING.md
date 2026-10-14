@@ -1032,3 +1032,18 @@ Re-align folder names and tooling with taptain-desktop once its layout is readab
   Gaps: проверено только синтетическим голосом и фейковым микрофоном (живой голос/шумная комната — на машине
   пользователя); слово, сказанное, пока модель ещё грузится (первый запуск / после выгрузки при простое),
   ловится только после загрузки; ошибка открытия микрофона слова пишется в лог, на странице её пока не видно.
+
+- 2026-10-13 tick (branch `ts/feat-transcript-editor`, IDEAS.md batch 2 п.10): редактор транскрипта —
+  клик по фразе воспроизводит исходное аудио с этого места. `core/transcriptFormat.ts`: `fromSrt`
+  (HH:MM:SS,mmm / точка, многострочные cue, «Спикер N:» / «Speaker N:» → speaker 0-based),
+  `fromJsonTranscript` (chawo-transcript v1, speaker 1-based → 0-based), `loadTimedTranscript`
+  (рядом .srt → .json → метки в .txt). `core/localMedia.ts` + `main/localMediaProtocol.ts`: привилегированная
+  схема `chawo-media://` (registerSchemesAsPrivileged до ready, protocol.handle с HTTP Range/206 для seek,
+  allow-list только путь очереди / редактора); CSP `media-src 'self' chawo-media: blob:`; webRequest пускает схему.
+  `FileStateDto.editor` + IPC `file:openEditor` / `file:mediaUrl`; карточка «Расшифровка» на «Расшифровке
+  файла» (фразы, `<audio controls>`, подсветка по currentTime, «Слушать» на Done). CLI `chawo-va segments`
+  (печать start→end + текст, `--json`; воспроизведение — GUI-only). Тесты: transcriptFormat (+8), localMedia
+  (+3), cliArgs (+1). 844 зелёные (832 до wake), `tsc`/build. Live CLI на fixture SRT; GUI smoke
+  `scripts/smoke-transcript-editor.cjs` (без модели: openEditor + fixture wav/srt, клик/seek, active).
+  Gaps: без реальной модели в smoke (UI+seek проверены инъекцией); длинный seek по MP3 через chromium
+  decode пути — только исходный файл очереди, не декодированный 16 кГц WAV.

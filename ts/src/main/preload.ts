@@ -23,6 +23,8 @@ const api = {
     runBrief: (path?: string) => ipcRenderer.invoke('file:runBrief', path),
     setTranslateTarget: (text: string) => ipcRenderer.invoke('file:translateTarget', text),
     runTranslate: (to?: string, path?: string) => ipcRenderer.invoke('file:runTranslate', to, path),
+    openEditor: (path?: string) => ipcRenderer.invoke('file:openEditor', path),
+    mediaUrl: (audioPath: string) => ipcRenderer.invoke('file:mediaUrl', audioPath),
     onState: (fn: (s: unknown) => void) => {
       const h = (_e: unknown, s: unknown) => fn(s);
       ipcRenderer.on('file:state', h);

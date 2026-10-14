@@ -199,10 +199,20 @@ describe('langFromArgv', () => {
     for (const lang of ['ru', 'en'] as const) {
       const help = helpText((ru, en) => (lang === 'ru' ? ru : en));
       expect(help).toContain('chawo-va history');
+      expect(help).toContain('chawo-va segments');
       expect(help).toContain('--limit');
       expect(help).toContain('--json');
       expect(help).toContain('--raw');
     }
+  });
+
+  it('segments: transcript files and optional --json; refuses speech/history-only flags', () => {
+    expect(ok(['segments', 'a.srt', 'b.txt'])).toMatchObject({ command: 'segments', inputs: ['a.srt', 'b.txt'], json: false });
+    expect(ok(['segments', 'a.json', '--json', '-q'])).toMatchObject({ command: 'segments', json: true, quiet: true });
+    expect(err(['segments'])).toContain('no files');
+    expect(err(['segments', 'a.txt', '--raw'])).toContain('segments takes');
+    expect(err(['segments', 'a.txt', '--model', 'v3'])).toContain('segments prints');
+    expect(err(['segments', 'a.txt', '-n', '3'])).toContain('segments takes');
   });
 });
 

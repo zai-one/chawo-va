@@ -1,0 +1,12 @@
+{
+  "format": "chawo-transcript",
+  "version": 1,
+  "source": "sample.wav",
+  "duration": 3,
+  "text": "Первая фраза\nSecond phrase\nТретья без спикера",
+  "segments": [
+    { "start": 0, "end": 1, "text": "Первая фраза", "speaker": 1 },
+    { "start": 1, "end": 2, "text": "Second phrase", "speaker": 2 },
+    { "start": 2, "end": 3, "text": "Третья без спикера" }
+  ]
+}
