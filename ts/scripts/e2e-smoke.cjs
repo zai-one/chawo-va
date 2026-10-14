@@ -140,7 +140,7 @@ function writeSettings(port) {
   const end = new Date(now.getTime() + 60 * 60_000);
   writeFileSync(join(icsDir, 'meet.ics'), `BEGIN:VEVENT\nSUMMARY:E2E Meeting\nDTSTART:${stamp(now)}\nDTEND:${stamp(end)}\nEND:VEVENT\n`);
   s.MeetingAutoDetectCalendar = join(icsDir, 'meet.ics');
-  s.MeetingAutoDetectApps = false;
+  // Apps stay on (default); on Linux the process list is unsupported/empty — calendar still hits.
   mkdirSync(dirname(Paths.settingsPath()), { recursive: true });
   writeFileSync(Paths.settingsPath(), JSON.stringify(Settings.toJsonObject(s), null, 2));
 }
