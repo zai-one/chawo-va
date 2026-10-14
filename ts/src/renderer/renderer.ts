@@ -283,6 +283,10 @@ interface DictationState {
   soundCues: boolean;
   soundCuesLabel: string;
   soundCuesTip: string;
+  wakeWord: boolean;
+  wakeLabel: string;
+  wakeTip: string;
+  wakeNote: string;
   micId: string;
   micChoices: { value: string; label: string }[];
   micHint: string;
@@ -319,7 +323,14 @@ interface DictationApi {
   onLevel(fn: (v: number) => void): () => void;
   onCue(fn: (cue: { kind: string; tones: CueToneSpec[] }) => void): () => void;
   onHot(fn: (ev: HotEvent) => void): () => void;
+  setWakeWord(v: boolean): Promise<DictationState>;
+  wakeWant(): Promise<WakeWant>;
+  onWake(fn: (want: WakeWant) => void): () => void;
+  wakePcm(chunk: Float32Array): void;
+  wakeMicFailed(name: string, message: string): Promise<DictationState>;
 }
+/** «Чаво»: keep a microphone open for the word (main decides), on this device ('' = default). */
+interface WakeWant { on: boolean; micId: string }
 /** The global hold key: the main side already started the take; this side only runs the mic. */
 type HotEvent = { kind: 'start'; micId: string } | { kind: 'stop' } | { kind: 'end' };
 interface CueToneSpec { freq: number; at: number; ms: number; gain: number }
@@ -948,6 +959,47 @@ async function hotClose(recognize: boolean): Promise<void> {
   if (recognize && cap) applyDictation(await bridge.dictation.stopTake());
 }
 
+// ── «Чаво»: an always-on capture for the word, separate from the take's own capture ──
+// Main asks for it only while the setting is on and recognition is local. Its chunks go to the word's
+// detector; during a take started by the word the main side feeds them into that take.
+let wakeCapture: MicCapture | null = null;
+let wakeKey = '';
+let wakeJob: Promise<void> = Promise.resolve();
+
+function applyWake(want: WakeWant): void {
+  const key = want.on ? `on|${want.micId}` : 'off';
+  if (key === wakeKey) return;
+  wakeKey = key;
+  wakeJob = wakeJob.then(async () => {
+    if (wakeCapture) {
+      const cap = wakeCapture;
+      wakeCapture = null;
+      await cap.stop().catch(() => undefined);
+    }
+    if (!want.on || wakeKey !== key) return;
+    const cap = new MicCapture();
+    try {
+      await cap.start(want.micId, (c) => bridge.dictation.wakePcm(c));
+    } catch (e) {
+      await cap.stop().catch(() => undefined);
+      const err = e as DOMException;
+      wakeKey = '';
+      applyDictation(await bridge.dictation.wakeMicFailed(err?.name ?? 'Error', err?.message ?? String(e)));
+      return;
+    }
+    if (wakeKey !== key) {
+      await cap.stop().catch(() => undefined);
+      return;
+    }
+    wakeCapture = cap;
+    document.documentElement.dataset.wake = 'listening';
+  }).finally(() => {
+    if (!wakeCapture) document.documentElement.dataset.wake = 'off';
+  });
+}
+bridge.dictation.onWake(applyWake);
+void bridge.dictation.wakeWant().then(applyWake);
+
 bridge.dictation.onHot((ev) => {
   if (ev.kind === 'start') {
     if (hotJob) return;
@@ -1075,6 +1127,18 @@ function renderDictation(): void {
   const cueLabel = el('label', { className: 'check' }, cue, ' ', s.soundCuesLabel);
   cueLabel.title = s.soundCuesTip;
   page.append(cueLabel);
+
+  const wake = el('input', { type: 'checkbox', checked: s.wakeWord });
+  wake.dataset.d = 'wake';
+  wake.addEventListener('change', () => void bridge.dictation.setWakeWord(wake.checked).then(applyDictation));
+  const wakeLabel = el('label', { className: 'check' }, wake, ' ', s.wakeLabel);
+  wakeLabel.title = s.wakeTip;
+  page.append(wakeLabel);
+  if (s.wakeNote) {
+    const note = el('p', { className: 'muted hint', textContent: s.wakeNote });
+    note.dataset.d = 'wake-note';
+    page.append(note);
+  }
 
   updateDictationLive();
 }

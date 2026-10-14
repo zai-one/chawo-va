@@ -59,6 +59,11 @@ export interface DictationStateDto {
   soundCues: boolean;
   soundCuesLabel: string;
   soundCuesTip: string;
+  wakeWord: boolean;
+  wakeLabel: string;
+  wakeTip: string;
+  /** Why the word cannot work right now (client role, no model), or '' . */
+  wakeNote: string;
   /** Raw Chromium deviceId for getUserMedia; '' means the system default. */
   micId: string;
   micChoices: { value: string; label: string }[];
@@ -219,6 +224,11 @@ export class DictationController {
       soundCuesLabel: t('Звуковые сигналы начала и конца записи', 'Sound cues when a take starts and ends'),
       soundCuesTip: t('Тихий короткий звук: запись пошла, запись принята, запись отменена. Звуки рождаются в самом приложении, ничего не скачивается.',
         'A soft short tone: recording started, take accepted, take dropped. The tones are made by the app itself; nothing is downloaded.'),
+      wakeWord: s.WakeWord,
+      wakeLabel: t('Начинать запись по слову «Чаво»', 'Start a take when I say «Чаво»'),
+      wakeTip: t('Микрофон слушает всё время, но только на этом компьютере: начало каждой фразы проверяет та же модель, что и диктовку, ничего не записывается и никуда не уходит. «Чаво» и пауза — диктовка до паузы. «Чаво, переведи…» одной фразой — команда Мозгу, как с клавишей.',
+        'The microphone listens all the time, but only on this computer: the start of each phrase is checked by the same model as dictation; nothing is saved or sent anywhere. «Чаво» and a pause: dictation until the next pause. «Чаво, translate…» in one breath: a Brain command, as with the key.'),
+      wakeNote: s.WakeWord ? this.wakeNote(client, onDisk) : '',
       micId: this.micDeviceId(),
       micChoices: [{ value: '', label: this.defaultLabel() }, ...this.devices.map((d) => ({ value: d.id, label: d.label }))],
       micHint: this.micHint(s),
@@ -387,6 +397,20 @@ export class DictationController {
     s.ShowOverlay = on;
     this.h.save(s);
     this.h.changed?.();
+  }
+
+  setWakeWord(on: boolean): void {
+    const s = this.h.settings();
+    if (s.WakeWord === on) return;
+    s.WakeWord = on;
+    this.h.save(s);
+    this.h.changed?.();
+  }
+
+  private wakeNote(client: boolean, onDisk: boolean): string {
+    if (client) return t('Слово «Чаво» слушается только своей моделью, а сейчас распознаёт хост из «Сети»: слово не работает.', '«Чаво» is heard only by a local model, and the host under Network does the recognition now: the word is off.');
+    if (!onDisk) return t('Слово «Чаво» заработает, когда модель распознавания будет скачана.', '«Чаво» starts working once the speech model is downloaded.');
+    return t('Слушаю «Чаво». Индикатор микрофона в системе будет гореть всё время.', 'Listening for «Чаво». The system microphone indicator stays on.');
   }
 
   setSoundCues(on: boolean): void {

@@ -42,6 +42,8 @@ export interface SettingsData {
   ShowOverlay: boolean;
   /** Soft start/stop tones for a take (TS port only; off by default). */
   SoundCues: boolean;
+  /** «Чаво» starts a take hands-free (local only, off by default). */
+  WakeWord: boolean;
   CopyPhraseToClipboard: boolean;
   RestoreClipboardAfterCopy: boolean;
   KeepLastRecording: boolean;
@@ -122,6 +124,7 @@ export function defaults(): SettingsData {
     InsertMode: 'Paste',
     ShowOverlay: true,
     SoundCues: false,
+    WakeWord: false,
     CopyPhraseToClipboard: false,
     RestoreClipboardAfterCopy: true,
     KeepLastRecording: false,
@@ -366,6 +369,7 @@ export function fromJsonObject(raw: Record<string, unknown>): { settings: Settin
   d.InsertMode = asEnum(raw.InsertMode, ['Type', 'Paste'] as const, d.InsertMode);
   d.ShowOverlay = asBool(raw.ShowOverlay, d.ShowOverlay);
   d.SoundCues = asBool(raw.SoundCues, d.SoundCues);
+  d.WakeWord = asBool(raw.WakeWord, d.WakeWord);
   d.CopyPhraseToClipboard = asBool(raw.CopyPhraseToClipboard, d.CopyPhraseToClipboard);
   d.RestoreClipboardAfterCopy = asBool(raw.RestoreClipboardAfterCopy, d.RestoreClipboardAfterCopy);
   d.KeepLastRecording = asBool(raw.KeepLastRecording, d.KeepLastRecording);
@@ -465,6 +469,7 @@ export function toJsonObject(s: SettingsData): Record<string, unknown> {
     InsertMode: s.InsertMode,
     ShowOverlay: s.ShowOverlay,
     SoundCues: s.SoundCues,
+    WakeWord: s.WakeWord,
     CopyPhraseToClipboard: s.CopyPhraseToClipboard,
     RestoreClipboardAfterCopy: s.RestoreClipboardAfterCopy,
     KeepLastRecording: s.KeepLastRecording,
