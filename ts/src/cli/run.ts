@@ -7,6 +7,7 @@ import { basename, join } from 'node:path';
 import { progressLine } from '../core/fileParallel';
 import type { FileParallelismKind } from '../core/fileParallel';
 import type { CtcScript, SpeechDeviceKind, SpeechModelKind } from '../core/speechModels';
+import { computeCallStats, formatCallStats, parseTrackers } from '../core/callStats';
 import { clock, fromTxt, loadTimedTranscript, srtTime, toSrt, toTxt, type TranscriptSegment } from '../core/transcriptFormat';
 import { writeExtras } from '../main/file/transcriptExport';
 import { applyDiarization, type FileDiarizeHook } from '../main/file/fileRunner';
@@ -44,6 +45,8 @@ export interface CliDefaults {
   brain?: boolean;
   /** settings MeetingBriefEnabled: «Кратко и задачи» after the .txt (default false). */
   brief?: boolean;
+  /** settings CallTrackers: «Название: термин, …» per line; '' = built-in trackers. */
+  callTrackers?: string;
 }
 
 export interface EngineConfig {
@@ -191,6 +194,7 @@ export async function runCli(argv: readonly string[], d: CliDeps): Promise<numbe
   if (o.command === 'translate') return translate(o, d);
   if (o.command === 'history') return history(o, defaults, d);
   if (o.command === 'segments') return segmentsCommand(o, d);
+  if (o.command === 'stats') return statsCommand(o, defaults, d);
   if (o.command === 'snippets') return snippetsCommand(o, d);
   if (o.command === 'serve') {
     const serveDeps: ServeDeps = {
@@ -555,6 +559,68 @@ async function segmentsCommand(o: CliOptions, d: CliDeps): Promise<number> {
   if (printed > 0) say(t(`Фраз: ${printed}.`, `${printed} phrases.`));
   d.log(`cli segments files=${o.inputs.length} phrases=${printed} failed=${failed}`);
   if (failed > 0 && printed === 0) return EXIT_FAILED;
+  return failed > 0 ? EXIT_FAILED : EXIT_OK;
+}
+
+/** Why a timed transcript could not be read, in the message language. */
+function timedReason(reason: string, t: (ru: string, en: string) => string): string {
+  return reason === 'no-timings'
+    ? t('нет меток времени (включите .srt / метки в .txt)', 'no timings (enable .srt / timestamps in .txt)')
+    : reason === 'empty'
+      ? t('файл пуст', 'file is empty')
+      : reason === 'bad'
+        ? t('не удалось прочитать JSON', 'could not parse JSON')
+        : t('файл не найден', 'file not found');
+}
+
+/**
+ * `chawo-va stats <file…>`: «Статистика разговора» from the command line — talk ratio per speaker,
+ * monologues, questions, pace and keyword trackers. Same parsers and numbers as the File page card.
+ * --track replaces the trackers from settings (CallTrackers; empty = built-in). Read-only.
+ */
+async function statsCommand(o: CliOptions, defaults: CliDefaults, d: CliDeps): Promise<number> {
+  const t = d.t;
+  const trackers = parseTrackers(o.track.length > 0 ? o.track.join('\n') : defaults.callTrackers ?? '');
+  let failed = 0;
+  let done = 0;
+  for (const input of o.inputs) {
+    if (!d.exists(input)) {
+      d.err(t(`Ошибка: нет файла ${input}`, `Error: no such file ${input}`) + '\n');
+      failed++;
+      continue;
+    }
+    const loaded = loadTimedTranscript(input, (p) => {
+      try {
+        return d.exists(p) ? d.readFile(p) : null;
+      } catch {
+        return null;
+      }
+    });
+    if (!loaded.available) {
+      d.err(t(`Ошибка: ${input}: ${timedReason(loaded.reason, t)}`, `Error: ${input}: ${timedReason(loaded.reason, t)}`) + '\n');
+      failed++;
+      continue;
+    }
+    const st = computeCallStats(loaded.segments, trackers);
+    if (o.json) {
+      // One JSON object per file (JSON Lines); speakers 1-based like «Спикер N», null = no labels.
+      const out = {
+        file: input,
+        source: loaded.sourceHint,
+        ...st,
+        speakers: st.speakers.map((s) => ({ ...s, speaker: s.speaker < 0 ? null : s.speaker + 1, share: Math.round(s.share * 1000) / 1000 })),
+        longestMonologue: st.longestMonologue ? { ...st.longestMonologue, speaker: st.longestMonologue.speaker < 0 ? null : st.longestMonologue.speaker + 1 } : null,
+        trackers: st.trackers.map((r) => ({ ...r, hits: r.hits.map((h) => ({ ...h, speaker: typeof h.speaker === 'number' ? h.speaker + 1 : null })) })),
+      };
+      d.out(JSON.stringify(out) + '\n');
+    } else {
+      if (o.inputs.length > 1) d.out(`— ${input}\n`);
+      d.out(formatCallStats(st, t, { hits: o.hits }));
+      if (o.inputs.length > 1) d.out('\n');
+    }
+    done++;
+  }
+  d.log(`cli stats files=${o.inputs.length} done=${done} failed=${failed} trackers=${trackers.length}`);
   return failed > 0 ? EXIT_FAILED : EXIT_OK;
 }
 

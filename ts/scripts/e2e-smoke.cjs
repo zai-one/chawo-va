@@ -173,7 +173,7 @@ async function cliCases(brainPort) {
   let r = await run(['--version']);
   check('cli --version', r.code === 0 && r.out.includes(pkg.version), brief(r));
   r = await run(['--help']);
-  const cmds = ['transcribe', 'brain', 'brief', 'translate', 'history', 'segments', 'snippets'];
+  const cmds = ['transcribe', 'brain', 'brief', 'translate', 'history', 'segments', 'stats', 'snippets'];
   check('cli --help lists every command', r.code === 0 && cmds.every((c) => r.out.includes('chawo-va ' + c)), brief(r));
   r = await run(['--lang', 'en', '--help']);
   check('cli --lang en --help (before the command)', r.code === 0 && r.out.includes('Usage'), brief(r));
@@ -209,6 +209,17 @@ async function cliCases(brainPort) {
   check('cli segments (text)', r.code === 0 && r.out.split('\n').filter(Boolean).length >= 3 && /phrases|фраз/i.test(r.err), brief(r));
   r = await run(['segments', join(tmp, 'nope.srt')]);
   check('cli segments missing file → exit 1', r.code === 1, brief(r));
+  // ---- stats («Статистика разговора») on the same fixture ----
+  r = await run(['stats', join(segDir, 'sample.srt'), '--track', 'Тест: фраз*', '--hits']);
+  check('cli stats (talk ratio + tracker + hits)', r.code === 0 && /Speaker 1|Спикер 1/.test(r.out) && /Тест: 1/.test(r.out) && /Первая фраза/.test(r.out), brief(r));
+  r = await run(['stats', join(segDir, 'sample.json'), '--json']);
+  {
+    let doc = null;
+    try { doc = JSON.parse(r.out.trim()); } catch { /* checked below */ }
+    check('cli stats --json', r.code === 0 && doc && doc.diarized === true && Array.isArray(doc.speakers) && doc.speakers.length >= 2 && Array.isArray(doc.trackers), brief(r));
+  }
+  r = await run(['stats', join(tmp, 'nope.srt')]);
+  check('cli stats missing file → exit 1', r.code === 1, brief(r));
 
   // ---- snippets (snippets.json, separate from settings.json) ----
   r = await run(['snippets', 'add', 'реквизиты', 'ИНН 7700000000, КПП 770001001']);

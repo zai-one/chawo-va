@@ -155,6 +155,29 @@ app.whenReady().then(async () => {
     } catch (e) {
       check('gui: transcript editor opens', false, e.message);
     }
+    // «Статистика разговора» for the same transcript: talk bars, trackers; edit trackers through the page.
+    try {
+      let st = await call('file:state');
+      const okState = st.callStats?.stats?.diarized === true && st.callStats.stats.speakers.length >= 2 && st.callStats.trackers.includes('Цена');
+      await js(`(() => { const a = document.querySelector('[data-stats="trackers"]'); a.value = 'Тест: фраз*'; a.dispatchEvent(new Event('change')); return true; })()`);
+      await sleep(700);
+      st = await call('file:state');
+      const tr = st.callStats?.stats?.trackers ?? [];
+      const okTrack = tr.length === 1 && tr[0].name === 'Тест' && tr[0].count === 1;
+      const ui = await js(`(() => ({ bars: document.querySelectorAll('.call-stats .talk-row').length, tracker: !!document.querySelector('.call-stats [data-tracker="Тест"]'), legend: document.querySelector('.call-stats legend')?.textContent }))()`);
+      const Settings = require('../dist/main/settings.js');
+      const saved = Settings.load ? Settings.load().CallTrackers : null;
+      if (shots) {
+        await js(`(() => { document.querySelectorAll('.call-stats details').forEach((d) => { d.open = true; }); document.querySelector('.call-stats').scrollIntoView(); return true; })()`);
+        await sleep(200);
+        writeFileSync(join(shots, 'file-call-stats.png'), (await w.webContents.capturePage()).toPNG());
+      }
+      st = await call('file:callTrackers', '');
+      const okReset = st.callStats.trackers === st.callStats.defaultTrackers;
+      check('gui: «Статистика разговора» (talk ratio, trackers, edit, reset)', okState && okTrack && okReset && ui.bars >= 2 && ui.tracker && (saved === null || saved === 'Тест: фраз*'), JSON.stringify({ okState, okTrack, okReset, ui, saved }));
+    } catch (e) {
+      check('gui: «Статистика разговора» (talk ratio, trackers, edit, reset)', false, e.message);
+    }
 
     // «Кратко и задачи» and «Перевести» through the fake local Brain server (settings by the orchestrator).
     const tx = join(work, 'gui-brain');

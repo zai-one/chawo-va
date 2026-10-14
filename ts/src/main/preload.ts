@@ -24,6 +24,7 @@ const api = {
     saveBriefTemplate: (name: string, instruction: string) => ipcRenderer.invoke('file:saveBriefTemplate', name, instruction),
     deleteBriefTemplate: (name: string) => ipcRenderer.invoke('file:deleteBriefTemplate', name),
     runBrief: (path?: string) => ipcRenderer.invoke('file:runBrief', path),
+    setCallTrackers: (text: string) => ipcRenderer.invoke('file:callTrackers', text),
     setTranslateTarget: (text: string) => ipcRenderer.invoke('file:translateTarget', text),
     runTranslate: (to?: string, path?: string) => ipcRenderer.invoke('file:runTranslate', to, path),
     openEditor: (path?: string) => ipcRenderer.invoke('file:openEditor', path),

@@ -206,6 +206,23 @@ describe('langFromArgv', () => {
     }
   });
 
+  it('stats: transcript files, --track (repeatable), --hits, --json; refuses others', () => {
+    expect(ok(['stats', 'a.srt'])).toMatchObject({ command: 'stats', inputs: ['a.srt'], json: false, hits: false, track: [] });
+    expect(ok(['stats', 'a.json', '--json', '--hits', '--track', 'Цена: цен*', '--track=Шаг: созвон*'])).toMatchObject({ json: true, hits: true, track: ['Цена: цен*', 'Шаг: созвон*'] });
+    expect(err(['stats'])).toMatch(/no files|needs transcript files/);
+    expect(err(['stats', 'a.txt', '--raw'])).toContain('stats takes');
+    expect(err(['stats', 'a.txt', '--model', 'v3'])).toContain('stats prints');
+    expect(err(['stats', 'a.txt', '--track', ' '])).toContain('--track is empty');
+    expect(err(['segments', 'a.txt', '--hits'])).toContain('are for stats');
+    expect(err(['transcribe', 'a.wav', '--track', 'x'])).toContain('are for stats');
+    for (const lang of ['ru', 'en'] as const) {
+      const help = helpText((ru, en) => (lang === 'ru' ? ru : en));
+      expect(help).toContain('chawo-va stats');
+      expect(help).toContain('--track');
+      expect(help).toContain('--hits');
+    }
+  });
+
   it('segments: transcript files and optional --json; refuses speech/history-only flags', () => {
     expect(ok(['segments', 'a.srt', 'b.txt'])).toMatchObject({ command: 'segments', inputs: ['a.srt', 'b.txt'], json: false });
     expect(ok(['segments', 'a.json', '--json', '-q'])).toMatchObject({ command: 'segments', json: true, quiet: true });
