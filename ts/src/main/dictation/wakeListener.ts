@@ -85,7 +85,9 @@ export class WakeListener {
     Log.write(`wake word: take started (${hit.wordOnly ? 'word only' : 'phrase goes on'}, ${(hit.audio.length / 16000).toFixed(1)} s heard)`);
     // «Чаво, переведи…» in one breath: the take starts with what was already said (a Brain command).
     // «Чаво» and a pause: a fresh take, the word itself is not part of it.
+    // Speech that began while the word was being checked is kept (it is the start of the dictation).
     if (!hit.wordOnly) this.session.appendPcm(hit.audio);
+    if (hit.after.length > 0) this.session.appendPcm(hit.after);
     started?.(hit);
   }
 }

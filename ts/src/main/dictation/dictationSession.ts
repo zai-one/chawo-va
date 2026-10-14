@@ -276,7 +276,7 @@ export class DictationSession {
   }
 
   view(): TakeView {
-    return { phase: this.phase, status: this.status, lastText: this.lastText, loading: this.loading !== null };
+    return { phase: this.phase, status: this.status, lastText: this.lastText, loading: this.loading !== null, wake: this.source === 'wake' && this.buf.isRecording };
   }
 
   /** Loudness since the last read, 0..1 (Recorder.Level). */

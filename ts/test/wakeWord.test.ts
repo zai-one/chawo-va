@@ -70,6 +70,7 @@ describe('matchWake', () => {
   it('the word at the very start, in the spellings the model gives, with or without a pause mark', () => {
     expect(matchWake('Чаво')).toEqual({ rest: '' });
     expect(matchWake('Чава.')).toEqual({ rest: '' });
+    expect(matchWake('Чавы.')).toEqual({ rest: '' });
     expect(matchWake('чаво, переведи на английский')).toEqual({ rest: 'переведи на английский' });
     expect(matchWake('Чево — напиши маме')).toEqual({ rest: 'напиши маме' });
     expect(matchWake('«Чаво» привет')).toEqual({ rest: 'привет' });
@@ -166,6 +167,42 @@ describe('WakeDetector', () => {
     await flush();
     expect(d.probes).toBe(2);
     expect(hits).toHaveLength(0);
+  });
+
+  it('speech that starts while the word is being checked is handed over in `after`, not lost', async () => {
+    let release!: (v: string) => void;
+    const { hits, push } = detector(() => new Promise<string>((r) => { release = r; }));
+    push(quiet(1));
+    push(voice(0.6));
+    push(quiet(0.6)); // phrase ended → probe runs (slow)
+    push(voice(0.8)); // the dictation already started
+    release('Чаво');
+    await flush();
+    expect(hits).toHaveLength(1);
+    expect(hits[0].wordOnly).toBe(true);
+    expect(hits[0].after.length / RATE).toBeGreaterThan(0.8);
+  });
+
+  it('a miss while the next phrase is already under way: that phrase is checked too', async () => {
+    const replies = ['Привет', 'Чаво'];
+    let release!: () => void;
+    const gate = new Promise<void>((r) => { release = r; });
+    const { d, hits, push } = detector(async () => {
+      const text = replies.shift() ?? '';
+      if (text === 'Привет') await gate;
+      return text;
+    });
+    push(quiet(1));
+    push(voice(0.6));
+    push(quiet(0.6));
+    push(voice(0.5)); // «Чаво» starts while «Привет» is still being checked
+    release();
+    await flush();
+    push(voice(0.1));
+    push(quiet(0.6));
+    await flush();
+    expect(d.probes).toBe(2);
+    expect(hits).toHaveLength(1);
   });
 
   it('a probe that fails or answers after hold() is ignored', async () => {

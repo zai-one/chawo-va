@@ -35,6 +35,8 @@ export interface TakeView {
   status: string;
   lastText: string;
   loading: boolean;
+  /** The running take was started by the word «Чаво» (it ends on a pause, there is no key to release). */
+  wake?: boolean;
 }
 
 /** A line of text with page links, e.g. a start-card step. */
@@ -112,7 +114,8 @@ export function hotkeyTitle(vk: number): string {
 }
 
 /** App.SetPhase texts. */
-export function phaseText(phase: DictatePhase): string {
+export function phaseText(phase: DictatePhase, wake = false): string {
+  if (wake && phase === 'Listening') return t('Сейчас: слушаю после «Чаво»…  замолчите, и текст вставится', 'Now: listening after «Чаво»…  pause and the text is inserted');
   switch (phase) {
     case 'NoModel':
       return t('Сейчас: модель не загружена', 'Now: the model is not loaded');
@@ -233,7 +236,7 @@ export class DictationController {
       micChoices: [{ value: '', label: this.defaultLabel() }, ...this.devices.map((d) => ({ value: d.id, label: d.label }))],
       micHint: this.micHint(s),
       phase: take.phase,
-      phaseLine: phaseText(take.phase),
+      phaseLine: phaseText(take.phase, take.wake),
       stopEnabled: listening || recognizing,
       stopLabel: t('Стоп', 'Stop'),
       stopTip: t('Остановить запись или распознавание. То же делает Escape. Готовая фраза при этом не вставляется.',

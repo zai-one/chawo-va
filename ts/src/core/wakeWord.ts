@@ -7,9 +7,10 @@
 export const WAKE_RATE = 16000;
 const WINDOW = 512; // 32 ms
 
-// Same address spelling as the Brain command (brain.ts AddressInner), but only at the very start.
+// The Brain address spelling (brain.ts AddressInner) plus the endings the model gives for the word alone
+// («Чавы.», «Чаву»), only at the very start.
 const WordRight = '(?![\\p{L}\\p{N}_])';
-const LeadingWake = new RegExp(`^[\\s«"'(—–-]*(?:ч[аеоё]в[оа]|chawo|chavo)${WordRight}[\\s,.:;!?…—–»"')-]*`, 'iu');
+const LeadingWake = new RegExp(`^[\\s«"'(—–-]*(?:ч[аеоё]в[оаыу]|chawo|chavo)${WordRight}[\\s,.:;!?…—–»"')-]*`, 'iu');
 
 /** «Чаво, переведи» → { rest: 'переведи' }; text that does not start with the word → null. */
 export function matchWake(text: string): { rest: string } | null {
@@ -37,8 +38,11 @@ export interface WakeHit {
   /** The probe text and what followed the word in it. */
   text: string;
   rest: string;
+  /** Heard after the phrase ended while the probe ran (the start of the dictation after «Чаво» and a pause). */
+  after: Float32Array;
   /**
    * True when the utterance was only the word followed by a pause: start a fresh take.
+   * (Seed it with `after`, so speech that began while the probe was running is not lost.)
    * False: the phrase goes on («Чаво, переведи …») — the take continues from `audio`.
    */
   wordOnly: boolean;
@@ -63,6 +67,7 @@ export class WakeDetector {
   private floorDb = Number.NaN;
   private phase: Phase = 'quiet';
   private chunks: Float32Array[] = [];
+  private afterChunks: Float32Array[] = [];
   private collected = 0;
   private speechSamples = 0;
   private silentSamples = 0;
@@ -178,6 +183,9 @@ export class WakeDetector {
           this.add(w, speech);
           if (this.silentSamples >= this.endSilence) this.ended = true;
           if (this.collected >= this.maxUtterance) this.phase = 'skip';
+        } else if (this.afterChunks.length * WINDOW < this.maxUtterance) {
+          this.afterChunks.push(w.slice());
+          this.track(speech);
         }
         return;
       case 'skip':
@@ -200,6 +208,20 @@ export class WakeDetector {
     this.track(speech);
   }
 
+  /** Whether the audio heard after the phrase ends in speech that is still going (silentSamples counts the tail). */
+  private speechTail(after: Float32Array[]): boolean {
+    return after.length > 0 && this.silentSamples < this.endSilence;
+  }
+
+  /** A miss with a new phrase already under way: treat that audio as the start of the next phrase. */
+  private restartFrom(after: Float32Array[]): void {
+    this.phase = 'quiet';
+    this.ringFill = 0;
+    this.speechSamples = 0;
+    this.silentSamples = 0;
+    for (const w of after) this.window(w);
+  }
+
   private toQuiet(): void {
     this.phase = 'quiet';
     this.chunks = [];
@@ -219,6 +241,7 @@ export class WakeDetector {
 
   private startProbe(): void {
     this.phase = 'probing';
+    this.afterChunks = [];
     this.probes++;
     const epoch = this.epoch;
     const clip = this.joined();
@@ -233,12 +256,28 @@ export class WakeDetector {
     const m = matchWake(text);
     if (!m) {
       // Not for us: wait for the end of this utterance, then listen again.
-      if (this.ended) this.toQuiet();
-      else this.phase = 'skip';
+      // Speech that started after the phrase ended while the probe ran is a new phrase: check it too.
+      const after = this.afterChunks;
+      this.afterChunks = [];
+      if (!this.ended) this.phase = 'skip';
+      else if (after.length > 0 && this.speechTail(after)) this.restartFrom(after);
+      else this.toQuiet();
       return;
     }
-    const hit: WakeHit = { audio: this.joined(), text, rest: m.rest, wordOnly: this.ended && m.rest.length === 0 };
+    const after = this.afterChunks;
+    this.afterChunks = [];
+    const hit: WakeHit = { audio: this.joined(), after: concat(after), text, rest: m.rest, wordOnly: this.ended && m.rest.length === 0 };
     this.hold();
     this.onWake(hit);
   }
+}
+
+function concat(parts: readonly Float32Array[]): Float32Array {
+  const out = new Float32Array(parts.reduce((a, p) => a + p.length, 0));
+  let at = 0;
+  for (const p of parts) {
+    out.set(p, at);
+    at += p.length;
+  }
+  return out;
 }
