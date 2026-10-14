@@ -171,4 +171,22 @@ describe('loadTimedTranscript (preference)', () => {
     });
     expect(loadTimedTranscript('/gone.txt', () => null).reason).toBe('missing');
   });
+
+  it('a diarized timed .txt gives speaker ids like .srt does (fromTxt keeps the prefix)', () => {
+    const raw = '[00:00:01] Спикер 1: Здравствуйте.\n[00:00:05] Спикер 2: Добрый день.\n[00:00:09] просто фраза\n';
+    const loaded = loadTimedTranscript('/d.txt', (p) => (p === '/d.txt' ? raw : null));
+    expect(loaded).toEqual({
+      available: true,
+      sourceHint: 'txt',
+      segments: [
+        { start: 1, end: 5, text: 'Здравствуйте.', speaker: 0 },
+        { start: 5, end: 9, text: 'Добрый день.', speaker: 1 },
+        { start: 9, end: 9, text: 'просто фраза' },
+      ],
+    });
+    expect(fromTxt(raw).segments[0].text).toBe('Спикер 1: Здравствуйте.');
+    const same = toSrt([{ start: 1, end: 5, text: 'Здравствуйте.', speaker: 0 }, { start: 5, end: 9, text: 'Добрый день.', speaker: 1 }]);
+    const viaSrt = loadTimedTranscript('/d.srt', (p) => (p === '/d.srt' ? same : null));
+    expect(viaSrt.segments.map((s) => s.speaker)).toEqual([0, 1]);
+  });
 });

@@ -551,7 +551,7 @@ export function parseArgs(argv: readonly string[]): ParseResult {
 
 export function helpText(t: (ru: string, en: string) => string): string {
   return t(
-    `Chawo Voice Assistant — расшифровка файлов, «Кратко и задачи», перевод и история диктовки из командной строки. Всё локально, ничего не отправляется (по ссылке — только скачивание).
+    `Chawo Voice Assistant — расшифровка файлов, «Кратко и задачи», чек-лист, статистика, вопросы к истории, словарь, сниппеты и выгрузка в CRM из командной строки. Всё локально, ничего не отправляется (по ссылке — только скачивание).
 
 Использование:
   chawo-va transcribe <файлы, папки или ссылки…> [параметры]
@@ -723,7 +723,7 @@ ask ищет ответ локально; в Мозг уходят только 
 
 Коды выхода: 0 — всё готово, 1 — часть файлов не удалась, 2 — ошибка параметров,
 3 — нет модели / Мозга / yt-dlp, 130 — прервано (Ctrl+C).`,
-    `Chawo Voice Assistant — file transcription, «Brief and tasks», translation and dictation history from the command line. Everything is local; nothing is uploaded (links only download).
+    `Chawo Voice Assistant — file transcription, «Brief and tasks», checklist score, call stats, questions over history, dictionary, snippets and CRM export from the command line. Everything is local; nothing is uploaded (links only download).
 
 Usage:
   chawo-va transcribe <files, folders or links…> [options]
