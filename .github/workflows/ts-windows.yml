@@ -1,0 +1,109 @@
+# Windows build of the Electron/TypeScript port (ts/): an installer (NSIS, per-user, folder can be changed)
+# and a portable zip. Both carry the chawo-va CLI (chawo-va.cmd next to the exe). No speech or Brain
+# weights inside: the app downloads them on first use. Unsigned. Built only from this repository's source.
+name: TS Windows
+
+on:
+  push:
+    branches: ['ts-port', 'ts/**']
+    paths:
+      - '.github/workflows/ts-windows.yml'
+      - 'ts/package.json'
+      - 'ts/package-lock.json'
+      - 'ts/packaging/**'
+      - 'ts/native/win/**'
+  pull_request:
+    branches: ['ts-port']
+    paths: ['ts/**', '.github/workflows/ts-windows.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ts-windows-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  package:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: ts
+    env:
+      CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: ts/package-lock.json
+
+      # Global hold key / text insertion helper (.NET Framework 4.8, ships with Windows 10/11).
+      - name: Build the native helper
+        run: npm run build:native
+
+      - name: Install
+        run: npm ci
+
+      - name: Build and package
+        run: npm run dist:win
+
+      - name: Smoke-test the packaged app
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $app = Resolve-Path 'release/win-unpacked'
+          function Fail($m) { Write-Error $m; exit 1 }
+
+          # 1. No model weights in the package.
+          $weights = Get-ChildItem $app -Recurse -Include *.onnx,*.ort,*.gguf,*.safetensors,*.pt,*.pth,*.ckpt
+          if ($weights) { $weights | ForEach-Object FullName; Fail 'model weights found in the package' }
+
+          # 2. The native helper is next to the app (resources\native).
+          if (-not (Test-Path "$app/resources/native/ChawoNative.exe")) { Fail 'ChawoNative.exe missing' }
+
+          # 3. The CLI runs from the package.
+          $v = & "$app/chawo-va.cmd" --version
+          if ($LASTEXITCODE -ne 0 -or "$v" -notmatch '^chawo-va \d') { Fail "chawo-va --version: $v" }
+          Write-Host $v
+          $seg = & "$app/chawo-va.cmd" segments "$env:GITHUB_WORKSPACE/ts/test/fixtures/transcript-editor/sample.srt"
+          if ($LASTEXITCODE -ne 0 -or @($seg).Count -ne 3 -or "$seg" -notmatch 'Speaker 2: Second phrase') { Fail "chawo-va segments: $seg" }
+          $seg | Write-Host
+
+          # 4. The Windows native modules load from app.asar.unpacked in the packaged runtime.
+          $env:ELECTRON_RUN_AS_NODE = '1'
+          $asar = "$app/resources/app.asar"
+          $js = "const o=require(process.argv[1]+'/node_modules/onnxruntime-node');const s=require(process.argv[1]+'/node_modules/sherpa-onnx-node');" +
+                "if(typeof o.InferenceSession.create!=='function'||typeof s.OfflineRecognizer!=='function')process.exit(2);console.log('native modules ok')"
+          & "$app/ChawoVoiceAssistant.exe" -e $js $asar
+          if ($LASTEXITCODE -ne 0) { Fail 'native modules did not load' }
+          Remove-Item Env:ELECTRON_RUN_AS_NODE
+
+          # 5. The GUI starts, stays up and finds its native helper.
+          $p = Start-Process "$app/ChawoVoiceAssistant.exe" -PassThru
+          Start-Sleep -Seconds 25
+          if ($p.HasExited) { Fail "the app exited with code $($p.ExitCode)" }
+          $log = "$env:LOCALAPPDATA/ChawoVoiceAssistant/chawo-va.log"
+          if (Test-Path $log) { Get-Content $log | Write-Host }
+          Get-Process ChawoVoiceAssistant, ChawoNative -ErrorAction SilentlyContinue | Format-Table Name, Id
+          if (-not (Get-Process ChawoNative -ErrorAction SilentlyContinue)) { Fail 'ChawoNative.exe did not start' }
+          Get-Process ChawoVoiceAssistant, ChawoNative -ErrorAction SilentlyContinue | Stop-Process -Force
+
+      - name: Checksums
+        shell: pwsh
+        run: Get-ChildItem release/*.exe, release/*.zip | Get-FileHash -Algorithm SHA256 | Format-Table Hash, Path -AutoSize
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ChawoVoiceAssistant-win-x64-setup
+          path: ts/release/*-Setup.exe
+          if-no-files-found: error
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ChawoVoiceAssistant-win-x64-portable
+          path: ts/release/*-win-x64.zip
+          if-no-files-found: error
