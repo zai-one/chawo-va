@@ -20,6 +20,7 @@ import { CueTracker, cueTones, type CuePhase } from '../core/cues';
 import type { GlobalKeyState } from './dictation/dictationPage';
 import type { SelectionReaderLike, TextInserterLike } from './native/nativeHelper';
 import * as Log from './log';
+import { WakeListener, finishWakeTake } from './dictation/wakeListener';
 
 /** The part of NativeHelper the dictation IPC uses (tests: a fake). */
 export interface GlobalKeys extends TextInserterLike, SelectionReaderLike {
@@ -46,6 +47,8 @@ export interface DictationIpc {
   hotEscape: () => void;
   /** The helper's state changed: redraw the page. */
   keysChanged: () => void;
+  /** «Начинать запись по слову «Чаво»». */
+  wake: WakeListener;
 }
 
 export function registerDictationIpc(
@@ -69,8 +72,20 @@ export function registerDictationIpc(
     }
   };
   let pushTimer: NodeJS.Timeout | null = null;
+  // The word's microphone lives in the window: tell it whether to keep one open, and on which device.
+  let wakeSent = '';
+  const wakeWant = () => ({ on: wake.wanted(), micId: ctl.micDeviceId() });
+  const syncWake = () => {
+    const want = wakeWant();
+    const key = JSON.stringify(want);
+    if (key === wakeSent) return;
+    wakeSent = key;
+    if (!want.on) finishWakeTake(wake, session);
+    send('wake:listen', want);
+  };
   const push = () => {
     observePhase();
+    syncWake();
     syncLevelTimer();
     // Escape belongs to us only while a take listens or recognizes (KeyboardHook.ArmCancel).
     opts.keys?.()?.armCancel(session.isBusy);
@@ -141,6 +156,8 @@ export function registerDictationIpc(
     },
   });
 
+  const wake: WakeListener = new WakeListener(session, settings.get);
+
   const state = () => ctl.state();
   const str = (v: unknown) => (typeof v === 'string' ? v : '');
 
@@ -169,6 +186,23 @@ export function registerDictationIpc(
   });
   ipcMain.handle('dictation:cues', (_e, v: unknown) => {
     if (typeof v === 'boolean') ctl.setSoundCues(v);
+    return state();
+  });
+  ipcMain.handle('dictation:wake', (_e, v: unknown) => {
+    if (typeof v === 'boolean') ctl.setWakeWord(v);
+    // The word needs the model at hand: open it now so the first «Чаво» is answered quickly.
+    if (wake.wanted()) void session.ensureLoaded();
+    push();
+    return state();
+  });
+  ipcMain.handle('wake:want', () => {
+    wakeSent = JSON.stringify(wakeWant());
+    if (wake.wanted()) void session.ensureLoaded();
+    return wakeWant();
+  });
+  ipcMain.on('wake:pcm', (_e, chunk: unknown) => wake.push(chunk));
+  ipcMain.handle('wake:micFailed', (_e, name: unknown, message: unknown) => {
+    Log.write(`wake mic failed: ${str(name).slice(0, 64)}: ${str(message).slice(0, 300)}`);
     return state();
   });
   ipcMain.handle('dictation:mic', (_e, v: unknown) => {
@@ -241,5 +275,5 @@ export function registerDictationIpc(
     session.cancelTake();
     send('dictation:hot', { kind: 'end' });
   };
-  return { controller: ctl, session, hotDown, hotUp, hotEscape, keysChanged: push };
+  return { controller: ctl, session, hotDown, hotUp, hotEscape, keysChanged: push, wake };
 }

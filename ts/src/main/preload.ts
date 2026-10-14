@@ -125,6 +125,17 @@ const api = {
       ipcRenderer.on('dictation:hot', h);
       return () => ipcRenderer.removeListener('dictation:hot', h);
     },
+    setWakeWord: (v: boolean) => ipcRenderer.invoke('dictation:wake', v),
+    /** «Чаво»: should the window keep a microphone open for the word, and which one. */
+    wakeWant: () => ipcRenderer.invoke('wake:want'),
+    onWake: (fn: (want: unknown) => void) => {
+      const h = (_e: unknown, want: unknown) => fn(want);
+      ipcRenderer.on('wake:listen', h);
+      return () => ipcRenderer.removeListener('wake:listen', h);
+    },
+    /** The word's always-on stream; fire-and-forget like appendPcm. */
+    wakePcm: (chunk: Float32Array) => ipcRenderer.send('wake:pcm', chunk),
+    wakeMicFailed: (name: string, message: string) => ipcRenderer.invoke('wake:micFailed', name, message),
   },
   brain: {
     state: (rebind = false) => ipcRenderer.invoke('brain:state', rebind),

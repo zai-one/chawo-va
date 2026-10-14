@@ -151,8 +151,16 @@ export interface StartResult {
   ok: boolean;
 }
 
-/** Who started the take: the in-window hold button (text to the clipboard) or the global key (inserted). */
-export type TakeSource = 'window' | 'hotkey';
+/**
+ * Who started the take: the in-window hold button (text to the clipboard), the global key (inserted), or
+ * the spoken word «Чаво» (inserted like the key, ends by itself after a pause).
+ */
+export type TakeSource = 'window' | 'hotkey' | 'wake';
+
+/** A take started by «Чаво» ends after this pause when «Автостоп по тишине» is off. */
+export const WAKE_AUTO_STOP_MS = 1500;
+/** «Чаво» and then nothing: the take is dropped after this long. */
+export const WAKE_NO_SPEECH_MS = 6000;
 
 async function openRecognizer(dir: string, kind: SpeechModelKind, device: SpeechDeviceKind, threads: number, script: CtcScript): Promise<RecognizerLike> {
   const rec = await Recognizer.open(dir, kind, device, threads);
@@ -189,6 +197,8 @@ export class DictationSession {
   private fgTask: Promise<ForegroundApp | null> | null = null;
   private readonly trim: NonNullable<SessionHooks['trim']>;
   private watch: SilenceWatch | null = null;
+  /** Samples of a «Чаво» take heard before any speech (WAKE_NO_SPEECH_MS). */
+  private wakeSamples = 0;
   private readonly idle: IdleTimer;
   /** The last session was closed by the idle unload (the status says so instead of «not loaded»). */
   private idleUnloaded = false;
@@ -266,7 +276,7 @@ export class DictationSession {
   }
 
   view(): TakeView {
-    return { phase: this.phase, status: this.status, lastText: this.lastText, loading: this.loading !== null };
+    return { phase: this.phase, status: this.status, lastText: this.lastText, loading: this.loading !== null, wake: this.source === 'wake' && this.buf.isRecording };
   }
 
   /** Loudness since the last read, 0..1 (Recorder.Level). */
@@ -297,8 +307,10 @@ export class DictationSession {
     this.abandon = false;
     this.status = '';
     this.fgTask = this.askForeground();
-    const autoStop = this.h.settings().VadAutoStopMs;
+    // A hands-free take has no key to release: it always ends on a pause.
+    const autoStop = this.h.settings().VadAutoStopMs || (source === 'wake' ? WAKE_AUTO_STOP_MS : 0);
     this.watch = autoStop > 0 ? new SilenceWatch(autoStop, SAMPLE_RATE) : null;
+    this.wakeSamples = 0;
     this.source = source;
     this.buf.start();
     this.overlay?.showListening();
@@ -340,6 +352,16 @@ export class DictationSession {
 
   appendPcm(chunk: ArrayLike<number>): void {
     this.buf.append(chunk);
+    if (this.source === 'wake' && this.buf.isRecording && !this.busy && this.watch && !this.watch.speechHeard) {
+      this.wakeSamples += chunk.length;
+      if (this.wakeSamples >= (SAMPLE_RATE * WAKE_NO_SPEECH_MS) / 1000) {
+        Log.write('wake take: nothing said after the word, dropped');
+        this.cancelTake();
+        this.status = t('После «Чаво» ничего не прозвучало, запись отменена.', 'Nothing was said after «Чаво»; the take was dropped.');
+        this.push();
+        return;
+      }
+    }
     if (this.watch && this.buf.isRecording && !this.busy && this.watch.push(chunk)) {
       Log.write(`vad auto-stop after ${this.watch.limitMs} ms of silence`);
       this.watch = null;
@@ -582,13 +604,15 @@ export class DictationSession {
         } catch (e) {
           Log.write(`history: ${e instanceof Error ? e.message : String(e)}`);
         }
-        const inserter = this.source === 'hotkey' ? this.h.inserter?.() ?? null : null;
+        const inserter = this.source !== 'window' ? this.h.inserter?.() ?? null : null;
         if (inserter) await this.insertInto(inserter, text, brainFailure, editedSelection, scriptFailure);
         else this.copyOut(text, brainFailure, scriptFailure);
       } else if (samples.length <= MIN_TAKE_SAMPLES) {
         // WPF just hides the pill on an accidental tap; the page says what happened.
         overlay?.hideNow();
-        this.status = this.source === 'hotkey'
+        this.status = this.source === 'wake'
+          ? t('Слишком коротко.', 'Too short.')
+          : this.source === 'hotkey'
           ? t('Слишком коротко. Держите клавишу, пока говорите.', 'Too short. Keep holding the key while you speak.')
           : t('Слишком коротко. Держите кнопку, пока говорите.', 'Too short. Keep holding the button while you speak.');
       } else {
@@ -780,6 +804,29 @@ export class DictationSession {
 
   private key(s: SettingsData, dir: string): string {
     return [dir, s.SpeechModel, s.SpeechDevice, s.CpuThreads, s.CtcScript].join('|');
+  }
+
+  /**
+   * «Чаво» check: the start of one phrase through the local recognizer (opened if needed). Null in the
+   * Client role (the word is local only), with no model, or when a take is running or starts meanwhile.
+   */
+  async probeWake(samples: Float32Array): Promise<string | null> {
+    if (this.isBusy || this.client) return null;
+    const rec = await this.ensureLoaded();
+    if (!rec || this.isBusy) return null;
+    const clip = samples.slice();
+    let peak = 0;
+    for (let i = 0; i < clip.length; i++) peak = Math.max(peak, Math.abs(clip[i]));
+    if (peak < SILENCE_FLOOR) return null;
+    normalizeQuietTake(clip, peak);
+    try {
+      return await rec.transcribeCancelable(clip, SAMPLE_RATE, () => !this.isBusy);
+    } catch (e) {
+      if (!isAbort(e)) Log.write(`wake probe: ${e instanceof Error ? e.message : String(e)}`);
+      return null;
+    } finally {
+      this.idle.touch();
+    }
   }
 
   /** The open recognizer for the current settings (Hermes reuses it), or null. Opens nothing. */
