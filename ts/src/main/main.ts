@@ -8,6 +8,7 @@ import { join } from 'node:path';
 import { registerFileIpc } from './fileIpc';
 import { registerSpeechIpc } from './speechIpc';
 import { registerDictionaryIpc } from './dictionaryIpc';
+import { registerCrmIpc } from './crmIpc';
 import { registerBrainIpc } from './brainIpc';
 import type { LastApp } from './brain/brainPage';
 import * as LocalBrain from './brain/localBrain';
@@ -231,6 +232,7 @@ if (!app.requestSingleInstanceLock()) {
       },
     });
     registerDictionaryIpc({ get: () => settings });
+    registerCrmIpc(() => win);
     const brain = registerBrainIpc(() => win, { get: () => settings }, { lastApp: () => lastApp });
     win = createWindow();
     tray = createTray();

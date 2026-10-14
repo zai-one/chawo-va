@@ -1409,3 +1409,66 @@ describe('runCli transcribe --context without the Brain', () => {
   });
 });
 
+
+describe('chawo-va crm', () => {
+  it('config from stdin (never as an argument), masked show, dry-run, --yes send, repeat needs --force', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'chawo-crm-cli-'));
+    try {
+      const TOK = 'amo-CLI-SECRET-999';
+      const calls: { url: string; auth: string; body: string }[] = [];
+      const mk = (stdin = '') => {
+        const h = harness({ fileText: { '/m/a.brief.txt': 'Кратко\n- Итог\n\nЗадачи\n- Позвонить\n', '/m/a.score.txt': 'Оценка: 8/10' } });
+        h.deps.crmConfigPath = () => join(dir, 'crm.json');
+        h.deps.crmSentPath = () => join(dir, 'sent.json');
+        h.deps.readStdin = async () => stdin;
+        h.deps.stdinIsTTY = false;
+        h.deps.crmCheckHost = async () => '';
+        h.deps.crmFetch = async (url, init) => (calls.push({ url, auth: init.headers.authorization ?? '', body: init.body }), { status: 200, headers: { get: () => null }, text: async () => '{"_embedded":{"notes":[{"id":3}]}}' });
+        return h;
+      };
+      let h = mk();
+      expect(await run(h, 'crm', 'config', '--to', 'amocrm', '--token', TOK)).toBe(EXIT_USAGE);
+      h = mk(TOK + '\n');
+      expect(await run(h, 'crm', 'config', '--to', 'amocrm', '--base', 'https://acme.amocrm.ru', '--token', '-')).toBe(EXIT_OK);
+      h = mk();
+      expect(await run(h, 'crm', 'config', '--to', 'amocrm', '--base', 'https://evil.example.com')).toBe(EXIT_USAGE);
+      h = mk();
+      expect(await run(h, 'crm', 'config')).toBe(EXIT_OK);
+      expect(h.out.join('')).toMatch(/amocrm\tready\tbase=https:\/\/acme\.amocrm\.ru entity=leads token=set/);
+      expect(h.out.join('') + h.err.join('')).not.toContain(TOK);
+      h = mk();
+      expect(await run(h, 'crm', 'send', '/m/a.brief.txt', '--to', 'amocrm', '--id', '55', '--score', '--dry-run')).toBe(EXIT_OK);
+      expect(h.out.join('')).toContain('POST https://acme.amocrm.ru/api/v4/leads/55/notes');
+      expect(h.out.join('')).toContain('Оценка: 8/10');
+      expect(h.out.join('')).not.toContain(TOK);
+      expect(calls).toHaveLength(0);
+      h = mk();
+      expect(await run(h, 'crm', 'send', '/m/a.brief.txt', '--to', 'amocrm', '--id', '55')).toBe(EXIT_USAGE); // no --yes, not a terminal
+      expect(calls).toHaveLength(0);
+      h = mk();
+      expect(await run(h, 'crm', 'send', '/m/a.brief.txt', '--to', 'amocrm', '--id', '55', '--yes')).toBe(EXIT_OK);
+      expect(calls).toHaveLength(1);
+      expect(calls[0]!.auth).toBe(`Bearer ${TOK}`);
+      expect(h.err.join('')).toContain('Sent to amoCRM (id 3)');
+      expect(h.err.join('') + h.out.join('') + h.logs.join('')).not.toContain(TOK);
+      h = mk();
+      expect(await run(h, 'crm', 'send', '/m/a.brief.txt', '--to', 'amocrm', '--id', '55', '--yes')).toBe(EXIT_FAILED);
+      expect(h.err.join('')).toContain('--force');
+      expect(calls).toHaveLength(1);
+      h = mk();
+      expect(await run(h, 'crm', 'send', '/m/a.brief.txt', '--to', 'amocrm', '--id', '55', '--yes', '--force', '--json')).toBe(EXIT_OK);
+      expect(JSON.parse(h.out.join('')).createdId).toBe('3');
+      expect(calls).toHaveLength(2);
+      h = mk();
+      expect(await run(h, 'crm', 'send', '/m/a.brief.txt', '--to', 'amocrm', '--id', 'abc', '--dry-run')).toBe(EXIT_USAGE);
+      h = mk();
+      expect(await run(h, 'crm', 'send', '/m/a.brief.txt', '--to', 'jira')).toBe(EXIT_USAGE);
+      h = mk();
+      expect(await run(h, 'crm', 'send', '/m/a.brief.txt', '--to', 'hubspot', '--id', '1', '--dry-run')).toBe(EXIT_FAILED);
+      expect(h.err.join('')).toMatch(/not set up/);
+      expect(statSync(join(dir, 'crm.json')).size).toBeGreaterThan(0);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
