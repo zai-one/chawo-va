@@ -1,5 +1,6 @@
 // «Прогнать через мозг» on the File transcription page. Port of src/App/FileBrain.cs.
 
+import { contextBlock } from '../../core/brainContext';
 import { basename, dirname, join } from 'node:path';
 import { clock, type TranscriptSegment } from '../../core/transcriptFormat';
 import { t } from '../../core/strings';
@@ -333,4 +334,17 @@ function abortError(): Error {
   const e = new Error('Operation canceled');
   e.name = 'AbortError';
   return e;
+}
+
+/**
+ * «Контекст для Мозга» for «Прогнать через мозг» on the file page: the clipboard only (no window — the
+ * focused program is this app), only with BrainContextClipboard on. '' otherwise; never throws.
+ */
+export function fileBrainContext(s: Pick<SettingsData, 'BrainContextClipboard'>, readClipboard: () => string): string {
+  if (!s.BrainContextClipboard) return '';
+  try {
+    return contextBlock({ text: readClipboard() });
+  } catch {
+    return '';
+  }
 }

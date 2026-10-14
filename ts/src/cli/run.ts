@@ -4,7 +4,7 @@
 // for every file. Everything is injected so tests run without a model.
 
 import { basename, join } from 'node:path';
-import { clip, contextBlock, CONTEXT_MAX_CHARS } from '../core/brainContext';
+import { clip, contextBlock, withContext, CONTEXT_MAX_CHARS } from '../core/brainContext';
 import { progressLine } from '../core/fileParallel';
 import type { FileParallelismKind } from '../core/fileParallel';
 import type { CtcScript, SpeechDeviceKind, SpeechModelKind } from '../core/speechModels';
@@ -250,23 +250,9 @@ async function brainCommand(o: CliOptions, d: CliDeps): Promise<number> {
   }
   if (brain.cloud) say(t(`Мозг: текст уходит в ${brain.cloud}`, `Brain: the text goes to ${brain.cloud}`));
 
-  // «Контекст для Мозга»: only when asked for (--context / --context-file), appended to every prompt.
-  let contextText = o.context;
-  if (o.contextFile != null) {
-    try {
-      contextText = d.readFile(o.contextFile);
-    } catch (e) {
-      fail(t(`Не прочитать --context-file: ${o.contextFile}: ${message(e)}`, `Cannot read --context-file: ${o.contextFile}: ${message(e)}`));
-      return EXIT_FAILED;
-    }
-  }
-  const context = contextBlock({ text: contextText });
-  const ask: typeof brain.ask = context ? (prompt, ...rest) => brain.ask(prompt + context, ...rest) : brain.ask;
-  if (context) {
-    say(brain.cloud
-      ? t(`Контекст для Мозга: ${clip(contextText, CONTEXT_MAX_CHARS).length} знаков, уходит в ${brain.cloud}`, `Brain context: ${clip(contextText, CONTEXT_MAX_CHARS).length} characters, goes to ${brain.cloud}`)
-      : t(`Контекст для Мозга: ${clip(contextText, CONTEXT_MAX_CHARS).length} знаков`, `Brain context: ${clip(contextText, CONTEXT_MAX_CHARS).length} characters`));
-  }
+  const ctx = cliContext(o, d, brain.cloud, say, fail);
+  if (ctx === null) return EXIT_FAILED;
+  const ask = withContext(brain.ask, ctx);
 
   const FileBrain = await import('../main/brain/fileBrain');
   if (o.outDir && !o.stdout) d.mkdirp(o.outDir);
@@ -304,6 +290,31 @@ async function brainCommand(o: CliOptions, d: CliDeps): Promise<number> {
     return EXIT_INTERRUPTED;
   }
   return failed > 0 ? EXIT_FAILED : EXIT_OK;
+}
+
+/**
+ * «Контекст для Мозга» from --context / --context-file: the fenced block ('' without a flag), or null
+ * when the file cannot be read (already reported). Says how much goes and where (cloud).
+ */
+function cliContext(o: CliOptions, d: CliDeps, cloud: string | null | undefined, say: (l: string) => void, fail: (l: string) => void): string | null {
+  const t = d.t;
+  let text = o.context;
+  if (o.contextFile != null) {
+    try {
+      text = d.readFile(o.contextFile);
+    } catch (e) {
+      fail(t(`Не прочитать --context-file: ${o.contextFile}: ${message(e)}`, `Cannot read --context-file: ${o.contextFile}: ${message(e)}`));
+      return null;
+    }
+  }
+  const block = contextBlock({ text });
+  if (block) {
+    const n = clip(text, CONTEXT_MAX_CHARS).length;
+    say(cloud
+      ? t(`Контекст для Мозга: ${n} знаков, уходит в ${cloud}`, `Brain context: ${n} characters, goes to ${cloud}`)
+      : t(`Контекст для Мозга: ${n} знаков`, `Brain context: ${n} characters`));
+  }
+  return block;
 }
 
 /**
@@ -882,6 +893,15 @@ async function transcribe(o: CliOptions, defaults: CliDefaults, d: CliDeps): Pro
   if (useBrief && !MeetingBrief) say(t('Мозг не настроен: .brief.txt не будет.', 'The Brain is not set up: no .brief.txt.'));
   const cloud = (FileBrain ? fileBrain?.cloud : null) || (MeetingBrief ? briefBrain?.cloud : null);
   if (cloud) say(t(`Мозг: текст уходит в ${cloud}`, `Brain: the text goes to ${cloud}`));
+  // «Контекст для Мозга» for .brain.txt (not for .brief.txt), only with --context / --context-file.
+  if (!useBrain && (o.context != null || o.contextFile != null))
+    say(t('--context без Мозга: «Прогнать через мозг» выключен, добавьте --brain.', '--context without the Brain: «Run through the Brain» is off, add --brain.'));
+  let brainAsk = fileBrain?.ask ?? null;
+  if (FileBrain && fileBrain) {
+    const ctx = cliContext(o, d, fileBrain.cloud, say, (l) => d.err(l + '\n'));
+    if (ctx === null) return EXIT_FAILED;
+    brainAsk = withContext(fileBrain.ask, ctx);
+  }
 
   let engine: Engine | null = null;
   try {
@@ -970,7 +990,7 @@ async function transcribe(o: CliOptions, defaults: CliDefaults, d: CliDeps): Pro
           if (!FileBrain || !fileBrain) notes.push(t('мозг не настроен', 'the Brain is not set up'));
           else {
             try {
-              const r = noAnswer(await FileBrain.runWithAsk(fileBrain.target, segments, timestamps, status, d.signal, fileBrain.ask), t);
+              const r = noAnswer(await FileBrain.runWithAsk(fileBrain.target, segments, timestamps, status, d.signal, brainAsk ?? fileBrain.ask), t);
               if (o.stdout) d.out(`\n==> ${t('Мозг', 'Brain')} <==\n` + (r.text.endsWith('\n') ? r.text : r.text + '\n'));
               else d.writeFile(brainPath(d, txt), r.text);
               notes.push(brainNote(r, t) + (o.stdout ? '' : ' · .brain.txt'));

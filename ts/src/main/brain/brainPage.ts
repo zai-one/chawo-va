@@ -831,8 +831,8 @@ export class BrainController {
         clipboard: s.BrainContextClipboard,
         app: s.BrainContextApp,
         hint: t(
-          'Выключено по умолчанию. Включите, и Мозг увидит текст из буфера обмена и название программы с заголовком окна в момент нажатия клавиши: так точнее имена и термины. Сам контекст не вставляется.',
-          'Off by default. Turn on, and the Brain sees the clipboard text and the program with its window title at key press: names and terms come out right. The context itself is never inserted.',
+          'Выключено по умолчанию. Включите, и Мозг увидит текст из буфера обмена и название программы с заголовком окна в момент нажатия клавиши: так точнее имена и термины. Буфер обмена учитывается и в «Прогнать через мозг» на странице «Файл». Сам контекст не вставляется.',
+          'Off by default. Turn on, and the Brain sees the clipboard text and the program with its window title at key press: names and terms come out right. The clipboard also counts for «Run through the Brain» on the File page. The context itself is never inserted.',
         ),
         warning:
           b === 'Server' && (s.BrainContextClipboard || s.BrainContextApp) && !isLoopbackEndpoint(s.CleanupEndpointUrl)
