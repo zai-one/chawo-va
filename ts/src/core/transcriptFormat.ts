@@ -194,3 +194,154 @@ export function toMarkdown(segments: readonly TranscriptSegment[], timestamps: b
   }
   return parts.join('\n\n') + '\n';
 }
+
+const SRT_TIME = /(\d{1,3}):([0-5]\d):([0-5]\d)[,.](\d{1,3})/;
+const SRT_ARROW = /^\s*(\d{1,3}:[0-5]\d:[0-5]\d[,.]\d{1,3})\s*-->\s*(\d{1,3}:[0-5]\d:[0-5]\d[,.]\d{1,3})/;
+const SPEAKER_LINE = /^(?:Спикер|Speaker)\s+(\d+)\s*:\s*/i;
+
+function parseSrtClock(raw: string): number | null {
+  const m = SRT_TIME.exec(raw.trim());
+  if (!m) return null;
+  const ms = Number((m[4] + '000').slice(0, 3));
+  return Number(m[1]) * 3600 + Number(m[2]) * 60 + Number(m[3]) + ms / 1000;
+}
+
+/** Strip a leading «Спикер N:» / «Speaker N:» into a 0-based speaker id. */
+export function splitSpeakerPrefix(text: string): { text: string; speaker?: number } {
+  const m = SPEAKER_LINE.exec(text);
+  if (!m) return { text };
+  const n = Number(m[1]);
+  if (!Number.isFinite(n) || n < 1) return { text };
+  return { text: text.slice(m[0].length).trim(), speaker: Math.floor(n) - 1 };
+}
+
+/**
+ * Back from a SubRip file (as toSrt wrote it, or edited by hand). Multi-line cues are joined with a
+ * space; an optional «Спикер N:» / «Speaker N:» on the first text line becomes `speaker` (0-based).
+ */
+export function fromSrt(text: string): TranscriptSegment[] {
+  const body = (text ?? '').replace(/^\uFEFF/, '').replace(/\r\n/g, '\n').replace(/\r/g, '\n').trim();
+  if (!body) return [];
+  const blocks = body.split(/\n\s*\n+/);
+  const list: TranscriptSegment[] = [];
+  for (const block of blocks) {
+    const lines = block.split('\n').map((l) => l.trimEnd()).filter((l) => l.length > 0);
+    if (lines.length === 0) continue;
+    let i = 0;
+    if (/^\d+$/.test(lines[0]!.trim())) i = 1;
+    if (i >= lines.length) continue;
+    const arrow = SRT_ARROW.exec(lines[i]!.trim());
+    if (!arrow) continue;
+    const start = parseSrtClock(arrow[1]!);
+    const end = parseSrtClock(arrow[2]!);
+    if (start === null || end === null) continue;
+    i++;
+    const rawText = lines.slice(i).map((l) => l.trim()).filter(Boolean).join(' ');
+    if (!rawText) continue;
+    const { text: cue, speaker } = splitSpeakerPrefix(rawText);
+    if (!cue) continue;
+    const seg: TranscriptSegment = { start, end: Math.max(end, start), text: cue };
+    if (speaker !== undefined) seg.speaker = speaker;
+    list.push(seg);
+  }
+  return list;
+}
+
+/**
+ * Back from a toJson / chawo-transcript document. `speaker` in JSON is 1-based (like «Спикер N»);
+ * the returned segments use 0-based ids. A bare `{ segments: [...] }` is accepted too.
+ */
+export function fromJsonTranscript(text: string): { segments: TranscriptSegment[]; source: string; duration: number } {
+  let doc: unknown;
+  try {
+    doc = JSON.parse((text ?? '').replace(/^\uFEFF/, ''));
+  } catch {
+    throw new Error('not valid JSON');
+  }
+  if (!doc || typeof doc !== 'object') throw new Error('not a transcript object');
+  const o = doc as Record<string, unknown>;
+  const raw = Array.isArray(o.segments) ? o.segments : Array.isArray(doc) ? doc : null;
+  if (!raw) throw new Error('no segments');
+  const segments: TranscriptSegment[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== 'object') continue;
+    const s = item as Record<string, unknown>;
+    const start = Number(s.start);
+    const end = Number(s.end);
+    const t = typeof s.text === 'string' ? s.text.trim() : '';
+    if (!t || !Number.isFinite(start) || !Number.isFinite(end)) continue;
+    const seg: TranscriptSegment = { start: Math.max(0, start), end: Math.max(end, start), text: t };
+    const sp = Number(s.speaker);
+    if (Number.isFinite(sp) && sp >= 1) seg.speaker = Math.floor(sp) - 1;
+    else if (Number.isFinite(sp) && sp >= 0 && Number.isInteger(sp) && s.speaker === 0) {
+      /* ignore 0 — toJson never writes it */
+    }
+    segments.push(seg);
+  }
+  return {
+    segments,
+    source: typeof o.source === 'string' ? o.source : '',
+    duration: Number.isFinite(Number(o.duration)) ? Number(o.duration) : 0,
+  };
+}
+
+export type TimedSourceHint = 'srt' | 'json' | 'txt';
+
+export type TimedTranscriptLoad =
+  | { available: true; segments: TranscriptSegment[]; sourceHint: TimedSourceHint }
+  | { available: false; segments: []; sourceHint?: TimedSourceHint; reason: 'missing' | 'no-timings' | 'empty' | 'bad' };
+
+/**
+ * Prefer a sibling .srt, else a sibling .json with segments, else a .txt that has `[hh:mm:ss]` stamps.
+ * `txtPath` may also be the .srt / .json itself (CLI). `read` returns file text or null when missing.
+ */
+export function loadTimedTranscript(
+  txtPath: string,
+  read: (path: string) => string | null,
+): TimedTranscriptLoad {
+  const p = (txtPath ?? '').trim();
+  if (!p) return { available: false, segments: [], reason: 'missing' };
+  const lower = p.toLowerCase();
+  if (lower.endsWith('.srt')) {
+    const raw = read(p);
+    if (raw === null) return { available: false, segments: [], reason: 'missing' };
+    const segments = fromSrt(raw);
+    return segments.length > 0
+      ? { available: true, segments, sourceHint: 'srt' }
+      : { available: false, segments: [], sourceHint: 'srt', reason: 'empty' };
+  }
+  if (lower.endsWith('.json')) {
+    const raw = read(p);
+    if (raw === null) return { available: false, segments: [], reason: 'missing' };
+    try {
+      const { segments } = fromJsonTranscript(raw);
+      return segments.length > 0
+        ? { available: true, segments, sourceHint: 'json' }
+        : { available: false, segments: [], sourceHint: 'json', reason: 'empty' };
+    } catch {
+      return { available: false, segments: [], sourceHint: 'json', reason: 'bad' };
+    }
+  }
+  const base = p.replace(/\.[^./\\]+$/, '');
+  const srtRaw = read(base + '.srt');
+  if (srtRaw !== null) {
+    const segments = fromSrt(srtRaw);
+    if (segments.length > 0) return { available: true, segments, sourceHint: 'srt' };
+  }
+  const jsonRaw = read(base + '.json');
+  if (jsonRaw !== null) {
+    try {
+      const { segments } = fromJsonTranscript(jsonRaw);
+      if (segments.length > 0) return { available: true, segments, sourceHint: 'json' };
+    } catch {
+      /* fall through to txt */
+    }
+  }
+  const txtRaw = read(lower.endsWith('.txt') ? p : base + '.txt');
+  if (txtRaw === null) return { available: false, segments: [], reason: 'missing' };
+  const back = fromTxt(txtRaw);
+  if (!back.timestamps || back.segments.length === 0) {
+    return { available: false, segments: [], sourceHint: 'txt', reason: back.segments.length === 0 ? 'empty' : 'no-timings' };
+  }
+  return { available: true, segments: back.segments, sourceHint: 'txt' };
+}
