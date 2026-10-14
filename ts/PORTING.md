@@ -1054,3 +1054,18 @@ Re-align folder names and tooling with taptain-desktop once its layout is readab
   `main/vad/vadModel.ts`, и на входах GUI (`main/main.ts`) и CLI (`cli.ts`). GUI+CLI паритет.
   Тесты: ortPrivacy (+3: флаги; не затирает yes/true; child process с чистым XDG_CACHE_HOME + Silero session —
   deviceid нет). 847 зелёные (844 до), `tsc`/build. Live: `scripts/smoke-ort-privacy.cjs` → deviceid:false.
+
+- 2026-10-13 tick (branch `ts/feat-win-packaging`): сборка Windows. electron-builder 26 (devDependency,
+  конфиг `build` в package.json): NSIS-установщик (на пользователя, папку можно сменить, удаление не трогает
+  настройки и модели) + портативный zip, x64, без подписи. В пакете `dist/**` + прод-зависимости; веса
+  моделей (`*.onnx/ort/gguf/safetensors/pt/pth/ckpt`) и чужие платформы onnxruntime-node (linux с CUDA,
+  darwin, win32/arm64) исключены; onnxruntime-node и sherpa-onnx-* распакованы из asar (N-API, npmRebuild
+  выкл.); ChawoNative.exe → `resources/native` (helperExePath уже ищет там). CLI: `chawo-va.cmd` рядом с exe
+  (тот же exe с `ELECTRON_RUN_AS_NODE=1` + `resources\app.asar\dist\cli.js`, как `code.cmd`), Node не нужен.
+  Workflow `.github/workflows/ts-windows.yml` (windows-latest; push в ts-port / ts/** по путям упаковки,
+  PR в ts-port, вручную): helper → npm ci → dist:win → smoke (нет весов, ChawoNative.exe на месте,
+  `chawo-va --version` / `segments` на fixture, onnxruntime-node + sherpa-onnx грузятся в упакованном
+  рантайме, окно живо 25 с и запустило ChawoNative) → sha256 → артефакты Setup.exe и zip.
+  Тест packaging (+3). Live на Linux (`electron-builder --linux dir` с тем же конфигом): упакованный CLI
+  `--version`, `segments`, `transcribe` настоящей моделью v3 из asar → текст, deviceid не создан; GUI под
+  xvfb стартует и живёт.

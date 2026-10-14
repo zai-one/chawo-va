@@ -23,6 +23,17 @@ Without `ChawoNative.exe` the app still runs on Windows; only the global hold ke
 into other apps are off (the page says so). `scripts/smoke-native-wine.cjs` runs the helper under
 Wine + Xvfb on Linux against a test window (`native/win/test/InsertTarget`).
 
+## Windows build
+
+`.github/workflows/ts-windows.yml` (GitHub Actions, `windows-latest`) builds the helper, runs
+`npm run dist:win` (electron-builder) and uploads two artifacts: `ChawoVoiceAssistant-<version>-Setup.exe`
+(per-user installer, the folder can be changed, uninstall keeps settings and models) and a portable
+`ChawoVoiceAssistant-<version>-win-x64.zip`. Both carry `chawo-va.cmd` next to the exe: the same CLI,
+run by the app's own runtime (`ELECTRON_RUN_AS_NODE`), so `chawo-va.cmd transcribe talk.m4a` works
+without Node. No model weights are packaged (the app downloads them); the build is unsigned. The
+workflow smoke-tests the package: no weights, CLI `--version` / `segments`, native modules load, the
+window starts with `ChawoNative.exe`. `npm run dist:dir` makes an unpacked build for the current OS.
+
 ## Command line
 
 File transcription without the window, same model and parallel plan as the app:
