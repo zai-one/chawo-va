@@ -394,7 +394,8 @@ export async function sendRequest(target: CrmTarget, r: CrmRequest, o: SendOptio
       if (o.signal?.aborted) return { ok: false, status: 0, message: 'cancelled', createdId: null, uncertain: true, attempts };
       if (timedOut) return { ok: false, status: 0, message: 'no answer in time; the note may already be there — check the CRM before sending again', createdId: null, uncertain: true, attempts };
       const code = (e as { cause?: { code?: string } })?.cause?.code ?? (e as { code?: string })?.code ?? '';
-      const nothingLeft = ['ECONNREFUSED', 'ENOTFOUND', 'EAI_AGAIN', 'BLOCKED_ADDRESS'].includes(code);
+      if (code === 'BLOCKED_ADDRESS') return { ok: false, status: 0, message: redact(e instanceof Error ? e.message : String(e), r.secrets).slice(0, 300), createdId: null, uncertain: false, attempts };
+      const nothingLeft = ['ECONNREFUSED', 'ENOTFOUND', 'EAI_AGAIN'].includes(code);
       if (nothingLeft && attempts <= retries) {
         await sleep(500 * 2 ** (attempts - 1));
         continue;
