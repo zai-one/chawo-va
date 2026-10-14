@@ -1,0 +1,104 @@
+{
+  "name": "chawo-va",
+  "productName": "Chawo Voice Assistant",
+  "version": "2.0.0",
+  "description": "Chawo Voice Assistant: local dictation and file transcription (Electron + TypeScript port of the WPF app).",
+  "license": "MIT",
+  "private": true,
+  "type": "commonjs",
+  "main": "dist/main/main.js",
+  "bin": {
+    "chawo-va": "dist/cli.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json && node scripts/copy-static.mjs",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "start": "npm run build && electron .",
+    "cli": "node dist/cli.js",
+    "build:native": "dotnet build native/win/ChawoNative.csproj -c Release -o native/win/bin/out",
+    "dist:win": "npm run build && electron-builder --win --x64 --publish never",
+    "dist:dir": "npm run build && electron-builder --dir --publish never",
+    "e2e": "npm run build && node scripts/e2e-smoke.cjs"
+  },
+  "devDependencies": {
+    "@types/node": "^20.17.0",
+    "electron": "^38.0.0",
+    "electron-builder": "^26.15.3",
+    "typescript": "^5.9.0",
+    "vitest": "^3.2.0"
+  },
+  "dependencies": {
+    "onnxruntime-node": "^1.30.0",
+    "opus-decoder": "^0.7.12",
+    "sherpa-onnx-node": "^1.13.8"
+  },
+  "build": {
+    "appId": "one.zai.chawo-va",
+    "productName": "Chawo Voice Assistant",
+    "executableName": "ChawoVoiceAssistant",
+    "copyright": "Chawo",
+    "directories": {
+      "output": "release"
+    },
+    "npmRebuild": false,
+    "files": [
+      "dist/**/*",
+      "package.json",
+      "!dist/native/**",
+      "!node_modules/onnxruntime-node/bin/napi-v*/darwin/**",
+      "!node_modules/onnxruntime-node/bin/napi-v*/linux/**",
+      "!node_modules/onnxruntime-node/bin/napi-v*/win32/arm64/**",
+      "!**/*.{onnx,ort,gguf,safetensors,pt,pth,ckpt}"
+    ],
+    "asarUnpack": [
+      "node_modules/onnxruntime-node/**",
+      "node_modules/sherpa-onnx-*/**"
+    ],
+    "extraResources": [
+      {
+        "from": "native/win/bin/out",
+        "to": "native",
+        "filter": [
+          "ChawoNative.exe",
+          "ChawoNative.exe.config"
+        ]
+      }
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "../src/Assets/app.ico",
+      "artifactName": "ChawoVoiceAssistant-${version}-win-x64.${ext}",
+      "extraFiles": [
+        {
+          "from": "packaging/win/chawo-va.cmd",
+          "to": "chawo-va.cmd"
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "artifactName": "ChawoVoiceAssistant-${version}-Setup.${ext}",
+      "shortcutName": "Chawo Voice Assistant",
+      "deleteAppDataOnUninstall": false
+    }
+  }
+}

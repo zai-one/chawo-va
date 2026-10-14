@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'none'; media-src 'self' chawo-media: blob:" />
+    <title>Chawo Voice Assistant</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <aside class="nav">
+      <div class="brand">Chawo</div>
+      <button class="active" data-page="dictation">Диктовка</button>
+      <button data-page="file">Расшифровка файла</button>
+      <button data-page="history">История</button>
+      <button data-page="speech">Распознавание</button>
+      <button data-page="dictionary">Словарь</button>
+      <button data-page="sales">Продажи</button>
+      <button data-page="brain">Мозг</button>
+      <button data-page="network">Сеть</button>
+    </aside>
+    <main id="page">
+      <h1>Диктовка</h1>
+    </main>
+    <script src="renderer.js"></script>
+  </body>
+</html>
