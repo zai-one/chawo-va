@@ -9,7 +9,8 @@ import { diarizeHook, getDiarizeRuntime } from './diarize';
 import * as FileBrain from './brain/fileBrain';
 import * as MeetingBrief from './brain/meetingBrief';
 import * as BriefTemplates from './brain/briefTemplates';
-import { briefTemplatesPath as BriefTemplates_path } from './paths';
+import { briefTemplatesPath as BriefTemplates_path, checklistsPath } from './paths';
+import * as CallScore from './brain/callScore';
 import * as Translate from './brain/translate';
 import { BrainException } from './brain/speechCleanup';
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
@@ -34,6 +35,8 @@ export interface FileOptionsDto {
   diarize: boolean;
   /** «Кратко и задачи» after transcription (MeetingBriefEnabled). */
   brief: boolean;
+  /** «Проверка по чек-листу» after transcription (CallScoreEnabled). */
+  score: boolean;
 }
 
 
@@ -86,6 +89,20 @@ export interface FileStateDto {
     path: string | null;
     busy: boolean;
   };
+  /** «Проверка по чек-листу» card on the File page. */
+  score: {
+    enabled: boolean;
+    /** Selected checklist id (built-in id or custom name). */
+    checklist: string;
+    checklists: { id: string; name: string; builtin: boolean; items: string[] }[];
+    /** Last save/delete problem, '' when fine. */
+    note: string;
+    where: string;
+    available: boolean;
+    result: CallScore.ScoreResult | null;
+    path: string | null;
+    busy: boolean;
+  };
   /** «Перевести» block on the File page (Brain-based, local by default). */
   translate: {
     /** Saved TranslateTarget (code, name or free text); empty = auto. */
@@ -127,6 +144,29 @@ export function registerFileIpc(getWindow: () => BrowserWindow | null, settings:
   let briefAbort: AbortController | null = null;
   /** Cloud confirm for this queue run: null = not asked yet, true/false = answer. */
   let briefCloudOk: boolean | null = null;
+  let lastScore: CallScore.ScoreResult | null = null;
+  let lastScorePath: string | null = null;
+  let scoreBusy = false;
+  let scoreNote = '';
+  let scoreAbort: AbortController | null = null;
+  /** Cloud consent for this queue run, tied to the service it was given for (a provider switch asks again). */
+  let scoreCloudOk: { cloud: string; ok: boolean } | null = null;
+  const customChecklists = () => CallScore.loadCustom(checklistsPath());
+  const checklistFor = (s: SettingsData) => CallScore.resolveChecklist(s.CallScoreChecklist, customChecklists());
+  /** One scoring pass; writes .score.json/.txt beside rawTxt. Throws on Brain failure. */
+  const scoreOne = async (s: SettingsData, kind: 'Local' | 'Cloud', transcript: string, rawTxt: string, status: (l: string) => void, signal: AbortSignal) => {
+    const r = await CallScore.scoreAsync({ transcript, checklist: checklistFor(s), targetKind: kind, ask: FileBrain.createAsk(s, kind), status, signal, source: rawTxt });
+    const p = CallScore.saveResult(rawTxt, r);
+    lastScore = r;
+    lastScorePath = p.txt;
+    return r;
+  };
+  const askCloud = async (cloud: string) => {
+    const w = getWindow();
+    const box = { type: 'question' as const, buttons: [t('Да', 'Yes'), t('Нет', 'No')], defaultId: 0, cancelId: 1, title: t('Проверка по чек-листу', 'Checklist score'), message: t(`Текст уйдёт в ${cloud}. Проверить звонок по чек-листу?`, `The text will be sent to ${cloud}. Score the call against the checklist?`) };
+    const r = w ? await dialog.showMessageBox(w, box) : await dialog.showMessageBox(box);
+    return r.response === 0;
+  };
   let lastTranslateText = '';
   let lastTranslatePath: string | null = null;
   let translateBusy = false;
@@ -240,8 +280,8 @@ export function registerFileIpc(getWindow: () => BrowserWindow | null, settings:
     return {
       items: queue.snapshot(),
       status: ffmpegStatus || diarStatus || runner.status,
-      busy: runner.busy || ffmpegBusy || urlImport.busy || diarBusy || briefBusy || translateBusy,
-      options: { timestamps: s.FileTimestamps, srt: s.FileSrt, extra: [...s.FileExtraFormats], parallelism: s.FileParallelism, diarize: s.FileDiarize, brief: s.MeetingBriefEnabled },
+      busy: runner.busy || ffmpegBusy || urlImport.busy || diarBusy || briefBusy || translateBusy || scoreBusy,
+      options: { timestamps: s.FileTimestamps, srt: s.FileSrt, extra: [...s.FileExtraFormats], parallelism: s.FileParallelism, diarize: s.FileDiarize, brief: s.MeetingBriefEnabled, score: s.CallScoreEnabled },
       ffmpeg: { line: Ffmpeg.statusLine(), canDownload: Ffmpeg.canDownload(), installed: Ffmpeg.isInstalled() },
       url: {
         line: YtDlp.statusLine(),
@@ -271,6 +311,17 @@ export function registerFileIpc(getWindow: () => BrowserWindow | null, settings:
         text: lastBriefText,
         path: lastBriefPath,
         busy: briefBusy,
+      },
+      score: {
+        enabled: s.CallScoreEnabled,
+        checklist: checklistFor(s).id,
+        checklists: CallScore.allChecklists(customChecklists()).map((x) => ({ id: x.id, name: x.name, builtin: x.builtin, items: x.items })),
+        note: scoreNote,
+        where: MeetingBrief.target(s) === 'None' ? '' : MeetingBrief.describe(s),
+        available: MeetingBrief.target(s) !== 'None',
+        result: lastScore,
+        path: lastScorePath,
+        busy: scoreBusy,
       },
       translate: {
         target: s.TranslateTarget,
@@ -310,7 +361,7 @@ export function registerFileIpc(getWindow: () => BrowserWindow | null, settings:
     options: () => {
       const s = settings.get();
       return {
-        timestamps: s.FileTimestamps, srt: s.FileSrt, extra: [...s.FileExtraFormats], useBrain: s.FileUseBrain, diarize: s.FileDiarize, brief: s.MeetingBriefEnabled,
+        timestamps: s.FileTimestamps, srt: s.FileSrt, extra: [...s.FileExtraFormats], useBrain: s.FileUseBrain, diarize: s.FileDiarize, brief: s.MeetingBriefEnabled, score: s.CallScoreEnabled,
         postScript: s.PostScriptFiles ? scriptCommand(s.PostScript) : null,
       };
     },
@@ -388,6 +439,26 @@ export function registerFileIpc(getWindow: () => BrowserWindow | null, settings:
         return { note: t(`краткое: ${msg}`, `brief: ${msg}`) };
       }
     },
+    runScore: async (segments, opts, status, signal) => {
+      const s = settings.get();
+      const kind = MeetingBrief.target(s);
+      if (kind === 'None') return { note: t('чек-лист: мозг не настроен', 'checklist: the Brain is not set up') };
+      if (kind === 'Cloud') {
+        const cloud = MeetingBrief.cloudName(s);
+        if (cloud) {
+          if (scoreCloudOk?.cloud !== cloud) scoreCloudOk = { cloud, ok: await askCloud(cloud) };
+          if (!scoreCloudOk.ok) return { note: t('чек-лист пропущен', 'checklist skipped') };
+        }
+      }
+      try {
+        const r = await scoreOne(s, kind, toTxt(segments, opts.timestamps), opts.rawTxtPath, status, signal);
+        return { note: t(`чек-лист ${r.percent}%`, `checklist ${r.percent}%`) };
+      } catch (e) {
+        if ((e as Error)?.name === 'AbortError') throw e;
+        const msg = e instanceof Error ? e.message : String(e);
+        return { note: t(`чек-лист: ${msg}`, `checklist: ${msg}`) };
+      }
+    },
     runDiarize: diarizeHook(getDiarizeRuntime, () => t('Разделяю спикеров…', 'Separating speakers…')),
   });
   queue.onChanged(push);
@@ -401,6 +472,9 @@ export function registerFileIpc(getWindow: () => BrowserWindow | null, settings:
     enqueue: (path) => void queue.add([path], false),
     runQueue: () => {
       if (runner.busy) return;
+      // A new run from «По ссылке»: consent from an earlier run does not carry over.
+      briefCloudOk = null;
+      scoreCloudOk = null;
       void runner.run().catch((e) => Log.write(`file run: ${e instanceof Error ? e.message : String(e)}`));
     },
     changed: () => {
@@ -472,6 +546,7 @@ export function registerFileIpc(getWindow: () => BrowserWindow | null, settings:
     if (ffmpegBusy) return state();
     ffmpegStatus = '';
     briefCloudOk = null;
+    scoreCloudOk = null;
     void runner.run().catch((e) => Log.write(`file run: ${e instanceof Error ? e.message : String(e)}`));
     return state();
   });
@@ -484,6 +559,7 @@ export function registerFileIpc(getWindow: () => BrowserWindow | null, settings:
     diarAbort?.abort();
     briefAbort?.abort();
     translateAbort?.abort();
+    scoreAbort?.abort();
     return state();
   });
 
@@ -500,6 +576,7 @@ export function registerFileIpc(getWindow: () => BrowserWindow | null, settings:
     if (typeof o?.srt === 'boolean') s.FileSrt = o.srt;
     if (typeof o?.diarize === 'boolean') s.FileDiarize = o.diarize;
     if (typeof o?.brief === 'boolean') s.MeetingBriefEnabled = o.brief;
+    if (typeof o?.score === 'boolean') s.CallScoreEnabled = o.score;
     if (Array.isArray(o?.extra)) s.FileExtraFormats = asExtraFormats(o.extra);
     if (typeof o?.parallelism === 'string' && PARALLELISM.includes(o.parallelism)) s.FileParallelism = o.parallelism;
     Settings.save(s);
@@ -677,6 +754,94 @@ export function registerFileIpc(getWindow: () => BrowserWindow | null, settings:
     return state();
   });
 
+  ipcMain.handle('file:scoreChecklist', (_e, id: unknown) => {
+    const s = settings.get();
+    scoreNote = '';
+    const c = typeof id === 'string' ? CallScore.findChecklist(id, customChecklists()) : null;
+    if (c) {
+      s.CallScoreChecklist = c.builtin ? c.id : c.name;
+      Settings.save(s);
+    }
+    return state();
+  });
+
+  ipcMain.handle('file:saveChecklist', (_e, name: unknown, items: unknown) => {
+    const s = settings.get();
+    const n = typeof name === 'string' ? name.replace(/\s+/g, ' ').trim() : '';
+    const list = customChecklists();
+    const parsed = CallScore.parseItems(typeof items === 'string' || Array.isArray(items) ? (items as string | string[]) : '');
+    const existing = CallScore.findChecklist(n, list);
+    const nameErr = existing && !existing.builtin ? null : CallScore.nameProblem(n);
+    scoreNote = nameErr ?? (parsed.length === 0 ? t('Добавьте хотя бы один пункт.', 'Add at least one item.') : '');
+    if (!scoreNote) {
+      try {
+        CallScore.saveCustom(checklistsPath(), CallScore.upsertCustom(list, { name: existing?.name ?? n, items: parsed }));
+        s.CallScoreChecklist = existing?.name ?? n;
+        Settings.save(s);
+      } catch (e) {
+        scoreNote = t('Не удалось сохранить чек-лист: ', 'Could not save the checklist: ') + (e instanceof Error ? e.message : String(e));
+      }
+    }
+    return state();
+  });
+
+  ipcMain.handle('file:deleteChecklist', (_e, name: unknown) => {
+    const s = settings.get();
+    scoreNote = '';
+    const c = typeof name === 'string' ? CallScore.findChecklist(name, customChecklists()) : null;
+    if (c && !c.builtin) {
+      CallScore.saveCustom(checklistsPath(), CallScore.removeCustom(customChecklists(), c.name));
+      if (!CallScore.findChecklist(s.CallScoreChecklist, customChecklists())) {
+        s.CallScoreChecklist = '';
+        Settings.save(s);
+      }
+    }
+    return state();
+  });
+
+  ipcMain.handle('file:runScore', async (_e, path: unknown) => {
+    if (scoreBusy || runner.busy) return state();
+    scoreNote = '';
+    const s = settings.get();
+    const kind = MeetingBrief.target(s);
+    if (kind === 'None') {
+      ffmpegStatus = t('Мозг не настроен — откройте «Мозг».', 'The Brain is not set up — open Brain.');
+      return state();
+    }
+    const src = typeof path === 'string' && path.length > 0 ? path : queue.lastOutput;
+    if (!src || !existsSync(src)) {
+      ffmpegStatus = t('Нет готовой расшифровки. Сначала расшифруйте файл или встречу.', 'No finished transcript. Transcribe a file or a meeting first.');
+      return state();
+    }
+    if (kind === 'Cloud') {
+      const cloud = MeetingBrief.cloudName(s);
+      if (cloud && !(await askCloud(cloud))) {
+        ffmpegStatus = t('Проверка пропущена.', 'Scoring skipped.');
+        return state();
+      }
+    }
+    scoreBusy = true;
+    scoreAbort = new AbortController();
+    ffmpegStatus = t('Мозг: проверяю по чек-листу…', 'Brain: checking against the checklist…');
+    push();
+    try {
+      const r = await scoreOne(s, kind, readFileSync(src, 'utf8'), src, (line) => { ffmpegStatus = line; push(); }, scoreAbort.signal);
+      ffmpegStatus = t(`Чек-лист: ${String(r.score).replace('.', ',')} из ${r.max} (${r.percent}%) — ${lastScorePath}`, `Checklist: ${r.score} of ${r.max} (${r.percent}%) — ${lastScorePath}`);
+    } catch (e) {
+      if ((e as Error)?.name === 'AbortError') ffmpegStatus = t('Проверка отменена.', 'Scoring cancelled.');
+      else {
+        const msg = e instanceof Error ? e.message : String(e);
+        ffmpegStatus = t(`Проверка не получилась: ${msg}`, `Scoring failed: ${msg}`);
+        Log.write(`file runScore: ${msg}`);
+      }
+    } finally {
+      scoreBusy = false;
+      scoreAbort = null;
+      push();
+    }
+    return state();
+  });
+
   ipcMain.handle('file:translateTarget', (_e, text: unknown) => {
     const s = settings.get();
     if (typeof text === 'string') {
@@ -808,13 +973,14 @@ export function registerFileIpc(getWindow: () => BrowserWindow | null, settings:
   });
 
   return {
-    busy: () => runner.busy || urlImport.busy || diarBusy || briefBusy || translateBusy,
+    busy: () => runner.busy || urlImport.busy || diarBusy || briefBusy || translateBusy || scoreBusy,
     /** A finished meeting recording: queue it and start (or join) the run. */
     enqueue: (path: string) => {
       queue.add([path], false);
       if (!runner.busy && !ffmpegBusy) {
         ffmpegStatus = '';
         briefCloudOk = null;
+        scoreCloudOk = null;
         void runner.run().catch((e) => Log.write(`file run: ${e instanceof Error ? e.message : String(e)}`));
       }
     },

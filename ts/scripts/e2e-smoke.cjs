@@ -72,6 +72,14 @@ const Paths = require(join(root, 'dist/main/paths.js'));
 // ---- fake Brain: OpenAI-compatible, deterministic, records what it was asked ----
 const asked = [];
 function answer(system, user) {
+  if (/Check whether the agent did each checklist item/.test(system)) {
+    // Checklist: item 1 yes with a quote from the call, item 2 partial, the rest no; one invented quote.
+    const n = (system.split('Checklist:\n')[1] ?? '').split('\n').filter((l) => /^\d+\. /.test(l)).length;
+    const firstWords = user.replace(/\[[0-9:]+\]\s*/g, '').split(/[.!?\n]/)[0].trim();
+    const items = Array.from({ length: n }, (_, i) =>
+      i === 0 ? { n: 1, verdict: 'yes', quote: firstWords, note: 'есть' } : i === 1 ? { n: 2, verdict: 'partial', quote: 'фраза которой не было', note: 'отчасти' } : { n: i + 1, verdict: 'no', quote: '', note: 'не обсуждали' });
+    return '```json\n' + JSON.stringify({ items }) + '\n```';
+  }
   if (/Remove only filler words/.test(system)) return user.replace(/\b(ну|вот|э+|типа)\b,?\s*/giu, '');
   if (/key points/.test(system)) return '- Анна готовит презентацию\n- Борис проверяет смету';
   if (/format instruction/i.test(system)) return 'Кратко\n- Созвон по статусу\n\nЗадачи\n- Анна: презентация к понедельнику\n- Борис: проверить смету';
@@ -313,6 +321,27 @@ async function cliCases(brainPort) {
   r = await run(['brief', meet, '--template', 'nope']);
   check('cli brief --template unknown → exit 2', r.code === 2 && /sales-call/.test(r.err), brief(r));
   rmSync(Paths.briefTemplatesPath(), { force: true });
+  // «Проверка по чек-листу»: built-in sales checklist, custom one, list, JSON, unknown.
+  r = await run(['score', meet]);
+  let scj = null;
+  try {
+    scj = JSON.parse(read(join(bd, 'meet.score.json')));
+  } catch {}
+  const stxt = read(join(bd, 'meet.score.txt'));
+  check('cli score → .score.json + .score.txt (sales: 1.5 of 6, quote checked)',
+    r.code === 0 && scj && scj.checklist.id === 'sales' && scj.max === 6 && scj.score === 1.5 && scj.percent === 25 && scj.items[0].quote.includes('Анна') && scj.items[1].quote === '' && /Итог: 1,5 из 6/.test(stxt) && stxt.includes('✓'), brief(r) + ' | ' + stxt.slice(0, 200));
+  r = await run(['score', '--checklist', 'list']);
+  check('cli score --checklist list', r.code === 0 && /^sales\t/m.test(r.out), brief(r));
+  writeFileSync(Paths.checklistsPath(), JSON.stringify({ version: 1, checklists: [{ name: 'E2E чек-лист', items: ['Назвал срок', 'Попрощался'] }] }));
+  r = await run(['score', meet, '--checklist', 'e2e чек-лист', '--stdout', '--json']);
+  let cj = null;
+  try {
+    cj = JSON.parse(r.out);
+  } catch {}
+  check('cli score --checklist <custom> --stdout --json', r.code === 0 && cj && cj.max === 2 && cj.checklist.name === 'E2E чек-лист' && /Назвал срок/.test(asked[asked.length - 1]?.full ?? ''), brief(r));
+  r = await run(['score', meet, '--checklist', 'nope']);
+  check('cli score --checklist unknown → exit 2', r.code === 2 && /sales/.test(r.err), brief(r));
+  rmSync(Paths.checklistsPath(), { force: true });
   r = await run(['translate', meet, '--to', 'de']);
   check('cli translate --to de → .translate.txt', r.code === 0 && read(join(bd, 'meet.translate.txt')).includes('Guten Tag'), brief(r));
   const outDir = join(tmp, 'brain-out');
@@ -340,7 +369,7 @@ async function cliCases(brainPort) {
   const haveModel = installModel();
   if (!haveModel) {
     const why = 'no speech model (set CHAWO_SMOKE_MODEL_DIR)';
-    for (const n of ['transcribe --brain --context', 'transcribe → txt', 'transcribe every format', 'transcribe --stdout', 'transcribe --skip-existing', 'transcribe a folder', 'transcribe --post-script', 'transcribe --brain --brief', 'transcribe --diarize without speaker models', 'transcribe a link']) {
+    for (const n of ['transcribe --brain --context', 'transcribe → txt', 'transcribe every format', 'transcribe --stdout', 'transcribe --skip-existing', 'transcribe a folder', 'transcribe --post-script', 'transcribe --brain --brief --score', 'transcribe --diarize without speaker models', 'transcribe a link']) {
       if (process.env.CHAWO_SMOKE_REQUIRE_MODEL === '1') failc('cli ' + n, why);
       else skip('cli ' + n, why);
     }
@@ -388,9 +417,9 @@ async function cliCases(brainPort) {
     check('cli transcribe --post-script', r.code === 0 && ps.startsWith('[POST]'), brief(r) + ' | ' + ps.slice(0, 80));
 
     const bdir = join(tmp, 'tbrain');
-    r = await run(['transcribe', speech, '-o', bdir, '--brain', '--brief']);
+    r = await run(['transcribe', speech, '-o', bdir, '--brain', '--brief', '--score']);
     const st = join(bdir, basename(speech).replace(/\.[^.]+$/, ''));
-    check('cli transcribe --brain --brief', r.code === 0 && existsSync(st + '.txt') && existsSync(st + '.brain.txt') && read(st + '.brief.txt').includes('Задачи'), brief(r));
+    check('cli transcribe --brain --brief --score', r.code === 0 && existsSync(st + '.txt') && existsSync(st + '.brain.txt') && read(st + '.brief.txt').includes('Задачи') && /Итог|Score/.test(read(st + '.score.txt')) && existsSync(st + '.score.json'), brief(r));
     const tcAsk = asked.length;
     const tcDir = join(tmp, 'tbrain-ctx');
     r = await run(['transcribe', speech, '-o', tcDir, '--brain', '--context', 'Клиент Зюйд-Вест', '-q']);

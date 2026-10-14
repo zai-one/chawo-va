@@ -30,6 +30,8 @@ export interface FileRunOptions {
   diarize: boolean;
   /** When true, write name.brief.txt («Кратко и задачи») via runBrief when provided. */
   brief: boolean;
+  /** When true, score the call against the selected checklist via runScore (writes .score.json/.txt). */
+  score?: boolean;
   /** «Свой скрипт» for the .txt (settings PostScript with PostScriptFiles on); null/absent = off. */
   postScript?: string | null;
 }
@@ -88,6 +90,8 @@ export interface FileRunnerDeps {
   runBrain?: FileBrainHook;
   /** When brief is true, call this after Brain (or after the raw .txt). */
   runBrief?: FileBriefHook;
+  /** When score is true, call this last; the hook writes the .score files itself. */
+  runScore?: FileBriefHook;
   /** When diarize is true, call this after local transcription and before writing .txt/.srt. */
   runDiarize?: FileDiarizeHook;
   /**
@@ -329,6 +333,18 @@ export class FileRunner {
         if (isAbort(e, signal)) throw e;
         const msg = message(e);
         Log.write(`file brief ${item.path}: ${msg}`);
+        notes.push(msg);
+      }
+    }
+
+    if (opts.score && this.d.runScore) {
+      try {
+        const sc = await this.d.runScore(segments, { ...opts, rawTxtPath: out }, (line) => this.say(prefix + line), signal);
+        if (sc.note) notes.push(sc.note);
+      } catch (e) {
+        if (isAbort(e, signal)) throw e;
+        const msg = message(e);
+        Log.write(`file score ${item.path}: ${msg}`);
         notes.push(msg);
       }
     }

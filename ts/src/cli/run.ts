@@ -46,6 +46,10 @@ export interface CliDefaults {
   brain?: boolean;
   /** settings MeetingBriefEnabled: «Кратко и задачи» after the .txt (default false). */
   brief?: boolean;
+  /** settings CallScoreEnabled: «Проверка по чек-листу» after the .txt (default false). */
+  score?: boolean;
+  /** settings CallScoreChecklist: the checklist picked in the app ('' = built-in sales). */
+  checklist?: string;
   /** settings CallTrackers: «Название: термин, …» per line; '' = built-in trackers. */
   callTrackers?: string;
 }
@@ -161,6 +165,8 @@ export interface CliDeps {
   readStdin?: () => Promise<string>;
   /** Custom «Кратко и задачи» templates (brief-templates.json, read-only here). */
   briefTemplates?: () => import('../main/brain/briefTemplates').CustomTemplate[];
+  /** Custom call checklists (checklists.json, read-only here). */
+  checklists?: () => import('../main/brain/callScore').CustomChecklist[];
   /** history.jsonl of the app (read, never written by the CLI). */
   historyPath?: () => string;
   /** Wall clock for history dates (defaults to Date.now; `now` above may be a test counter). */
@@ -196,6 +202,7 @@ export async function runCli(argv: readonly string[], d: CliDeps): Promise<numbe
   }
   if (o.command === 'brain') return brainCommand(o, d);
   if (o.command === 'brief') return brief(o, d);
+  if (o.command === 'score') return scoreCommand(o, defaults, d);
   if (o.command === 'translate') return translate(o, d);
   if (o.command === 'history') return history(o, defaults, d);
   if (o.command === 'segments') return segmentsCommand(o, d);
@@ -444,6 +451,79 @@ async function templateInstruction(o: CliOptions, d: CliDeps): Promise<{ list: t
   }
   d.log(`cli brief template ${tpl.builtin ? tpl.id : 'custom'}`);
   return { instruction: tpl.instruction };
+}
+
+/** --checklist: 'list' prints them; a name (or the app's pick) gives the checklist; unknown → null (usage error printed). */
+async function pickChecklist(o: CliOptions, defaults: CliDefaults, d: CliDeps): Promise<{ list: true } | { checklist: import('../main/brain/callScore').Checklist } | null> {
+  const C = await import('../main/brain/callScore');
+  const custom = d.checklists?.() ?? [];
+  if (o.checklist != null && o.checklist.toLowerCase() === 'list') {
+    for (const x of C.allChecklists(custom)) d.out(`${x.builtin ? x.id : x.name}\t${x.builtin ? x.name : d.t('свой', 'custom')}\t${x.items.length}\n`);
+    return { list: true };
+  }
+  if (o.checklist == null) return { checklist: C.resolveChecklist(defaults.checklist ?? '', custom) };
+  const c = C.findChecklist(o.checklist, custom);
+  if (!c) {
+    const names = C.allChecklists(custom).map((x) => (x.builtin ? x.id : x.name)).join(', ');
+    d.err(d.t(`chawo-va: нет чек-листа «${o.checklist}». Есть: ${names}\n`, `chawo-va: no checklist «${o.checklist}». Available: ${names}\n`));
+    return null;
+  }
+  return { checklist: c };
+}
+
+async function scoreCommand(o: CliOptions, defaults: CliDefaults, d: CliDeps): Promise<number> {
+  const t = d.t;
+  const say = (line: string) => {
+    if (!o.quiet) d.err(line + '\n');
+  };
+  const fail = (line: string) => d.err(line + '\n');
+  const picked = await pickChecklist(o, defaults, d);
+  if (!picked) return EXIT_USAGE;
+  if ('list' in picked) return EXIT_OK;
+  const checklist = picked.checklist;
+
+  const inputs = textInputs(o, d, fail);
+  let failed = inputs.failed;
+  if (inputs.files.length === 0) return EXIT_FAILED;
+  const brain = d.briefBrain();
+  if (brain.target === 'None') {
+    fail(t('Ошибка: Мозг не настроен. Скачайте локальную модель на «Мозге» или укажите сервер в настройках.', 'Error: the Brain is not set up. Download a local model on Brain, or configure a server in settings.'));
+    return EXIT_NO_MODEL;
+  }
+  if (brain.cloud) say(t(`Мозг: текст уходит в ${brain.cloud}`, `Brain: the text goes to ${brain.cloud}`));
+  const C = await import('../main/brain/callScore');
+  if (o.outDir && !o.stdout) d.mkdirp(o.outDir);
+  const files = inputs.files;
+  for (let i = 0; i < files.length; i++) {
+    if (d.signal.aborted) break;
+    const src = files[i]!;
+    const prefix = files.length > 1 ? `[${i + 1}/${files.length}] ` : '';
+    say(prefix + src + ' · ' + checklist.name);
+    try {
+      const r = await C.scoreAsync({ transcript: d.readFile(src), checklist, targetKind: brain.target, ask: brain.ask, status: (line) => say(prefix + line), signal: d.signal, source: src });
+      if (o.stdout) {
+        if (files.length > 1 && !o.json) d.out(`==> ${src} <==\n`);
+        d.out(o.json ? JSON.stringify(r) + '\n' : C.formatText(r));
+      } else {
+        const beside = C.outputPaths(src);
+        const at = (p: string) => (o.outDir ? join(o.outDir, basename(p)) : p);
+        d.writeFile(at(beside.json), JSON.stringify(r, null, 2) + '\n');
+        d.writeFile(at(beside.txt), C.formatText(r));
+        say(prefix + t(`Готово: ${at(beside.txt)} — ${r.score} из ${r.max} (${r.percent}%)`, `Done: ${at(beside.txt)} — ${r.score} of ${r.max} (${r.percent}%)`));
+      }
+      d.log(`cli score ${src} ok ${r.percent}%`);
+    } catch (e) {
+      if (d.signal.aborted) break;
+      failed++;
+      fail(prefix + t(`Ошибка: ${src}: ${message(e)}`, `Error: ${src}: ${message(e)}`));
+      d.log(`cli score ${src} failed: ${message(e)}`);
+    }
+  }
+  if (d.signal.aborted) {
+    fail(t('Прервано.', 'Interrupted.'));
+    return EXIT_INTERRUPTED;
+  }
+  return failed > 0 ? EXIT_FAILED : EXIT_OK;
 }
 
 async function brief(o: CliOptions, d: CliDeps): Promise<number> {
@@ -858,6 +938,14 @@ async function transcribe(o: CliOptions, defaults: CliDefaults, d: CliDeps): Pro
     if (!useBrief) say(t('--template без --brief: карточки не будет.', '--template without --brief: no card.'));
     o = { ...o, instruction: tpl.instruction };
   }
+  const useScore = o.score ?? defaults.score ?? false;
+  let scoreList: import('../main/brain/callScore').Checklist | null = null;
+  if (useScore || o.checklist != null) {
+    const c = await pickChecklist(o, defaults, d);
+    if (!c || 'list' in c) return EXIT_USAGE;
+    if (!useScore) say(t('--checklist без --score: проверки не будет.', '--checklist without --score: no scoring.'));
+    scoreList = c.checklist;
+  }
   // Output collisions and --skip-existing are settled before any model is loaded.
   const targets = new Map<string, string>();
   const work: { src: string; txt: string; prefix: string }[] = [];
@@ -891,12 +979,14 @@ async function transcribe(o: CliOptions, defaults: CliDefaults, d: CliDeps): Pro
   // «Прогнать через мозг» / «Кратко и задачи» after each .txt, like the page (FileUseBrain /
   // MeetingBriefEnabled). Soft: a missing or failing Brain is a note, the transcript still counts.
   const fileBrain = useBrain ? d.fileBrain?.() ?? null : null;
-  const briefBrain = useBrief ? d.briefBrain() : null;
+  const briefBrain = useBrief || useScore ? d.briefBrain() : null;
   const FileBrain = fileBrain && fileBrain.target !== 'None' ? await import('../main/brain/fileBrain') : null;
   const MeetingBrief = briefBrain && briefBrain.target !== 'None' ? await import('../main/brain/meetingBrief') : null;
   if (useBrain && !FileBrain) say(t('Мозг не настроен: .brain.txt не будет.', 'The Brain is not set up: no .brain.txt.'));
+  const CallScore = useScore && briefBrain && briefBrain.target !== 'None' ? await import('../main/brain/callScore') : null;
+  if (useScore && !CallScore) say(t('Мозг не настроен: .score.json не будет.', 'The Brain is not set up: no .score.json.'));
   if (useBrief && !MeetingBrief) say(t('Мозг не настроен: .brief.txt не будет.', 'The Brain is not set up: no .brief.txt.'));
-  const cloud = (FileBrain ? fileBrain?.cloud : null) || (MeetingBrief ? briefBrain?.cloud : null);
+  const cloud = (FileBrain ? fileBrain?.cloud : null) || (MeetingBrief || CallScore ? briefBrain?.cloud : null);
   if (cloud) say(t(`Мозг: текст уходит в ${cloud}`, `Brain: the text goes to ${cloud}`));
   // «Контекст для Мозга» for .brain.txt (not for .brief.txt), only with --context / --context-file.
   if (!useBrain && (o.context != null || o.contextFile != null))
@@ -1028,6 +1118,26 @@ async function transcribe(o: CliOptions, defaults: CliDefaults, d: CliDeps): Pro
               if (d.signal.aborted) break;
               notes.push(t(`краткое: ${message(e)}`, `brief: ${message(e)}`));
               d.log(`cli ${src} brief failed: ${message(e)}`);
+            }
+          }
+        }
+        if (useScore && scoreList) {
+          if (!CallScore || !briefBrain) notes.push(t('чек-лист: мозг не настроен', 'checklist: the Brain is not set up'));
+          else {
+            try {
+              const r = await CallScore.scoreAsync({ transcript: recognized, checklist: scoreList, targetKind: briefBrain.target, ask: briefBrain.ask, status, signal: d.signal, source: txt });
+              if (o.stdout) d.out(`\n==> ${t('Проверка по чек-листу', 'Checklist score')} <==\n` + CallScore.formatText(r));
+              else {
+                const p = CallScore.outputPaths(txt);
+                d.writeFile(p.json, JSON.stringify(r, null, 2) + '\n');
+                d.writeFile(p.txt, CallScore.formatText(r));
+              }
+              notes.push(t(`чек-лист ${r.percent}%`, `checklist ${r.percent}%`) + (o.stdout ? '' : ' · .score.json'));
+              d.log(`cli ${src} score ok ${r.percent}%`);
+            } catch (e) {
+              if (d.signal.aborted) break;
+              notes.push(t(`чек-лист: ${message(e)}`, `checklist: ${message(e)}`));
+              d.log(`cli ${src} score failed: ${message(e)}`);
             }
           }
         }

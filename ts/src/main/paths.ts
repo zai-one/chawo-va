@@ -76,6 +76,11 @@ export function briefTemplatesPath(): string {
   return join(appDataDir(), 'brief-templates.json');
 }
 
+/** Custom call checklists («Проверка по чек-листу»); shared by the File page and `chawo-va score`. */
+export function checklistsPath(): string {
+  return join(appDataDir(), 'checklists.json');
+}
+
 /** «Словарь из исправлений»: counted word fixes and the «Добавлять сами» switch (learned-words.json). */
 export function learnedWordsPath(): string {
   return join(appDataDir(), 'learned-words.json');

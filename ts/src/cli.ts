@@ -16,8 +16,9 @@ import { diarizeHook } from './main/diarize/diarizeRuntime';
 import { runCli, EXIT_INTERRUPTED, type CliDefaults, type CliDeps, type Engine, type EngineConfig } from './cli/run';
 import * as Log from './main/log';
 import { findComplete, looksComplete } from './main/models/speechModelStore';
-import { briefTemplatesPath, historyFilePath, learnedWordsPath, settingsPath, snippetsPath } from './main/paths';
+import { briefTemplatesPath, checklistsPath, historyFilePath, learnedWordsPath, settingsPath, snippetsPath } from './main/paths';
 import * as BriefTemplates from './main/brain/briefTemplates';
+import * as CallScore from './main/brain/callScore';
 import { defaults as settingsDefaults, fromJsonObject, toCtcScript, toFileParallelism, toSpeechDeviceKind, toSpeechModelKind } from './main/settings';
 import { collectFromFolder, load16k, outputPath } from './main/file/fileTranscript';
 import * as MeetingBrief from './main/brain/meetingBrief';
@@ -62,6 +63,8 @@ export function readDefaults(): CliDefaults {
     diarize: s.FileDiarize,
     brain: s.FileUseBrain,
     brief: s.MeetingBriefEnabled,
+    score: s.CallScoreEnabled,
+    checklist: s.CallScoreChecklist,
     callTrackers: s.CallTrackers,
   };
 }
@@ -146,6 +149,7 @@ export function realDeps(signal: AbortSignal): CliDeps {
     learnedPath: learnedWordsPath,
     settingsFile: settingsPath,
     briefTemplates: () => BriefTemplates.loadCustom(briefTemplatesPath()),
+    checklists: () => CallScore.loadCustom(checklistsPath()),
     readStdin: async () => {
       const chunks: Buffer[] = [];
       for await (const c of process.stdin) chunks.push(c as Buffer);

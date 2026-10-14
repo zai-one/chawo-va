@@ -12,6 +12,7 @@
 | `transcribe <файлы/папки/ссылки…>` | Расшифровка локально или на сервере (`--server`) | `.txt` + выбранные `-f` |
 | `brain <расшифровки.txt…>` | «Прогнать через мозг» | `.brain.txt` |
 | `brief <расшифровки.txt…>` | «Кратко и задачи» | `.brief.txt` |
+| `score <расшифровки.txt…> [--checklist имя]` | «Проверка по чек-листу» | `.score.json` + `.score.txt` |
 | `translate <тексты.txt…> [--to язык]` | Перевод через Мозг | `.translate.txt` |
 | `history [слова…]` | История диктовки, новые сверху (только чтение) | stdout |
 | `segments <.txt/.srt/.json…>` | Фразы со временем из готовой расшифровки | stdout |
@@ -50,6 +51,7 @@
 | `--diarize` / `--no-diarize` | Разделять спикеров |
 | `--brain` / `--no-brain` | Ещё и `.brain.txt` |
 | `--brief` / `--no-brief` | Ещё и `.brief.txt` (`--instruction` — свой формат) |
+| `--score` / `--no-score` | Ещё и `.score.json` + `.score.txt` (`--checklist <имя>` — какой чек-лист) |
 | `--server <URL>` | Расшифровать на удалённом `chawo-va serve` (job API, без локальной модели) |
 | `--token <секрет>` | Bearer для `--server` (или `CHAWO_SERVE_TOKEN`) |
 
@@ -57,7 +59,8 @@
 Сервер возвращает фразы с метками времени (`segments`), поэтому `-f srt,vtt,json,md,docx` и
 `--timestamps` дают те же файлы, что и локальный запуск. Если сервер старый и фраз не вернул,
 пишется только `.txt` с пометкой. Ссылки с `--server` не принимаются (скачайте файл заранее);
-`--brain/--brief/--diarize/--post-script` в этом режиме не выполняются.
+`--brain/--brief/--diarize/--post-script` в этом режиме не выполняются, а `--score` с `--server` —
+ошибка параметров (запустите `chawo-va score` на готовый `.txt`).
 
 ### `brain`
 
@@ -87,6 +90,31 @@
 `chawo-va brief --template list` печатает все шаблоны. Без `--template` берётся шаблон, выбранный в
 приложении; `--template` и `--instruction` вместе нельзя; неизвестное имя → код 2 и список имён.
 `transcribe --brief --template sales-call` тоже работает.
+
+### `score`
+
+`--checklist <имя>`, `--stdout` (текст результата), `--stdout --json` (JSON одной строкой), `-o/--out`,
+`--lang`, `-q`.
+
+| `--checklist` | Синонимы | Пункты |
+|---|---|---|
+| `sales` | `sales-call`, `default`, `продажи`, `звонок` | Звонок продаж: приветствие, потребность, бюджет, ЛПР, возражения, следующий шаг |
+| имя своего чек-листа | — | из `checklists.json` (регистр и «ё» не важны) |
+
+`chawo-va score --checklist list` печатает чек-листы (`id`, название, число пунктов). Без
+`--checklist` берётся выбранный в приложении (иначе `sales`); неизвестное имя → код 2 и список.
+`transcribe --score [--checklist …]` проверяет каждый файл после `.txt`; сбой Мозга — пометка в строке,
+расшифровка всё равно засчитана. Ответ модели не в формате чек-листа у `score` → код 1.
+
+`.score.json`:
+
+```json
+{ "version": 1, "checklist": { "id": "sales", "name": "Звонок продаж" },
+  "items": [ { "item": "Спросил про бюджет", "verdict": "partial", "quote": "а какой у вас бюджет", "note": "сумму не уточнил" } ],
+  "score": 4.5, "max": 6, "percent": 75, "source": "call.txt", "createdAt": "2026-10-14T07:00:00.000Z" }
+```
+
+`verdict`: `yes` = 1, `partial` = 0,5, `no` = 0.
 
 ### `translate`
 
@@ -190,6 +218,8 @@ chawo-va transcribe ./recordings -o ./out -f txt,docx --skip-existing
 chawo-va transcribe "https://www.youtube.com/watch?v=…" -f srt
 chawo-va transcribe long.wav --server http://host:17831 --token "$CHAWO_SERVE_TOKEN" -f srt,vtt,json,md,docx
 chawo-va brain talk.txt && chawo-va brief talk.txt
+chawo-va score call.txt --checklist sales
+chawo-va transcribe call.m4a --score --checklist "Мой чек-лист"
 chawo-va brain call.txt --context "Клиент: ООО «Зюйд-Вест», Анна Карпенко"
 chawo-va transcribe call.m4a --brain --context-file client.txt
 chawo-va translate talk.txt --to de --stdout
@@ -207,6 +237,7 @@ Chawo Voice Assistant — расшифровка файлов, «Кратко и
   chawo-va transcribe <файлы, папки или ссылки…> [параметры]
   chawo-va brain <расшифровки.txt…> [параметры]
   chawo-va brief <расшифровки.txt…> [параметры]
+  chawo-va score <расшифровки.txt…> [--checklist имя|list] [параметры]
   chawo-va translate <тексты.txt…> [--to язык] [параметры]
   chawo-va history [слова для поиска…] [-n 20|all] [--json] [--raw]
   chawo-va segments <файлы.txt|.srt|.json…> [--json]
@@ -245,6 +276,9 @@ Chawo Voice Assistant — расшифровка файлов, «Кратко и
       --brief / --no-brief
                          ещё и «Кратко и задачи» → .brief.txt (--template / --instruction — формат);
                          по умолчанию — из настроек. Сбой Мозга — пометка, .txt всё равно пишется
+      --score / --no-score
+                         ещё и «Проверка по чек-листу» → .score.json и .score.txt (--checklist — какой);
+                         по умолчанию — из настроек
       --server <URL>     расшифровать на удалённом 'chawo-va serve' (job API; локальной модели нет)
       --token <секрет>   Bearer для --server / для serve (или CHAWO_SERVE_TOKEN)
       --lang ru|en       язык сообщений
@@ -274,6 +308,15 @@ Chawo Voice Assistant — расшифровка файлов, «Кратко и
       --instruction «…»  своя инструкция формата (иначе — шаблон из настроек / встроенная)
       --stdout           печатать карточку в stdout вместо .brief.txt
   -o, --out <папка>      куда писать .brief.txt
+      --lang ru|en       язык сообщений
+  -q, --quiet
+
+Параметры score:
+      --checklist <имя>  чек-лист: sales (звонок продаж, встроенный) или имя своего; --checklist list —
+                         показать все. По умолчанию — выбранный в приложении
+      --stdout           печатать результат в stdout вместо .score.json / .score.txt
+      --json             с --stdout: печатать JSON вместо текста
+  -o, --out <папка>      куда писать .score.json и .score.txt
       --lang ru|en       язык сообщений
   -q, --quiet
 
@@ -329,6 +372,7 @@ WAV и Ogg/Opus читаются сами, остальные форматы (MP
 скачивание. yt-dlp CLI не скачивает: кнопка «Скачать yt-dlp» в приложении или yt-dlp в PATH.
 brain читает готовый .txt и пишет .brain.txt: абзацы без слов-паразитов и «Кратко».
 brief читает готовый .txt (рядом с записью или .brain.txt) и пишет .brief.txt через Мозг.
+score проверяет звонок по чек-листу через Мозг: по каждому пункту да / частично / нет, цитата и итог.
 translate переводит готовый .txt через Мозг (локальный по умолчанию) и пишет .translate.txt.
 segments печатает фразы со временем (как карточка «Расшифровка»): .srt → .json → метки в .txt.
 stats печатает статистику разговора по готовой расшифровке (как «Статистика разговора» на странице «Файл»).
