@@ -120,6 +120,25 @@ app.whenReady().then(async () => {
       check('gui: history finds the seeded take', false, e.message);
     }
 
+    // «Словарь» → «Сниппеты»: add a row through the page UI, it lands in snippets.json; dictation matcher uses it.
+    try {
+      await js(`document.querySelector('.nav button[data-page="dictionary"]').click(); true`);
+      await sleep(500);
+      await js(`document.querySelector('[data-dict="snippetAdd"]').click(); true`);
+      await sleep(500);
+      await js(`(() => { const rows = document.querySelectorAll('.snippet-row'); const r = rows[rows.length - 1]; const i = r.querySelector('input'); const t = r.querySelector('textarea'); i.value = 'подпись'; t.value = 'С уважением,\\nE2E'; i.dispatchEvent(new Event('input')); t.dispatchEvent(new Event('input')); return true; })()`);
+      await sleep(700);
+      const { loadSnippets, applySnippets } = require('../dist/core/snippets.js');
+      const paths = require('../dist/main/paths.js');
+      const list = loadSnippets(paths.snippetsPath());
+      const ins = applySnippets('Спасибо, вставь подпись.', list).text;
+      check('gui: «Сниппеты» on «Словарь» saves to snippets.json', list.some((x) => x.trigger === 'подпись') && ins.includes('E2E'), `${paths.snippetsPath()} ${JSON.stringify(list)} → ${JSON.stringify(ins)}`);
+      await js(`document.querySelector('[data-dict="snippets"]').scrollIntoView(); true`);
+      if (shots) writeFileSync(join(shots, 'dictionary-snippets.png'), (await w.webContents.capturePage()).toPNG());
+    } catch (e) {
+      check('gui: «Сниппеты» on «Словарь» saves to snippets.json', false, e.message);
+    }
+
     // Transcript editor on a timed transcript (fixture).
     const ed = join(work, 'gui-editor');
     mkdirSync(ed, { recursive: true });

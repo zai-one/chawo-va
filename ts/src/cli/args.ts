@@ -8,7 +8,7 @@ export const FORMATS = ['txt', 'srt', 'vtt', 'json', 'md', 'docx'] as const;
 export type OutputFormat = (typeof FORMATS)[number];
 
 export interface CliOptions {
-  command: 'transcribe' | 'brain' | 'brief' | 'translate' | 'history' | 'segments' | 'serve' | 'help' | 'version';
+  command: 'transcribe' | 'brain' | 'brief' | 'translate' | 'history' | 'segments' | 'serve' | 'snippets' | 'help' | 'version';
   inputs: string[];
   /** Empty = not given (txt). */
   formats: OutputFormat[];
@@ -123,7 +123,7 @@ export function parseArgs(argv: readonly string[]): ParseResult {
   const first = args[0];
   if (first === '--help' || first === '-h' || first === 'help') return { ok: true, options: blank('help') };
   if (first === '--version' || first === '-v' || first === 'version') return { ok: true, options: blank('version') };
-  if (first !== 'transcribe' && first !== 'brain' && first !== 'brief' && first !== 'translate' && first !== 'history' && first !== 'segments' && first !== 'serve') return { ok: false, error: `unknown command: ${first}` };
+  if (first !== 'transcribe' && first !== 'brain' && first !== 'brief' && first !== 'translate' && first !== 'history' && first !== 'segments' && first !== 'serve' && first !== 'snippets') return { ok: false, error: `unknown command: ${first}` };
 
   args.splice(1, 0, ...lead);
   const o = blank(first);
@@ -293,7 +293,7 @@ export function parseArgs(argv: readonly string[]): ParseResult {
         return { ok: false, error: `unknown option: ${a}` };
     }
   }
-  if (o.inputs.includes('-')) return { ok: false, error: 'reading audio from stdin is not supported; pass a file path' };
+  if (o.command !== 'snippets' && o.inputs.includes('-')) return { ok: false, error: 'reading audio from stdin is not supported; pass a file path' };
   if (toggles.has('--vad') && toggles.has('--no-vad')) return { ok: false, error: '--vad and --no-vad cannot be used together' };
   if (toggles.has('--diarize') && toggles.has('--no-diarize')) return { ok: false, error: '--diarize and --no-diarize cannot be used together' };
   if ((o.vad !== null || o.diarize !== null) && o.command !== 'transcribe') return { ok: false, error: '--vad and --diarize are for transcribe' };
@@ -324,6 +324,26 @@ export function parseArgs(argv: readonly string[]): ParseResult {
       return { ok: false, error: 'history prints to stdout; it takes search words, -n, --json, --raw' };
     if (o.instruction != null || o.to != null || o.postScript != null || o.noPostScript)
       return { ok: false, error: 'history takes search words, -n, --json, --raw' };
+    return { ok: true, options: o };
+  }
+  if (o.command === 'snippets') {
+    // snippets list | add <фраза> <текст…|-> | remove <фраза>
+    const speech = o.model || o.device || o.threads || o.script || o.modelDir;
+    if (o.formats.length > 0 || o.outDir || o.stdout || o.timestamps !== null || o.skipExisting || speech || o.instruction != null || o.to != null || o.postScript != null || o.noPostScript || o.limit !== null || o.raw)
+      return { ok: false, error: 'snippets takes list | add <trigger> <text|-> | remove <trigger>, and --json for list' };
+    const sub = (o.inputs[0] ?? 'list').toLowerCase();
+    if (sub === 'list' || sub === 'ls') {
+      if (o.inputs.length > 1) return { ok: false, error: 'snippets list takes no arguments' };
+      o.inputs = ['list'];
+    } else if (sub === 'add') {
+      if (o.inputs.length < 3) return { ok: false, error: 'snippets add needs a trigger and a text (or - for stdin)' };
+      if (o.json) return { ok: false, error: '--json is for snippets list' };
+      o.inputs = ['add', o.inputs[1], o.inputs.slice(2).join(' ')];
+    } else if (sub === 'remove' || sub === 'rm') {
+      if (o.inputs.length < 2) return { ok: false, error: 'snippets remove needs a trigger' };
+      if (o.json) return { ok: false, error: '--json is for snippets list' };
+      o.inputs = ['remove', o.inputs.slice(1).join(' ')];
+    } else return { ok: false, error: `unknown snippets action: ${o.inputs[0]} (use list, add or remove)` };
     return { ok: true, options: o };
   }
   if (o.command === 'segments') {
@@ -370,6 +390,7 @@ export function helpText(t: (ru: string, en: string) => string): string {
   chawo-va translate <тексты.txt…> [--to язык] [параметры]
   chawo-va history [слова для поиска…] [-n 20|all] [--json] [--raw]
   chawo-va segments <файлы.txt|.srt|.json…> [--json]
+  chawo-va snippets list [--json] | add <фраза> <текст|-> | remove <фраза>
   chawo-va serve [--host 127.0.0.1|0.0.0.0] [--port 17831] [--token …] [--data-dir …]
 
 Параметры:
@@ -440,6 +461,11 @@ export function helpText(t: (ru: string, en: string) => string): string {
       --json             JSON: start, end, text, speaker?
   -q, --quiet            без строки «N фраз»
 
+Параметры snippets (сниппеты для «вставь <фраза>» при диктовке, тот же snippets.json, что на странице «Словарь»):
+      list [--json]      показать (JSON: [{trigger, text}])
+      add <фраза> <текст> добавить или заменить; текст «-» — читать из stdin (несколько строк)
+      remove <фраза>     удалить
+
 Параметры history (история диктовки, только чтение, новые сверху):
       слова…             поиск: каждое слово должно встретиться (ё = е), как на странице
   -n, --limit <N|all>    сколько записей (по умолчанию 20)
@@ -470,6 +496,7 @@ Usage:
   chawo-va translate <text.txt…> [--to language] [options]
   chawo-va history [search words…] [-n 20|all] [--json] [--raw]
   chawo-va segments <files.txt|.srt|.json…> [--json]
+  chawo-va snippets list [--json] | add <trigger> <text|-> | remove <trigger>
   chawo-va serve [--host 127.0.0.1|0.0.0.0] [--port 17831] [--token …] [--data-dir …]
 
 Options:
@@ -539,6 +566,11 @@ segments options (timed phrases from a finished transcript, read-only):
   files…             .txt (with stamps or a sibling .srt/.json), .srt or .json
       --json             JSON: start, end, text, speaker?
   -q, --quiet            no «N phrases» line
+
+snippets options (text for «вставь <trigger>» while dictating; the same snippets.json as the Dictionary page):
+      list [--json]      show them (JSON: [{trigger, text}])
+      add <trigger> <text> add or replace; text «-» reads stdin (several lines)
+      remove <trigger>   delete
 
 history options (dictation history, read-only, newest first):
       words…             search: every word must occur (ё = е), same as the page

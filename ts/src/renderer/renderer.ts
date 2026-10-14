@@ -144,11 +144,15 @@ interface DictState {
   suggestions: DictSuggestionRow[];
   spoken: { punctuation: boolean; numbers: boolean; punctuationLabel: string; punctuationHint: string; numbersLabel: string; numbersHint: string };
   script: { heading: string; command: string; placeholder: string; hint: string; files: boolean; filesLabel: string; testLabel: string; testLine: string; testOk: boolean | null; busy: boolean };
+  snippets: { heading: string; hint: string; triggerHeader: string; textHeader: string; triggerPlaceholder: string; textPlaceholder: string; addLabel: string; rows: { id: number; trigger: string; text: string }[] };
 }
 interface DictApi {
   setScript(command: string): Promise<DictState>;
   setScriptFiles(on: boolean): Promise<DictState>;
   testScript(): Promise<DictState>;
+  setSnippet(id: number, trigger: string, text: string): Promise<DictState>;
+  addSnippet(): Promise<{ id: number; state: DictState }>;
+  removeSnippet(id: number): Promise<DictState>;
   setSpoken(kind: 'punctuation' | 'numbers', on: boolean): Promise<DictState>;
   state(): Promise<DictState>;
   setRow(id: number, from: string, to: string): Promise<DictState>;
@@ -1401,6 +1405,30 @@ function renderDictionary(focusId?: number): void {
     }
     page.append(list);
   }
+
+  // «Сниппеты»: compact block — trigger, text (grows with lines), delete.
+  const sn = s.snippets;
+  const snBox = el('fieldset', { className: 'snippets' }, el('legend', { textContent: sn.heading }),
+    el('p', { className: 'muted hint', textContent: sn.hint }));
+  snBox.dataset.dict = 'snippets';
+  for (const r of sn.rows) {
+    const trig = el('input', { type: 'text', value: r.trigger, placeholder: sn.triggerPlaceholder, spellcheck: false });
+    const body = el('textarea', { value: r.text, placeholder: sn.textPlaceholder, spellcheck: false, rows: Math.min(6, Math.max(1, r.text.split('\n').length)) });
+    trig.setAttribute('aria-label', sn.triggerHeader);
+    body.setAttribute('aria-label', sn.textHeader);
+    trig.dataset.dict = 'snippetTrigger';
+    body.dataset.dict = 'snippetText';
+    const send = () => void bridge.dict.setSnippet(r.id, trig.value, body.value).then((st) => { dictState = st; });
+    trig.addEventListener('input', send);
+    body.addEventListener('input', () => { body.rows = Math.min(6, Math.max(1, body.value.split('\n').length)); send(); });
+    const del = button(s.deleteLabel, () => void bridge.dict.removeSnippet(r.id).then((st) => applyDict(st)));
+    snBox.append(el('div', { className: 'snippet-row' }, trig, body, del));
+    if (r.id === focusId) focusEl = trig;
+  }
+  const addSn = button(sn.addLabel, () => void bridge.dict.addSnippet().then((res) => applyDict(res.state, res.id)));
+  addSn.dataset.dict = 'snippetAdd';
+  snBox.append(el('div', { className: 'row' }, addSn));
+  page.append(snBox);
 
   // «Свой скрипт»: last, for people who write code. One field, one switch, one check button.
   const sc = s.script;

@@ -10,6 +10,8 @@ import { failureText, logLine, runPostScript, scriptCommand, type PostScriptResu
 import * as Log from '../log';
 import { DEFAULT_RULES, formatRules, type ReplacePair } from '../../core/wordReplace';
 import { suggestDictionary, type DictSuggestion } from '../sales';
+import { cleanSnippets, loadSnippets, saveSnippets, type Snippet } from '../../core/snippets';
+import { snippetsPath } from '../paths';
 import { dictionaryRows, saveDictionary, type SettingsData } from '../settings';
 
 export interface DictRow {
@@ -39,6 +41,25 @@ export interface DictionaryStateDto {
   suggestions: DictSuggestionRow[];
   spoken: SpokenStateDto;
   script: ScriptStateDto;
+  snippets: SnippetsStateDto;
+}
+
+export interface SnippetRow {
+  id: number;
+  trigger: string;
+  text: string;
+}
+
+/** «Сниппеты»: trigger + text rows; «вставь <фраза>» during dictation puts the text in. */
+export interface SnippetsStateDto {
+  heading: string;
+  hint: string;
+  triggerHeader: string;
+  textHeader: string;
+  triggerPlaceholder: string;
+  textPlaceholder: string;
+  addLabel: string;
+  rows: SnippetRow[];
 }
 
 /** «Свой скрипт»: one command field, «also for files», a check button. */
@@ -80,6 +101,8 @@ export interface DictionaryHooks {
   suggest?: (folder: string, existing: ReplacePair[]) => DictSuggestion[];
   /** Override for tests; defaults to core runPostScript. */
   runScript?: (r: PostScriptRun) => Promise<PostScriptResult>;
+  /** snippets.json; defaults to the app data folder (tests pass a temp file). */
+  snippetsPath?: () => string;
 }
 
 function folderExists(p: string): boolean {
@@ -115,6 +138,9 @@ export class DictionaryController {
   private seenFolder: string;
   private scriptTest: { line: string; ok: boolean } | null = null;
   private scriptBusy = false;
+  private snippetRows: SnippetRow[] = [];
+  /** JSON of the list last read or written; a different file content reloads the rows. */
+  private seenSnippets = '';
 
   constructor(private readonly h: DictionaryHooks) {
     this.seenFolder = (h.settings().RagFolder ?? '').trim();
@@ -126,12 +152,78 @@ export class DictionaryController {
     const s = this.h.settings();
     this.rows = dictionaryRows(s).map((p) => ({ id: this.nextId++, from: p.from, to: p.to }));
     this.seenRules = s.WordReplacementRules;
+    this.loadSnippetRows();
+  }
+
+  private snipPath(): string {
+    return (this.h.snippetsPath ?? snippetsPath)();
+  }
+
+  private loadSnippetRows(): void {
+    const list = loadSnippets(this.snipPath());
+    this.snippetRows = list.map((x) => ({ id: this.nextId++, trigger: x.trigger, text: x.text }));
+    this.seenSnippets = JSON.stringify(list);
+  }
+
+  private persistSnippets(): void {
+    const list: Snippet[] = cleanSnippets(this.snippetRows.map((r) => ({ trigger: r.trigger, text: r.text })));
+    const json = JSON.stringify(list);
+    if (json === this.seenSnippets) return;
+    try {
+      saveSnippets(this.snipPath(), list);
+      this.seenSnippets = json;
+    } catch (e) {
+      Log.write(`snippets save failed: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+
+  private snippetsState(): SnippetsStateDto {
+    return {
+      heading: t('Сниппеты', 'Snippets'),
+      hint: t('Скажите при диктовке «вставь подпись» (или «вставить …») — вместо этих слов вставится сохранённый текст. Можно и одной фразой «подпись». Мозг и простой синтаксис текст сниппета не меняют. Хранится только на этом компьютере (snippets.json).',
+        'Say «вставь <trigger>» while dictating and the saved text goes in place of those words. The trigger alone as the whole phrase works too. The Brain and simple syntax leave the snippet text alone. Stored on this computer only (snippets.json).'),
+      triggerHeader: t('Фраза', 'Trigger'),
+      textHeader: t('Текст', 'Text'),
+      triggerPlaceholder: t('подпись', 'signature'),
+      textPlaceholder: t('С уважением,\nИмя Фамилия', 'Best regards,\nName'),
+      addLabel: t('Добавить сниппет', 'Add snippet'),
+      rows: this.snippetRows.map((r) => ({ ...r })),
+    };
+  }
+
+  setSnippet(id: number, trigger: string, text: string): DictionaryStateDto {
+    this.sync();
+    const row = this.snippetRows.find((r) => r.id === id);
+    if (row && typeof trigger === 'string' && typeof text === 'string' && !trigger.includes('\n')) {
+      row.trigger = trigger;
+      row.text = text;
+      this.persistSnippets();
+    }
+    return this.state();
+  }
+
+  addSnippet(): number {
+    this.sync();
+    const id = this.nextId++;
+    this.snippetRows.push({ id, trigger: '', text: '' });
+    return id;
+  }
+
+  removeSnippet(id: number): DictionaryStateDto {
+    this.sync();
+    const at = this.snippetRows.findIndex((r) => r.id === id);
+    if (at >= 0) {
+      this.snippetRows.splice(at, 1);
+      this.persistSnippets();
+    }
+    return this.state();
   }
 
   /** Picks up outside changes: rules edited elsewhere reload rows; a new folder clears suggestions. */
   private sync(): void {
     const s = this.h.settings();
     if (s.WordReplacementRules !== this.seenRules) this.load();
+    else if (JSON.stringify(loadSnippets(this.snipPath())) !== this.seenSnippets) this.loadSnippetRows();
     const folder = (s.RagFolder ?? '').trim();
     if (folder !== this.seenFolder) {
       this.seenFolder = folder;
@@ -157,6 +249,7 @@ export class DictionaryController {
       suggestions: this.suggestions.map((r) => ({ ...r })),
       spoken: this.spokenState(),
       script: this.scriptState(),
+      snippets: this.snippetsState(),
     };
   }
 

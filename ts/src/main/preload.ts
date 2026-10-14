@@ -79,6 +79,9 @@ const api = {
     setSpoken: (kind: 'punctuation' | 'numbers', on: boolean) => ipcRenderer.invoke('dict:setSpoken', kind, on),
     setScript: (command: string) => ipcRenderer.invoke('dict:setScript', command),
     setScriptFiles: (on: boolean) => ipcRenderer.invoke('dict:setScriptFiles', on),
+    setSnippet: (id: number, trigger: string, text: string) => ipcRenderer.invoke('dict:setSnippet', id, trigger, text),
+    addSnippet: () => ipcRenderer.invoke('dict:addSnippet'),
+    removeSnippet: (id: number) => ipcRenderer.invoke('dict:removeSnippet', id),
     testScript: () => ipcRenderer.invoke('dict:testScript'),
   },
   sales: {

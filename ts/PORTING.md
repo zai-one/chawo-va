@@ -1130,3 +1130,11 @@ Re-align folder names and tooling with taptain-desktop once its layout is readab
   символов) через `/v1/transcribe` и job; CLI `--server` пишет `.txt`; bind `0.0.0.0` без токена → exit 2.
   Версия остаётся **2.0.0**. Gaps: деплой/хостинг не делали; Brain/Telegram/SaaS вне scope; без
   OpenAPI; `--server` пока только txt (не srt/vtt/…).
+
+- 2026-10-14 tick (branch `ts/feat-snippets`, competitor queue №1): **Сниппеты** — `src/core/snippets.ts`
+  (normTrigger, applySnippets / expandTokens с маркерами, load/save snippets.json), блок на «Словаре»
+  (DictionaryController + renderer), DictationSession после spoken / до Brain, CLI `chawo-va snippets`
+  list|add|remove. Тесты: snippets (+12), cli, dictationSession, dictionary page. **903** зелёные,
+  `tsc`/build. Live e2e на боксе: 64 PASS / 0 FAIL / 10 SKIP (без речевой модели); CLI add/list/rm
+  и GUI «Словарь» → snippets.json. Следующее по очереди: шаблоны карточки после встречи (№2).
+

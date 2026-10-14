@@ -1032,3 +1032,40 @@ describe('runCli transcribe <link> (CLI parity: «По ссылке» via yt-dlp
     expect(h.opened).toHaveLength(0);
   });
 });
+
+describe('chawo-va snippets', () => {
+  it('add, list, --json, replace, remove, stdin', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'chawo-snip-cli-'));
+    try {
+      const path = join(dir, 'snippets.json');
+      const mk = () => {
+        const h = harness({});
+        h.deps.snippetsPath = () => path;
+        h.deps.readStdin = async () => 'Строка 1\r\nСтрока 2\n';
+        return h;
+      };
+      let h = mk();
+      expect(await run(h, 'snippets', 'list')).toBe(EXIT_OK);
+      expect(h.out.join('')).toBe('');
+      h = mk();
+      expect(await run(h, 'snippets', 'add', 'подпись', 'С уважением')).toBe(EXIT_OK);
+      expect(h.err.join('')).toContain('подпись');
+      h = mk();
+      expect(await run(h, 'snippets', 'add', 'реквизиты', '-')).toBe(EXIT_OK);
+      h = mk();
+      expect(await run(h, 'snippets', 'list')).toBe(EXIT_OK);
+      expect(h.out.join('')).toBe('подпись\tС уважением\nреквизиты\tСтрока 1\\nСтрока 2\n');
+      h = mk();
+      expect(await run(h, 'snippets', 'list', '--json')).toBe(EXIT_OK);
+      expect(JSON.parse(h.out.join(''))).toEqual([{ trigger: 'подпись', text: 'С уважением' }, { trigger: 'реквизиты', text: 'Строка 1\nСтрока 2' }]);
+      h = mk();
+      expect(await run(h, 'snippets', 'remove', 'Подпись')).toBe(EXIT_OK);
+      h = mk();
+      expect(await run(h, 'snippets', 'remove', 'подпись')).toBe(EXIT_FAILED);
+      h = mk();
+      expect(await run(h, 'snippets', 'add', '!!', 'x')).toBe(EXIT_USAGE);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
