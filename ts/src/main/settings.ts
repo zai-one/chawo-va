@@ -68,7 +68,7 @@ export interface SettingsData {
   MeetingSystemAudio: boolean;
   /** Offer to record when Zoom/Teams/… or a local .ics event looks active. Off by default. */
   MeetingAutoDetect: boolean;
-  /** When MeetingAutoDetect is on: watch known meeting apps (Windows process heuristics). */
+  /** When MeetingAutoDetect is on: watch known meeting apps (Windows/Linux process heuristics). */
   MeetingAutoDetectApps: boolean;
   /** Optional path to a .ics file or a folder of .ics (local calendar only, no cloud APIs). */
   MeetingAutoDetectCalendar: string;

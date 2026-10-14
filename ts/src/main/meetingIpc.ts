@@ -5,7 +5,7 @@
 // while a meeting start is pending, and the page drops the video track at once (nothing of the
 // screen is recorded or kept). Any other getDisplayMedia call is refused.
 //
-// «Автоопределение встречи» (opt-in): a gentle poller watches known meeting apps (Windows) and/or
+// «Автоопределение встречи» (opt-in): a gentle poller watches known meeting apps (Windows/Linux) and/or
 // a local .ics path; when something looks active and we are not recording, the page gets a compact
 // «Похоже, идёт встреча — записать?» offer. Recording never starts without the user clicking.
 
