@@ -15,7 +15,15 @@ export interface Snippet {
 }
 
 /** Words that announce a snippet. Matched case-insensitively, ё = е. */
-export const INSERT_VERBS = ['вставь', 'вставьте', 'вставить', 'вставка', 'insert', 'paste'];
+// «ставь» is here because GigaAM often hears «вставь» as «ставь» (checked on real speech).
+export const INSERT_VERBS = ['вставь', 'вставьте', 'вставить', 'вставка', 'вставим', 'ставь', 'insert', 'paste'];
+
+/** Same word up to a Russian ending: «подпись» ~ «подписи», «реквизиты» ~ «реквизитов». */
+export function sameWord(heard: string, trig: string): boolean {
+  if (heard === trig) return true;
+  const stem = trig.replace(/[аеиоуыэюяйь]{1,2}$/u, '');
+  return stem.length >= 4 && stem !== trig && heard.startsWith(stem) && heard.length <= trig.length + 3 && /^[а-я]*$/u.test(heard.slice(stem.length));
+}
 
 export const MAX_TRIGGER = 80;
 export const MAX_TEXT = 20000;
@@ -79,7 +87,7 @@ export function applySnippets(text: string, snippets: readonly Snippet[], tokenF
   const ws = words(text);
   const verbs = new Set(INSERT_VERBS);
   const put = (s: Snippet, i: number) => (tokenFor ? tokenFor(i) : s.text);
-  const at = (i: number, toks: string[]) => toks.every((t, k) => ws[i + k]?.w === t);
+  const at = (i: number, toks: string[]) => toks.every((t, k) => ws[i + k] !== undefined && sameWord(ws[i + k].w, t));
 
   // Whole phrase is just a trigger (optionally with the verb): the snippet replaces everything.
   for (const [idx, { s, toks }] of list.entries()) {

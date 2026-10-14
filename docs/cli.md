@@ -15,6 +15,7 @@
 | `translate <тексты.txt…> [--to язык]` | Перевод через Мозг | `.translate.txt` |
 | `history [слова…]` | История диктовки, новые сверху (только чтение) | stdout |
 | `segments <.txt/.srt/.json…>` | Фразы со временем из готовой расшифровки | stdout |
+| `snippets list\|add\|remove` | Сниппеты для «вставь …» при диктовке (тот же `snippets.json`, что на «Словаре») | stdout / `snippets.json` |
 | `serve` | Headless CPU-сервер расшифровки ([linux-server.md](linux-server.md)) | — |
 | `--help`, `--version` | Справка / версия (`chawo-va 2.0.0`) | stdout |
 
@@ -73,6 +74,16 @@
 
 `--json` (JSON Lines: `start`, `end`, `text`, `speaker?`), `-q`.
 
+### `snippets`
+
+- `snippets list [--json]` — показать: `фраза<TAB>текст` (переводы строк как `\n`) или JSON `[{trigger, text}]`.
+- `snippets add <фраза> <текст…>` — добавить или заменить (та же фраза без учёта регистра/«ё»). Текст `-` —
+  читать из stdin, так удобно для многострочной подписи: `chawo-va snippets add подпись - < sign.txt`.
+- `snippets remove <фраза>` — удалить; нет такой — код 1.
+
+Работает, даже когда приложение открыто: страница «Словарь» подхватит изменения при следующем показе,
+диктовка — на следующей фразе.
+
 ### `history`
 
 `слова…` (поиск, ё = е), `-n/--limit <N|all>` (по умолчанию 20), `--json` (JSON Lines: `id, ts,
@@ -130,6 +141,7 @@ Chawo Voice Assistant — расшифровка файлов, «Кратко и
   chawo-va translate <тексты.txt…> [--to язык] [параметры]
   chawo-va history [слова для поиска…] [-n 20|all] [--json] [--raw]
   chawo-va segments <файлы.txt|.srt|.json…> [--json]
+  chawo-va snippets list [--json] | add <фраза> <текст|-> | remove <фраза>
   chawo-va serve [--host 127.0.0.1|0.0.0.0] [--port 17831] [--token …] [--data-dir …]
 
 Параметры:
@@ -199,6 +211,11 @@ Chawo Voice Assistant — расшифровка файлов, «Кратко и
   файлы…             .txt (с метками или рядом .srt/.json), .srt или .json
       --json             JSON: start, end, text, speaker?
   -q, --quiet            без строки «N фраз»
+
+Параметры snippets (сниппеты для «вставь <фраза>» при диктовке, тот же snippets.json, что на странице «Словарь»):
+      list [--json]      показать (JSON: [{trigger, text}])
+      add <фраза> <текст> добавить или заменить; текст «-» — читать из stdin (несколько строк)
+      remove <фраза>     удалить
 
 Параметры history (история диктовки, только чтение, новые сверху):
       слова…             поиск: каждое слово должно встретиться (ё = е), как на странице

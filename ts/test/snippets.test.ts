@@ -45,6 +45,12 @@ describe('applySnippets', () => {
     expect(expandTokens(r.text.toUpperCase(), [SIG], r.used)).toBe('ИТАК, ' + SIG.text);
     expect(expandTokens('ИТАК', [SIG], r.used)).toBe('ИТАК\n' + SIG.text);
   });
+  it('real-speech forms: «ставь» (GigaAM hears «вставь» so) and word endings', () => {
+    expect(applySnippets('Спасибо за звонок. Ставь подпись.', [SIG]).text).toBe('Спасибо за звонок. ' + SIG.text);
+    expect(applySnippets('вставь подписи', [SIG]).text).toBe(SIG.text);
+    expect(applySnippets('вставь реквизитов компании', [{ trigger: 'реквизиты компании', text: 'x' }]).used).toHaveLength(1);
+    expect(applySnippets('вставь подпора', [SIG]).used).toEqual([]);
+  });
   it('no snippets or empty text → unchanged', () => {
     expect(applySnippets('вставь подпись', []).used).toEqual([]);
     expect(applySnippets('', [SIG]).text).toBe('');

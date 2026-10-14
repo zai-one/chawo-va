@@ -1134,7 +1134,9 @@ Re-align folder names and tooling with taptain-desktop once its layout is readab
 - 2026-10-14 tick (branch `ts/feat-snippets`, competitor queue №1): **Сниппеты** — `src/core/snippets.ts`
   (normTrigger, applySnippets / expandTokens с маркерами, load/save snippets.json), блок на «Словаре»
   (DictionaryController + renderer), DictationSession после spoken / до Brain, CLI `chawo-va snippets`
-  list|add|remove. Тесты: snippets (+12), cli, dictationSession, dictionary page. **903** зелёные,
-  `tsc`/build. Live e2e на боксе: 64 PASS / 0 FAIL / 10 SKIP (без речевой модели); CLI add/list/rm
-  и GUI «Словарь» → snippets.json. Следующее по очереди: шаблоны карточки после встречи (№2).
+  list|add|remove. Тесты: snippets (+13), cli, dictationSession (+3), dictionary page. **904** зелёные,
+  `tsc`/build. Live e2e на боксе: 64 PASS / 0 FAIL / 10 SKIP; CLI add/list/rm и GUI «Словарь» → snippets.json.
+  Живой прогон: речь (TTS) «Спасибо за звонок, вставь подпись.» → DictationSession с GigaAM v3 на CPU →
+  «Спасибо за звонок. С уважением,\nАлександр …». GigaAM часто слышит «вставь» как «ставь» — добавлено в
+  глаголы; окончания триггера («подписи», «реквизитов») сравниваются по основе. Следующее: шаблоны (№2).
 
