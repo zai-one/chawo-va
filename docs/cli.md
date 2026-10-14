@@ -15,6 +15,7 @@
 | `score <расшифровки.txt…> [--checklist имя]` | «Проверка по чек-листу» | `.score.json` + `.score.txt` |
 | `translate <тексты.txt…> [--to язык]` | Перевод через Мозг | `.translate.txt` |
 | `history [слова…]` | История диктовки, новые сверху (только чтение) | stdout |
+| `crm send <brief.txt> --to amocrm\|bitrix\|hubspot\|webhook [--id N]` / `crm config` | Выгрузка «Кратко и задачи» в CRM — только по команде, с предпросмотром; `--dry-run` ничего не отправляет | stdout/stderr |
 | `ask <вопрос…>` | «Спросить историю»: ответ Мозга по фразам диктовки и расшифровкам встреч, с источниками | stdout |
 | `segments <.txt/.srt/.json…>` | Фразы со временем из готовой расшифровки | stdout |
 | `stats <.txt/.srt/.json…>` | «Статистика разговора»: доля речи, монологи, вопросы, темп, трекеры слов | stdout |
@@ -214,6 +215,22 @@ seconds, final, raw, command, brain, brainFailed`), `--raw`, `-q`.
 
 `serve` не принимает `--format/--out/--stdout/--timestamps/--skip-existing` (код 2).
 
+## CRM (`crm`)
+
+Уходит только итог (`*.brief.txt`: кратко + задачи; с `--score` — ещё оценка из `*.score.txt`). Расшифровка и звук не уходят никогда, автоматической отправки нет.
+
+```bash
+chawo-va crm config                                   # что настроено (секреты замаскированы)
+chawo-va crm config --to amocrm --base https://acme.amocrm.ru --entity leads
+printf '%s' "$AMO_TOKEN" | chawo-va crm config --to amocrm --token -   # токен — только через stdin
+chawo-va crm config --to bitrix --webhook https://acme.bitrix24.ru/rest/1/КОД/ --mode task
+chawo-va crm config --to webhook --clear
+chawo-va crm send meet.brief.txt --to amocrm --id 123 --dry-run   # показать ровно то, что уйдёт
+chawo-va crm send meet.brief.txt --to amocrm --id 123 --yes
+```
+
+Без `--yes` в терминале спрашивается y/N, без терминала — код 2. Повтор того же итога в ту же запись отклоняется без `--force`. Токены хранятся только локально в `crm.json` (права 0600), не в истории и не в логах; адреса — только https, без приватных/локальных хостов (проверяется и DNS), редиректы не выполняются. 429/503 повторяются; при 502/504/таймауте для CRM повтора нет — пишется «возможно, уже отправлено».
+
 ## Коды выхода
 
 | Код | Смысл |
@@ -267,6 +284,8 @@ Chawo Voice Assistant — расшифровка файлов, «Кратко и
   chawo-va snippets list [--json] | add <фраза> <текст|-> | remove <фраза>
   chawo-va dictionary list|suggest [--json] | accept <как слышно> [как писать] | dismiss <как слышно>
   chawo-va dictionary learn <было.txt> <стало.txt> [--json] | auto on|off
+  chawo-va crm send <файл.brief.txt> --to amocrm|bitrix|hubspot|webhook [--id N] [--score] [--dry-run] [--yes]
+  chawo-va crm config [--to … параметры]
   chawo-va serve [--host 127.0.0.1|0.0.0.0] [--port 17831] [--token …] [--data-dir …]
 
 Параметры:

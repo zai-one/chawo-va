@@ -8,7 +8,7 @@ export const FORMATS = ['txt', 'srt', 'vtt', 'json', 'md', 'docx'] as const;
 export type OutputFormat = (typeof FORMATS)[number];
 
 export interface CliOptions {
-  command: 'transcribe' | 'brain' | 'brief' | 'score' | 'translate' | 'history' | 'ask' | 'segments' | 'stats' | 'serve' | 'snippets' | 'dictionary' | 'help' | 'version';
+  command: 'transcribe' | 'brain' | 'brief' | 'score' | 'translate' | 'history' | 'ask' | 'segments' | 'stats' | 'serve' | 'snippets' | 'dictionary' | 'crm' | 'help' | 'version';
   inputs: string[];
   /** Empty = not given (txt). */
   formats: OutputFormat[];
@@ -153,6 +153,8 @@ export function parseArgs(argv: readonly string[]): ParseResult {
   const first = args[0];
   if (first === '--help' || first === '-h' || first === 'help') return { ok: true, options: blank('help') };
   if (first === '--version' || first === '-v' || first === 'version') return { ok: true, options: blank('version') };
+  // `crm` has its own small option set (src/cli/crmCommand.ts parses the rest).
+  if (first === 'crm') return { ok: true, options: { ...blank('crm'), inputs: args.slice(1) } };
   if (first !== 'transcribe' && first !== 'brain' && first !== 'brief' && first !== 'score' && first !== 'translate' && first !== 'history' && first !== 'ask' && first !== 'segments' && first !== 'stats' && first !== 'serve' && first !== 'snippets' && first !== 'dictionary') return { ok: false, error: `unknown command: ${first}` };
 
   args.splice(1, 0, ...lead);
@@ -544,6 +546,8 @@ export function helpText(t: (ru: string, en: string) => string): string {
   chawo-va snippets list [--json] | add <фраза> <текст|-> | remove <фраза>
   chawo-va dictionary list|suggest [--json] | accept <как слышно> [как писать] | dismiss <как слышно>
   chawo-va dictionary learn <было.txt> <стало.txt> [--json] | auto on|off
+  chawo-va crm send <файл.brief.txt> --to amocrm|bitrix|hubspot|webhook [--id N] [--score] [--dry-run] [--yes]
+  chawo-va crm config [--to … параметры]
   chawo-va serve [--host 127.0.0.1|0.0.0.0] [--port 17831] [--token …] [--data-dir …]
 
 Параметры:
@@ -702,6 +706,8 @@ Usage:
   chawo-va snippets list [--json] | add <trigger> <text|-> | remove <trigger>
   chawo-va dictionary list|suggest [--json] | accept <heard> [written] | dismiss <heard>
   chawo-va dictionary learn <before.txt> <after.txt> [--json] | auto on|off
+  chawo-va crm send <file.brief.txt> --to amocrm|bitrix|hubspot|webhook [--id N] [--score] [--dry-run] [--yes]
+  chawo-va crm config [--to … options]
   chawo-va serve [--host 127.0.0.1|0.0.0.0] [--port 17831] [--token …] [--data-dir …]
 
 Options:

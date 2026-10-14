@@ -115,6 +115,25 @@ function fakeBrain() {
   });
   return new Promise((r) => server.listen(0, '127.0.0.1', () => r(server)));
 }
+// ---- mock CRM (amoCRM / Bitrix24 / HubSpot / webhook on 127.0.0.1): records every request ----
+const CRM_TOKENS = { amo: 'amo-E2E-SECRET-7f3a91', hub: 'pat-E2E-SECRET-hub-55aa', hook: 'whsec-E2E-SECRET-0c0c' };
+const crmGot = [];
+function crmMock() {
+  const server = http.createServer((req, res) => {
+    let body = '';
+    req.on('data', (c) => (body += c));
+    req.on('end', () => {
+      if (req.method === 'GET' && req.url === '/__log') return res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify(crmGot));
+      crmGot.push({ url: req.url, auth: req.headers.authorization ?? '', sig: req.headers['x-chawo-signature'] ?? '', key: req.headers['idempotency-key'] ?? '', body });
+      res.writeHead(200, { 'content-type': 'application/json' });
+      if (req.url.includes('/api/v4/')) return res.end(JSON.stringify({ _embedded: { notes: [{ id: 1000 + crmGot.length }] } }));
+      if (req.url.includes('/rest/')) return res.end(JSON.stringify({ result: 77 }));
+      res.end(JSON.stringify({ id: 'n' + crmGot.length }));
+    });
+  });
+  return new Promise((r) => server.listen(0, '127.0.0.1', () => r(server)));
+}
+
 // A plain file server for the «link» case (127.0.0.1 only).
 function fileServer(file) {
   const server = http.createServer((req, res) => {
@@ -164,9 +183,10 @@ function installModel() {
 }
 
 // Async on purpose: the fake Brain lives in this process, so a blocking spawnSync would deadlock it.
-function run(args, { env = baseEnv, timeout = 300_000 } = {}) {
+function run(args, { env = baseEnv, timeout = 300_000, input = null } = {}) {
   return new Promise((resolve) => {
-    const child = spawn(process.execPath, [cli, ...args], { env, cwd: tmp, stdio: ['ignore', 'pipe', 'pipe'] });
+    const child = spawn(process.execPath, [cli, ...args], { env, cwd: tmp, stdio: [input == null ? 'ignore' : 'pipe', 'pipe', 'pipe'] });
+    if (input != null) child.stdin.end(input);
     let out = '';
     let err = '';
     child.stdout.setEncoding('utf8').on('data', (c) => (out += c));
@@ -273,6 +293,34 @@ async function cliCases(brainPort) {
   check('cli dictionary suggest is empty after accept', r.code === 0 && r.out.trim() === '[]', brief(r));
   r = await run(['dictionary', 'accept', 'нет-такого']);
   check('cli dictionary accept unknown → exit 1', r.code === 1, brief(r));
+
+  // ---- «В CRM»: config (tokens via stdin only), dry-run sends nothing, --yes sends once, repeat needs --force ----
+  const crmBase = baseEnv.CHAWO_E2E_CRM;
+  const cd = join(tmp, 'crm');
+  mkdirSync(cd, { recursive: true });
+  const cb = join(cd, 'call.brief.txt');
+  writeFileSync(cb, 'Кратко\n- Клиент берёт 20 лицензий\n\nЗадачи\n- Анна: счёт до пятницы\n');
+  r = await run(['crm', 'config', '--to', 'amocrm', '--token', CRM_TOKENS.amo]);
+  check('cli crm config refuses a token as an argument', r.code === 2, brief(r));
+  r = await run(['crm', 'config', '--to', 'amocrm', '--base', crmBase, '--token', '-'], { input: CRM_TOKENS.amo + '\n' });
+  const r2c = await run(['crm', 'config', '--to', 'hubspot', '--token', '-'], { input: CRM_TOKENS.hub });
+  const rcf = await run(['crm', 'config']);
+  check('cli crm config: saved, shown masked', r.code === 0 && r2c.code === 0 && /amocrm\t(ready|настроен)/.test(rcf.out) && /hubspot\t(ready|настроен)/.test(rcf.out) && !rcf.out.includes('SECRET'), brief(r) + ' / ' + brief(rcf));
+  r = await run(['crm', 'config', '--to', 'webhook', '--url', 'https://10.0.0.1/hook']);
+  check('cli crm config: private address refused', r.code === 2 && /private/.test(r.err), brief(r));
+  r = await run(['crm', 'send', cb, '--to', 'amocrm', '--id', '42', '--dry-run']);
+  check('cli crm send --dry-run: exact request, nothing sent, token masked', r.code === 0 && r.out.includes('/api/v4/leads/42/notes') && r.out.includes('Анна: счёт до пятницы') && !r.out.includes('SECRET') && crmGot.length === 0, brief(r));
+  r = await run(['crm', 'send', cb, '--to', 'amocrm', '--id', '42']);
+  check('cli crm send without --yes (no terminal) → exit 2, nothing sent', r.code === 2 && crmGot.length === 0, brief(r));
+  r = await run(['crm', 'send', cb, '--to', 'amocrm', '--id', '42', '--yes']);
+  const amo = crmGot.find((g) => g.url === '/api/v4/leads/42/notes');
+  check('cli crm send amoCRM → mock got the note with the token', r.code === 0 && amo && amo.auth === 'Bearer ' + CRM_TOKENS.amo && JSON.parse(amo.body)[0].params.text.includes('Клиент берёт 20 лицензий') && !r.err.includes('SECRET'), brief(r));
+  const before = crmGot.length;
+  r = await run(['crm', 'send', cb, '--to', 'amocrm', '--id', '42', '--yes']);
+  check('cli crm send repeat → refused without --force', r.code === 1 && /--force/.test(r.err) && crmGot.length === before, brief(r));
+  r = await run(['crm', 'send', cb, '--to', 'hubspot', '--id', '9001', '--yes']);
+  const hub = crmGot.find((g) => g.url === '/crm/v3/objects/notes');
+  check('cli crm send HubSpot → note associated with the record', r.code === 0 && hub && hub.auth === 'Bearer ' + CRM_TOKENS.hub && JSON.parse(hub.body).associations[0].to.id === '9001', brief(r));
 
   r = await run(['history']);
   check('cli history lists the takes', r.code === 0 && r.out.includes('Ёжик') && r.out.includes('Совещание'), brief(r));
@@ -515,6 +563,10 @@ async function guiCase(haveModel) {
 
 (async () => {
   const brain = await fakeBrain();
+  const crm = await crmMock();
+  baseEnv.CHAWO_CRM_ALLOW_LOCAL = '1';
+  baseEnv.CHAWO_E2E_CRM = `http://127.0.0.1:${crm.address().port}`;
+  baseEnv.CHAWO_CRM_HUBSPOT_BASE = baseEnv.CHAWO_E2E_CRM;
   writeSettings(brain.address().port);
   seedHistory();
   let haveModel = false;
@@ -528,6 +580,12 @@ async function guiCase(haveModel) {
     failc('e2e driver', e?.stack ?? String(e));
   }
   brain.close();
+  crm.close();
+  // Secrets: no CRM token in the log, the journal, history or settings.json; crm.json owner-only.
+  const leakIn = [Paths.logPath(), Paths.crmSentPath(), Paths.historyFilePath(), Paths.settingsPath()].filter((p) => Object.values(CRM_TOKENS).some((tk) => read(p).includes(tk)));
+  check('privacy: CRM tokens are not in the log, journal, history or settings', leakIn.length === 0, leakIn.join(', '));
+  const crmMode = existsSync(Paths.crmConfigPath()) ? statSync(Paths.crmConfigPath()).mode & 0o077 : -1;
+  check('privacy: crm.json is owner-only', process.platform === 'win32' || crmMode === 0, `mode ${crmMode.toString(8)}`);
   // Privacy: neither the CLI nor the GUI may leave an onnxruntime device id in the (temp) home cache.
   const deviceid = join(prof.cache, 'Microsoft', 'DeveloperTools', '.onnxruntime', 'deviceid');
   const homeDeviceid = join(prof.home, '.cache', 'Microsoft', 'DeveloperTools', '.onnxruntime', 'deviceid');
