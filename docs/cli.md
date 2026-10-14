@@ -15,6 +15,7 @@
 | `translate <тексты.txt…> [--to язык]` | Перевод через Мозг | `.translate.txt` |
 | `history [слова…]` | История диктовки, новые сверху (только чтение) | stdout |
 | `segments <.txt/.srt/.json…>` | Фразы со временем из готовой расшифровки | stdout |
+| `stats <.txt/.srt/.json…>` | «Статистика разговора»: доля речи, монологи, вопросы, темп, трекеры слов | stdout |
 | `snippets list\|add\|remove` | Сниппеты для «вставь …» при диктовке (тот же `snippets.json`, что на «Словаре») | stdout / `snippets.json` |
 | `dictionary list\|suggest\|accept\|dismiss\|learn\|auto` | Словарь замен и «Из исправлений» (тот же `learned-words.json`, что на «Словаре») | stdout / `learned-words.json` |
 | `serve` | Headless CPU-сервер расшифровки ([linux-server.md](linux-server.md)) | — |
@@ -62,6 +63,11 @@
 
 `-t`/`--no-timestamps` (по умолчанию — как в исходном `.txt`), `--stdout`, `-o/--out`, `--lang`, `-q`.
 
+«Контекст для Мозга» (по желанию): `--context «текст»` или `--context-file <файл>` (первые 2000 знаков) —
+имена, термины, тема встречи. Контекст идёт Мозгу как подсказка к каждому запросу, в `.brain.txt` не
+попадает. Без флага контекста нет. С облачным Мозгом stderr пишет, что контекст уходит на сервер.
+Вместе оба флага нельзя; для других команд они не принимаются (код 2).
+
 ### `brief`
 
 `--template <имя>`, `--instruction «…»`, `--stdout`, `-o/--out`, `--lang`, `-q`.
@@ -88,6 +94,23 @@
 ### `segments`
 
 `--json` (JSON Lines: `start`, `end`, `text`, `speaker?`), `-q`.
+
+### `stats`
+
+Статистика разговора по готовой расшифровке, те же числа, что карточка «Статистика разговора» на
+странице «Расшифровка файла». Фразы берутся как у `segments` (.srt → .json → метки в .txt); доля речи
+по спикерам — когда расшифровка сделана с `--diarize`.
+
+- `--track "Название: слово, слов*, фраза из слов"` — свой трекер, можно несколько раз; `*` — любое
+  окончание, ё = е. Без `--track` — трекеры из настроек (поле «Настроить трекеры»), а если оно пустое —
+  встроенные: Цена, Скидка, Конкуренты, Сроки, Следующий шаг, Возражения.
+- `--hits` — под каждым трекером фразы, где он сработал (`[м:сс] Спикер N: …`).
+- `--json` — один JSON-объект на файл: `durationSeconds`, `talkSeconds`, `words`, `diarized`,
+  `speakers[]` (`speaker` с 1, `share` 0..1, `talkSeconds`, `words`, `wpm`, `questions`,
+  `longestMonologueSeconds`), `turns`, `turnsPerMinute`, `longestMonologue`, `longMonologues`,
+  `trackers[]` (`name`, `terms`, `count`, `hits[]`).
+
+Монолог — подряд идущие фразы одного спикера с паузами не больше 5 с; «длинный» — от минуты.
 
 ### `snippets`
 
@@ -165,8 +188,10 @@ chawo-va transcribe ./recordings -o ./out -f txt,docx --skip-existing
 chawo-va transcribe "https://www.youtube.com/watch?v=…" -f srt
 chawo-va transcribe long.wav --server http://host:17831 --token "$CHAWO_SERVE_TOKEN" -f srt,vtt,json,md,docx
 chawo-va brain talk.txt && chawo-va brief talk.txt
+chawo-va brain call.txt --context "Клиент: ООО «Зюйд-Вест», Анна Карпенко"
 chawo-va translate talk.txt --to de --stdout
 chawo-va segments talk.srt --json
+chawo-va stats talk.txt --hits --track "Цена: дорог*, скидк*"
 chawo-va history счёт -n all
 ```
 
@@ -182,6 +207,7 @@ Chawo Voice Assistant — расшифровка файлов, «Кратко и
   chawo-va translate <тексты.txt…> [--to язык] [параметры]
   chawo-va history [слова для поиска…] [-n 20|all] [--json] [--raw]
   chawo-va segments <файлы.txt|.srt|.json…> [--json]
+  chawo-va stats <файлы.txt|.srt|.json…> [--track «Название: слово, слов*»] [--hits] [--json]
   chawo-va snippets list [--json] | add <фраза> <текст|-> | remove <фраза>
   chawo-va dictionary list|suggest [--json] | accept <как слышно> [как писать] | dismiss <как слышно>
   chawo-va dictionary learn <было.txt> <стало.txt> [--json] | auto on|off
@@ -231,6 +257,9 @@ Chawo Voice Assistant — расшифровка файлов, «Кратко и
   -t / --no-timestamps   [чч:мм:сс] в .brain.txt (по умолчанию — как в исходном .txt)
       --stdout           печатать в stdout вместо .brain.txt
   -o, --out <папка>      куда писать .brain.txt
+      --context <текст>  контекст для Мозга: имена, термины (только подсказка, в текст не вставляется;
+                         с облачным Мозгом уходит на сервер)
+      --context-file <файл>  то же из текстового файла (первые 2000 знаков)
       --lang ru|en       язык сообщений
   -q, --quiet
 
@@ -256,6 +285,14 @@ Chawo Voice Assistant — расшифровка файлов, «Кратко и
   файлы…             .txt (с метками или рядом .srt/.json), .srt или .json
       --json             JSON: start, end, text, speaker?
   -q, --quiet            без строки «N фраз»
+
+Параметры stats («Статистика разговора»: доля речи по спикерам, монологи, вопросы, темп, трекеры слов):
+  файлы…             .txt (с метками или рядом .srt/.json), .srt или .json; спикеры — после --diarize
+      --track «Цена: дорог*, скидк*»
+                         свой трекер (можно несколько; «*» — начало слова, фраза — слова подряд);
+                         без --track — трекеры из настроек (страница «Файл»), иначе встроенные
+      --hits             ещё и фразы, где сработал каждый трекер
+      --json             JSON: длительность, спикеры (доля, слова, темп, монолог), трекеры с фразами
 
 Параметры snippets (сниппеты для «вставь <фраза>» при диктовке, тот же snippets.json, что на странице «Словарь»):
       list [--json]      показать (JSON: [{trigger, text}])
@@ -289,6 +326,7 @@ brain читает готовый .txt и пишет .brain.txt: абзацы б
 brief читает готовый .txt (рядом с записью или .brain.txt) и пишет .brief.txt через Мозг.
 translate переводит готовый .txt через Мозг (локальный по умолчанию) и пишет .translate.txt.
 segments печатает фразы со временем (как карточка «Расшифровка»): .srt → .json → метки в .txt.
+stats печатает статистику разговора по готовой расшифровке (как «Статистика разговора» на странице «Файл»).
 
 Коды выхода: 0 — всё готово, 1 — часть файлов не удалась, 2 — ошибка параметров,
 3 — нет модели / Мозга / yt-dlp, 130 — прервано (Ctrl+C).

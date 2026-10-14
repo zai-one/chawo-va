@@ -72,6 +72,8 @@ export interface SettingsData {
   MeetingBriefInstruction: string;
   /** Selected «Кратко и задачи» template id/name; '' = own instruction (MeetingBriefInstruction). */
   MeetingBriefTemplate: string;
+  /** «Статистика разговора» trackers: «Название: термин, …» per line; '' = built-in (core/callStats). */
+  CallTrackers: string;
   /** «Перевести»: last target language (code, name or free text); empty = auto (RU→EN, else →RU). */
   TranslateTarget: string;
   StartHintDismissed: boolean;
@@ -88,6 +90,10 @@ export interface SettingsData {
   KeepAwakeWhileListening: boolean;
   BrainEveryTake: boolean;
   BrainOnSelection: boolean;
+  /** «Контекст для Мозга»: clipboard text goes to the Brain with the phrase. Opt-in, off by default. */
+  BrainContextClipboard: boolean;
+  /** «Контекст для Мозга»: the focused program and window title go to the Brain. Opt-in, off by default. */
+  BrainContextApp: boolean;
   BrainModel: LocalBrainKind;
   BrainCustomUrl: string;
   BrainInstruction: string;
@@ -148,6 +154,7 @@ export function defaults(): SettingsData {
     MeetingBriefEnabled: false,
     MeetingBriefInstruction: '',
     MeetingBriefTemplate: '',
+    CallTrackers: '',
     TranslateTarget: '',
     StartHintDismissed: false,
     MicrophoneId: '',
@@ -163,6 +170,8 @@ export function defaults(): SettingsData {
     KeepAwakeWhileListening: false,
     BrainEveryTake: false,
     BrainOnSelection: true,
+    BrainContextClipboard: false,
+    BrainContextApp: false,
     BrainModel: 'Qwen3',
     BrainCustomUrl: '',
     BrainInstruction: '',
@@ -402,6 +411,7 @@ export function fromJsonObject(raw: Record<string, unknown>): { settings: Settin
   d.MeetingBriefEnabled = asBool(raw.MeetingBriefEnabled, d.MeetingBriefEnabled);
   d.MeetingBriefInstruction = asString(raw.MeetingBriefInstruction, d.MeetingBriefInstruction);
   d.MeetingBriefTemplate = asString(raw.MeetingBriefTemplate, d.MeetingBriefTemplate);
+  d.CallTrackers = asString(raw.CallTrackers, d.CallTrackers).slice(0, 8000);
   d.TranslateTarget = asString(raw.TranslateTarget, d.TranslateTarget);
   d.StartHintDismissed = asBool(raw.StartHintDismissed, d.StartHintDismissed);
   d.MicrophoneId = asString(raw.MicrophoneId, d.MicrophoneId);
@@ -417,6 +427,8 @@ export function fromJsonObject(raw: Record<string, unknown>): { settings: Settin
   d.KeepAwakeWhileListening = asBool(raw.KeepAwakeWhileListening, d.KeepAwakeWhileListening);
   d.BrainEveryTake = asBool(raw.BrainEveryTake, d.BrainEveryTake);
   d.BrainOnSelection = asBool(raw.BrainOnSelection, d.BrainOnSelection);
+  d.BrainContextClipboard = asBool(raw.BrainContextClipboard, d.BrainContextClipboard);
+  d.BrainContextApp = asBool(raw.BrainContextApp, d.BrainContextApp);
   d.BrainModel = asEnum(raw.BrainModel, ['Qwen3', 'Qwen35', 'Custom'] as const, d.BrainModel);
   d.BrainCustomUrl = asString(raw.BrainCustomUrl, d.BrainCustomUrl);
   d.BrainInstruction = asString(raw.BrainInstruction, d.BrainInstruction);
@@ -495,6 +507,7 @@ export function toJsonObject(s: SettingsData): Record<string, unknown> {
     MeetingBriefEnabled: s.MeetingBriefEnabled,
     MeetingBriefInstruction: s.MeetingBriefInstruction,
     MeetingBriefTemplate: s.MeetingBriefTemplate,
+    CallTrackers: s.CallTrackers,
     TranslateTarget: s.TranslateTarget,
     StartHintDismissed: s.StartHintDismissed,
     MicrophoneId: s.MicrophoneId,
@@ -510,6 +523,8 @@ export function toJsonObject(s: SettingsData): Record<string, unknown> {
     KeepAwakeWhileListening: false,
     BrainEveryTake: s.BrainEveryTake,
     BrainOnSelection: s.BrainOnSelection,
+    BrainContextClipboard: s.BrainContextClipboard,
+    BrainContextApp: s.BrainContextApp,
     BrainModel: s.BrainModel,
     BrainCustomUrl: s.BrainCustomUrl,
     BrainInstruction: s.BrainInstruction,

@@ -8,7 +8,7 @@ export const FORMATS = ['txt', 'srt', 'vtt', 'json', 'md', 'docx'] as const;
 export type OutputFormat = (typeof FORMATS)[number];
 
 export interface CliOptions {
-  command: 'transcribe' | 'brain' | 'brief' | 'translate' | 'history' | 'segments' | 'serve' | 'snippets' | 'dictionary' | 'help' | 'version';
+  command: 'transcribe' | 'brain' | 'brief' | 'translate' | 'history' | 'segments' | 'stats' | 'serve' | 'snippets' | 'dictionary' | 'help' | 'version';
   inputs: string[];
   /** Empty = not given (txt). */
   formats: OutputFormat[];
@@ -28,6 +28,10 @@ export interface CliOptions {
   instruction: string | null;
   /** brief / transcribe --brief: «Кратко и задачи» template (built-in alias or custom name); 'list' prints them. */
   template: string | null;
+  /** stats: «Название: термин, …» per --track (replaces the trackers from settings). */
+  track: string[];
+  /** stats: also print the phrases each tracker matched. */
+  hits: boolean;
   /** translate: target language (code, name or free text); null = settings TranslateTarget / auto. */
   to: string | null;
   /** transcribe: «Свой скрипт» command for the text; null = settings (PostScript when PostScriptFiles is on). */
@@ -58,6 +62,10 @@ export interface CliOptions {
   port: number | null;
   /** serve: job/transcript data directory. */
   dataDir: string | null;
+  /** brain: --context <text> — «Контекст для Мозга» (names, terms). Opt-in. */
+  context: string | null;
+  /** brain: --context-file <file> — the same, read from a text file. */
+  contextFile: string | null;
 }
 
 export type ParseResult = { ok: true; options: CliOptions } | { ok: false; error: string };
@@ -76,7 +84,7 @@ const SCRIPTS: Record<string, CtcScript> = { auto: 'auto', ru: 'russian', russia
 const LANGS: Record<string, 'Russian' | 'English'> = { ru: 'Russian', russian: 'Russian', en: 'English', english: 'English' };
 
 /** Options that take a value: --out DIR and --out=DIR both work. */
-const VALUED = new Set(['--format', '-f', '--out', '-o', '--model', '--device', '--threads', '-j', '--script', '--model-dir', '--lang', '--instruction', '--template', '--to', '--post-script', '--limit', '-n', '--server', '--token', '--host', '--port', '--data-dir']);
+const VALUED = new Set(['--format', '-f', '--out', '-o', '--model', '--device', '--threads', '-j', '--script', '--model-dir', '--lang', '--instruction', '--template', '--track', '--to', '--post-script', '--limit', '-n', '--server', '--token', '--host', '--port', '--data-dir', '--context', '--context-file']);
 
 function blank(command: CliOptions['command']): CliOptions {
   return {
@@ -96,6 +104,8 @@ function blank(command: CliOptions['command']): CliOptions {
     lang: null,
     instruction: null,
     template: null,
+    track: [],
+    hits: false,
     to: null,
     postScript: null,
     noPostScript: false,
@@ -111,6 +121,8 @@ function blank(command: CliOptions['command']): CliOptions {
     host: null,
     port: null,
     dataDir: null,
+    context: null,
+    contextFile: null,
   };
 }
 
@@ -126,7 +138,7 @@ export function parseArgs(argv: readonly string[]): ParseResult {
   const first = args[0];
   if (first === '--help' || first === '-h' || first === 'help') return { ok: true, options: blank('help') };
   if (first === '--version' || first === '-v' || first === 'version') return { ok: true, options: blank('version') };
-  if (first !== 'transcribe' && first !== 'brain' && first !== 'brief' && first !== 'translate' && first !== 'history' && first !== 'segments' && first !== 'serve' && first !== 'snippets' && first !== 'dictionary') return { ok: false, error: `unknown command: ${first}` };
+  if (first !== 'transcribe' && first !== 'brain' && first !== 'brief' && first !== 'translate' && first !== 'history' && first !== 'segments' && first !== 'stats' && first !== 'serve' && first !== 'snippets' && first !== 'dictionary') return { ok: false, error: `unknown command: ${first}` };
 
   args.splice(1, 0, ...lead);
   const o = blank(first);
@@ -247,8 +259,23 @@ export function parseArgs(argv: readonly string[]): ParseResult {
         o.limit = Number(lower);
         break;
       }
+      case '--context':
+        if (!v.trim()) return { ok: false, error: '--context is empty' };
+        o.context = v;
+        break;
+      case '--context-file':
+        if (!v) return { ok: false, error: '--context-file is empty' };
+        o.contextFile = v;
+        break;
       case '--json':
         o.json = true;
+        break;
+      case '--hits':
+        o.hits = true;
+        break;
+      case '--track':
+        if (!v || !v.trim()) return { ok: false, error: '--track is empty' };
+        o.track.push(v);
         break;
       case '--raw':
         o.raw = true;
@@ -309,6 +336,7 @@ export function parseArgs(argv: readonly string[]): ParseResult {
   if ((o.brain !== null || o.brief !== null) && o.command !== 'transcribe')
     return { ok: false, error: o.command === 'brain' || o.command === 'brief' ? `--brain / --brief are switches for transcribe; \`${o.command}\` already does it` : '--brain and --brief are for transcribe' };
   if (o.server != null && o.command !== 'transcribe') return { ok: false, error: '--server is for transcribe' };
+  if ((o.track.length > 0 || o.hits) && o.command !== 'stats') return { ok: false, error: '--track and --hits are for stats' };
   if (o.template != null) {
     if (o.command !== 'brief' && o.command !== 'transcribe') return { ok: false, error: '--template is for brief (or transcribe --brief)' };
     if (o.instruction != null) return { ok: false, error: '--template and --instruction cannot be used together' };
@@ -390,6 +418,15 @@ export function parseArgs(argv: readonly string[]): ParseResult {
     } else return { ok: false, error: `unknown dictionary action: ${o.inputs[0]} (use list, suggest, accept, dismiss, learn or auto)` };
     return { ok: true, options: o };
   }
+  if (o.command === 'stats') {
+    const speech = o.model || o.device || o.threads || o.script || o.modelDir;
+    if (o.formats.length > 0 || o.outDir || o.stdout || o.timestamps !== null || o.skipExisting || speech)
+      return { ok: false, error: 'stats prints to stdout; pass transcript .txt/.srt/.json files, --track, --hits, --json' };
+    if (o.instruction != null || o.to != null || o.postScript != null || o.noPostScript || o.limit !== null || o.raw)
+      return { ok: false, error: 'stats takes transcript files, --track, --hits and --json' };
+    if (o.inputs.length === 0) return { ok: false, error: 'stats needs transcript files' };
+    return { ok: true, options: o };
+  }
   if (o.command === 'segments') {
     const speech = o.model || o.device || o.threads || o.script || o.modelDir;
     if (o.formats.length > 0 || o.outDir || o.stdout || o.timestamps !== null || o.skipExisting || speech)
@@ -399,6 +436,8 @@ export function parseArgs(argv: readonly string[]): ParseResult {
     if (o.inputs.length === 0) return { ok: false, error: 'no files given' };
     return { ok: true, options: o };
   }
+  if ((o.context != null || o.contextFile != null) && o.command !== 'brain') return { ok: false, error: '--context / --context-file are for brain' };
+  if (o.context != null && o.contextFile != null) return { ok: false, error: '--context and --context-file cannot be used together' };
   if (o.limit !== null || o.json || o.raw) return { ok: false, error: '-n, --json and --raw are for history ( --json also for segments)' };
   if (o.inputs.length === 0) return { ok: false, error: 'no files given' };
   if (o.command === 'brain') {
@@ -434,6 +473,7 @@ export function helpText(t: (ru: string, en: string) => string): string {
   chawo-va translate <тексты.txt…> [--to язык] [параметры]
   chawo-va history [слова для поиска…] [-n 20|all] [--json] [--raw]
   chawo-va segments <файлы.txt|.srt|.json…> [--json]
+  chawo-va stats <файлы.txt|.srt|.json…> [--track «Название: слово, слов*»] [--hits] [--json]
   chawo-va snippets list [--json] | add <фраза> <текст|-> | remove <фраза>
   chawo-va dictionary list|suggest [--json] | accept <как слышно> [как писать] | dismiss <как слышно>
   chawo-va dictionary learn <было.txt> <стало.txt> [--json] | auto on|off
@@ -483,6 +523,9 @@ export function helpText(t: (ru: string, en: string) => string): string {
   -t / --no-timestamps   [чч:мм:сс] в .brain.txt (по умолчанию — как в исходном .txt)
       --stdout           печатать в stdout вместо .brain.txt
   -o, --out <папка>      куда писать .brain.txt
+      --context <текст>  контекст для Мозга: имена, термины (только подсказка, в текст не вставляется;
+                         с облачным Мозгом уходит на сервер)
+      --context-file <файл>  то же из текстового файла (первые 2000 знаков)
       --lang ru|en       язык сообщений
   -q, --quiet
 
@@ -508,6 +551,14 @@ export function helpText(t: (ru: string, en: string) => string): string {
   файлы…             .txt (с метками или рядом .srt/.json), .srt или .json
       --json             JSON: start, end, text, speaker?
   -q, --quiet            без строки «N фраз»
+
+Параметры stats («Статистика разговора»: доля речи по спикерам, монологи, вопросы, темп, трекеры слов):
+  файлы…             .txt (с метками или рядом .srt/.json), .srt или .json; спикеры — после --diarize
+      --track «Цена: дорог*, скидк*»
+                         свой трекер (можно несколько; «*» — начало слова, фраза — слова подряд);
+                         без --track — трекеры из настроек (страница «Файл»), иначе встроенные
+      --hits             ещё и фразы, где сработал каждый трекер
+      --json             JSON: длительность, спикеры (доля, слова, темп, монолог), трекеры с фразами
 
 Параметры snippets (сниппеты для «вставь <фраза>» при диктовке, тот же snippets.json, что на странице «Словарь»):
       list [--json]      показать (JSON: [{trigger, text}])
@@ -541,6 +592,7 @@ brain читает готовый .txt и пишет .brain.txt: абзацы б
 brief читает готовый .txt (рядом с записью или .brain.txt) и пишет .brief.txt через Мозг.
 translate переводит готовый .txt через Мозг (локальный по умолчанию) и пишет .translate.txt.
 segments печатает фразы со временем (как карточка «Расшифровка»): .srt → .json → метки в .txt.
+stats печатает статистику разговора по готовой расшифровке (как «Статистика разговора» на странице «Файл»).
 
 Коды выхода: 0 — всё готово, 1 — часть файлов не удалась, 2 — ошибка параметров,
 3 — нет модели / Мозга / yt-dlp, 130 — прервано (Ctrl+C).`,
@@ -553,6 +605,7 @@ Usage:
   chawo-va translate <text.txt…> [--to language] [options]
   chawo-va history [search words…] [-n 20|all] [--json] [--raw]
   chawo-va segments <files.txt|.srt|.json…> [--json]
+  chawo-va stats <files.txt|.srt|.json…> [--track "Name: word, wor*"] [--hits] [--json]
   chawo-va snippets list [--json] | add <trigger> <text|-> | remove <trigger>
   chawo-va dictionary list|suggest [--json] | accept <heard> [written] | dismiss <heard>
   chawo-va dictionary learn <before.txt> <after.txt> [--json] | auto on|off
@@ -602,6 +655,9 @@ brain options (same as «Run through the Brain» on the page):
   -t / --no-timestamps   [hh:mm:ss] in .brain.txt (default: as in the source .txt)
       --stdout           print to stdout instead of .brain.txt
   -o, --out <dir>        where to write .brain.txt
+      --context <text>   context for the Brain: names, terms (a hint only, never inserted;
+                         with a cloud Brain it goes to the server)
+      --context-file <file>  the same from a text file (first 2000 characters)
       --lang ru|en       message language
   -q, --quiet
 
@@ -627,6 +683,14 @@ segments options (timed phrases from a finished transcript, read-only):
   files…             .txt (with stamps or a sibling .srt/.json), .srt or .json
       --json             JSON: start, end, text, speaker?
   -q, --quiet            no «N phrases» line
+
+stats options («Call stats»: talk ratio per speaker, monologues, questions, pace, keyword trackers):
+  files…             .txt (with stamps or a sibling .srt/.json), .srt or .json; speakers come from --diarize
+      --track "Price: pric*, discount*"
+                         your own tracker (repeatable; «*» = word start, a phrase = words in a row);
+                         without --track: trackers from settings (File page), else the built-in ones
+      --hits             also the phrases each tracker matched
+      --json             JSON: duration, speakers (share, words, pace, monologue), trackers with phrases
 
 snippets options (text for «вставь <trigger>» while dictating; the same snippets.json as the Dictionary page):
       list [--json]      show them (JSON: [{trigger, text}])
@@ -660,6 +724,7 @@ brain reads a finished .txt and writes .brain.txt: paragraphs without filler wor
 brief reads a finished .txt (beside the recording or .brain.txt) and writes .brief.txt via the Brain.
 translate translates a finished .txt via the Brain (local by default) and writes .translate.txt.
 segments prints timed phrases (like the Transcript card): .srt → .json → stamps in .txt.
+stats prints call stats for a finished transcript (like «Call stats» on the File page).
 
 Exit codes: 0 all done, 1 some files failed, 2 bad arguments, 3 no model/Brain/yt-dlp, 130 interrupted (Ctrl+C).`,
   );

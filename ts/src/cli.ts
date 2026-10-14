@@ -62,6 +62,7 @@ export function readDefaults(): CliDefaults {
     diarize: s.FileDiarize,
     brain: s.FileUseBrain,
     brief: s.MeetingBriefEnabled,
+    callTrackers: s.CallTrackers,
   };
 }
 

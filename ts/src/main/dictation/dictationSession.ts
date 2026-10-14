@@ -35,6 +35,7 @@ import * as LocalBrain from '../brain/localBrain';
 import { BrainException, type FetchLike } from '../brain/speechCleanup';
 import * as RemoteSpeech from '../network/remoteSpeech';
 import { RemoteHostException } from '../network/remoteSpeech';
+import { contextBlock } from '../../core/brainContext';
 import { applyRule, exeKey, findRule, type ForegroundApp } from '../../core/appRules';
 import * as Log from '../log';
 import type { OverlaySink } from '../overlay/overlayModel';
@@ -84,7 +85,7 @@ export interface SessionHooks {
   /** App.BrainUsable: Local with the model on disk, or Server with url/model/key filled in. */
   brainUsable?: (s: SettingsData) => boolean;
   /** Brain.TransformAsync; defaults to the real one with `fetch`. */
-  transform?: (s: SettingsData, body: string, command: string | null, status: (line: string) => void, signal: AbortSignal, selection?: boolean) => Promise<string>;
+  transform?: (s: SettingsData, body: string, command: string | null, status: (line: string) => void, signal: AbortSignal, selection?: boolean, context?: string) => Promise<string>;
   /** fetch for the default transform (tests pass a fake OpenAI-compatible server). */
   fetch?: FetchLike;
   /** Live-draft pass interval while listening (WPF 1000 ms); 0 turns drafts off. */
@@ -109,6 +110,8 @@ export interface SessionHooks {
   remote?: (s: SettingsData, samples: Float32Array, rate: number, signal: AbortSignal) => Promise<string>;
   /** The focused program at key press (per-app modes). Asked only while settings.AppRules is not empty. */
   foreground?: () => Promise<ForegroundApp | null>;
+  /** «Контекст для Мозга»: clipboard text at key press (Electron clipboard). Read only while BrainContextClipboard is on. */
+  clipboardText?: () => string;
   /** The program seen for the last take and the index of the rule that fired (the «Мозг» page shows it). */
   onApp?: (app: ForegroundApp | null, ruleIndex: number | null) => void;
   /** VAD trim of a finished take (settings.VadEnabled); defaults to Silero when its model is on disk. */
@@ -201,6 +204,8 @@ export class DictationSession {
   private readonly transform: NonNullable<SessionHooks['transform']>;
   private readonly remote: NonNullable<SessionHooks['remote']>;
   private fgTask: Promise<ForegroundApp | null> | null = null;
+  /** «Контекст для Мозга»: clipboard text read at key press (before our own copy/paste replaces it). */
+  private clipAtPress: string | null = null;
   private readonly trim: NonNullable<SessionHooks['trim']>;
   private watch: SilenceWatch | null = null;
   /** Samples of a «Чаво» take heard before any speech (WAKE_NO_SPEECH_MS). */
@@ -213,7 +218,7 @@ export class DictationSession {
     this.h = { find: findComplete, open: openRecognizer, platform: process.platform, ...hooks };
     this.brainUsable = hooks.brainUsable ?? defaultBrainUsable;
     this.transform = hooks.transform
-      ?? ((s, body, command, status, signal, selection) => transformAsync(s, body, command, status, signal, selection ?? false, hooks.fetch ?? globalThis.fetch));
+      ?? ((s, body, command, status, signal, selection, context) => transformAsync(s, body, command, status, signal, selection ?? false, hooks.fetch ?? globalThis.fetch, context ?? ''));
     this.remote = hooks.remote ?? ((s, samples, rate, signal) => RemoteSpeech.transcribe(s, samples, rate, signal));
     this.trim = hooks.trim ?? ((s, samples, rate) => trimTake(s, samples, rate));
     this.idle = new IdleTimer({
@@ -313,6 +318,7 @@ export class DictationSession {
     this.abandon = false;
     this.status = '';
     this.fgTask = this.askForeground();
+    this.clipAtPress = this.readClipboardContext();
     // A hands-free take has no key to release: it always ends on a pause.
     const autoStop = this.h.settings().VadAutoStopMs || (source === 'wake' ? WAKE_AUTO_STOP_MS : 0);
     this.watch = autoStop > 0 ? new SilenceWatch(autoStop, SAMPLE_RATE) : null;
@@ -336,9 +342,21 @@ export class DictationSession {
 
   /** Per-app modes: ask which program has the focus now, while the key is down (no rules, no question). */
   private askForeground(): Promise<ForegroundApp | null> | null {
-    if (!this.h.foreground || this.h.settings().AppRules.length === 0) return null;
+    const st = this.h.settings();
+    if (!this.h.foreground || (st.AppRules.length === 0 && !(st.BrainContextApp && this.brainUsable(st)))) return null;
     try {
       return this.h.foreground().catch(() => null);
+    } catch {
+      return null;
+    }
+  }
+
+  /** «Контекст для Мозга»: the clipboard text, only when the user turned it on. Never throws. */
+  private readClipboardContext(): string | null {
+    const st = this.h.settings();
+    if (!st.BrainContextClipboard || !this.h.clipboardText || !this.brainUsable(st)) return null;
+    try {
+      return this.h.clipboardText() || null;
     } catch {
       return null;
     }
@@ -426,6 +444,9 @@ export class DictationSession {
     const peak = this.buf.takePeak;
     const fgTask = this.fgTask;
     this.fgTask = null;
+    const clipText = this.clipAtPress;
+    this.clipAtPress = null;
+    let fgApp: ForegroundApp | null = null;
     this.push();
     let result: string | null = null;
     try {
@@ -527,6 +548,7 @@ export class DictationSession {
         let now = this.h.settings();
         if (fgTask) {
           const app = await settleWithin(fgTask, FOREGROUND_WAIT_MS, null);
+          fgApp = app;
           const found = findRule(now.AppRules, app);
           this.h.onApp?.(app, found?.index ?? null);
           if (found && app) {
@@ -539,6 +561,13 @@ export class DictationSession {
           }
         }
         simpleOn = now.SimpleSyntax;
+        // «Контекст для Мозга»: opt-in reference for names and terms; '' when both switches are off.
+        const context = contextBlock({
+          text: now.BrainContextClipboard ? clipText : null,
+          app: now.BrainContextApp ? fgApp?.exe : null,
+          title: now.BrainContextApp ? fgApp?.title : null,
+        });
+        if (context) Log.write(`brain context: clipboard=${clipText ? clipText.length : 0} chars app=${now.BrainContextApp && fgApp ? 'yes' : 'no'}`);
         const selected = this.selectionAtPress && text.length > 0 && snippetsUsed.length === 0 ? await this.selectionAtPress : null;
         this.selectionAtPress = null;
         if (this.abandon) {
@@ -549,7 +578,7 @@ export class DictationSession {
           // Selected text + speech = a command on the selection ("make it shorter", "translate").
           // The answer is pasted over the selection; Ctrl+Z in the app brings the original back.
           Log.write(`brain on selection, ${selected.length} chars`);
-          const { answer, failure } = await this.runBrain(now, selected, stripAddress(text), overlay, abort.signal, true);
+          const { answer, failure } = await this.runBrain(now, selected, stripAddress(text), overlay, abort.signal, true, context);
           if (this.abandon) {
             overlay?.hideNow();
             return null;
@@ -570,7 +599,7 @@ export class DictationSession {
             brainCommand = cmd !== null;
             command = cmd?.command ?? null;
             brainRan = true;
-            const { answer, failure } = await this.runBrain(now, body, cmd?.command ?? null, overlay, abort.signal);
+            const { answer, failure } = await this.runBrain(now, body, cmd?.command ?? null, overlay, abort.signal, false, context);
             if (this.abandon) {
               overlay?.hideNow();
               return null;
@@ -739,13 +768,14 @@ export class DictationSession {
     overlay: OverlaySink | null,
     signal: AbortSignal,
     selection = false,
+    context = '',
   ): Promise<{ answer: string | null; failure: string | null }> {
     try {
       const answer = await this.transform(s, body, command, (line) => {
         overlay?.showStatus(line);
         this.status = line;
         this.push();
-      }, signal, selection);
+      }, signal, selection, context);
       return answer.trim().length > 0
         ? { answer, failure: null }
         : { answer: null, failure: t('нейросеть вернула пустой ответ', 'the model returned an empty answer') };

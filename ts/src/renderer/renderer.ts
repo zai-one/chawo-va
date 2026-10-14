@@ -51,6 +51,24 @@ interface FileState {
     sourceHint?: string;
     note?: string;
   };
+  callStats?: {
+    stats: CallStatsView | null;
+    trackers: string;
+    defaultTrackers: string;
+  };
+}
+interface CallStatsView {
+  durationSeconds: number;
+  talkSeconds: number;
+  words: number;
+  phrases: number;
+  diarized: boolean;
+  speakers: { speaker: number; talkSeconds: number; share: number; words: number; phrases: number; questions: number; wpm: number; longestMonologueSeconds: number }[];
+  turns: number;
+  turnsPerMinute: number;
+  longestMonologue: { speaker: number; start: number; end: number; seconds: number } | null;
+  longMonologues: number;
+  trackers: { name: string; terms: string[]; count: number; hits: { start: number; speaker?: number; term: string; text: string }[] }[];
 }
 interface FileApi {
   state(): Promise<FileState>;
@@ -71,6 +89,7 @@ interface FileApi {
   saveBriefTemplate(name: string, instruction: string): Promise<FileState>;
   deleteBriefTemplate(name: string): Promise<FileState>;
   runBrief(path?: string): Promise<FileState>;
+  setCallTrackers(text: string): Promise<FileState>;
   setTranslateTarget(text: string): Promise<FileState>;
   runTranslate(to?: string, path?: string): Promise<FileState>;
   openEditor(path?: string): Promise<FileState>;
@@ -248,6 +267,7 @@ interface BrainState {
   everyTake: { visible: boolean; on: boolean; hint: string };
   instruction: { visible: boolean; text: string; hint: string };
   selection: { visible: boolean; on: boolean; hint: string };
+  context: { visible: boolean; clipboard: boolean; app: boolean; hint: string; warning: string };
   download: BrainDownload | null;
   appRules: {
     heading: string;
@@ -269,6 +289,7 @@ interface BrainApi {
   setEveryTake(v: boolean): Promise<BrainState>;
   setInstruction(v: string): Promise<BrainState>;
   setSelection(v: boolean): Promise<BrainState>;
+  setContext(v: { clipboard?: boolean; app?: boolean }): Promise<BrainState>;
   setDevice(v: string): Promise<BrainState>;
   setLocalModel(v: string): Promise<BrainState>;
   setCustomUrl(v: string): Promise<BrainState>;
@@ -777,6 +798,19 @@ function renderBrain(): void {
     cb.addEventListener('change', () => void bridge.brain.setSelection(cb.checked).then(applyBrain));
     page.append(el('label', { className: 'check' }, cb, ' ', L('Править выделенный текст голосом', 'Edit selected text by voice')),
       el('p', { className: 'muted hint indent', textContent: s.selection.hint }));
+  }
+  if (s.context.visible) {
+    const clip = el('input', { type: 'checkbox', checked: s.context.clipboard });
+    clip.id = 'brain-context-clipboard';
+    clip.addEventListener('change', () => void bridge.brain.setContext({ clipboard: clip.checked }).then(applyBrain));
+    const app = el('input', { type: 'checkbox', checked: s.context.app });
+    app.id = 'brain-context-app';
+    app.addEventListener('change', () => void bridge.brain.setContext({ app: app.checked }).then(applyBrain));
+    page.append(el('label', { className: 'block', textContent: L('Контекст для Мозга (по желанию)', 'Context for the Brain (opt-in)') }),
+      el('label', { className: 'check' }, clip, ' ', L('Текст из буфера обмена', 'Clipboard text')),
+      el('label', { className: 'check' }, app, ' ', L('Программа и заголовок окна', 'Program and window title')),
+      el('p', { className: 'muted hint indent', textContent: s.context.hint }));
+    if (s.context.warning) page.append(el('p', { className: 'hint warn indent', textContent: s.context.warning }));
   }
   renderAppRules(s);
 }
@@ -1706,6 +1740,113 @@ let urlDraft = '';
 /** «Перевести»: what the user is typing in the language field; null = show the saved value. */
 let translateDraft: string | null = null;
 
+/** mm:ss / h:mm:ss for the stats card. */
+function statClock(seconds: number): string {
+  const v = Math.max(0, Math.round(seconds));
+  const h = Math.floor(v / 3600);
+  const m = Math.floor(v / 60) % 60;
+  const ss = String(v % 60).padStart(2, '0');
+  return h > 0 ? `${h}:${String(m).padStart(2, '0')}:${ss}` : `${m}:${ss}`;
+}
+
+/**
+ * «Статистика разговора» (как у Gong): доля речи по спикерам полосками, темп, вопросы, монологи и
+ * трекеры слов. Считает main-процесс по тем же фразам, что карточка «Расшифровка»; клик по фразе
+ * трекера — воспроизведение с этого места, если звук рядом найден. Только локально.
+ */
+function renderCallStats(page: HTMLElement, s: FileState): void {
+  const cs = s.callStats;
+  if (!cs?.stats || cs.stats.phrases === 0) return;
+  const st = cs.stats;
+  const spName = (id: number) => (id < 0 ? L('Речь', 'Speech') : L(`Спикер ${id + 1}`, `Speaker ${id + 1}`));
+  const box = el('fieldset', { className: 'call-stats' }, el('legend', { textContent: L('Статистика разговора', 'Call stats') }));
+  box.dataset.stats = 'card';
+  box.append(el('p', { className: 'muted hint', textContent: L(
+    `Длительность ${statClock(st.durationSeconds)}, речь ${statClock(st.talkSeconds)}, слов ${st.words}.` + (st.diarized ? ` Смен говорящего: ${st.turns} (${st.turnsPerMinute}/мин).` : ''),
+    `Duration ${statClock(st.durationSeconds)}, speech ${statClock(st.talkSeconds)}, ${st.words} words.` + (st.diarized ? ` Speaker switches: ${st.turns} (${st.turnsPerMinute}/min).` : ''),
+  ) }));
+  if (!st.diarized) {
+    box.append(el('p', { className: 'muted hint', textContent: L(
+      'Спикеры не размечены: включите «Разделять по спикерам» и расшифруйте снова, чтобы увидеть долю речи каждого.',
+      'No speaker labels: turn on «Split by speakers» and transcribe again to see each speaker\'s share.',
+    ) }));
+  }
+  const bars = el('div', { className: 'talk-bars' });
+  for (const sp of st.speakers) {
+    const pct = Math.round(sp.share * 100);
+    const fill = el('span', { className: 'talk-fill' });
+    fill.style.width = `${Math.max(1, pct)}%`;
+    const row = el('div', { className: 'talk-row' },
+      el('span', { className: 'talk-name', textContent: spName(sp.speaker) }),
+      el('span', { className: 'talk-bar' }, fill),
+      el('span', { className: 'talk-pct', textContent: `${pct}%` }),
+      el('span', { className: 'muted talk-meta', textContent: L(
+        `${statClock(sp.talkSeconds)} · ${sp.wpm} сл/мин · вопросов ${sp.questions} · монолог до ${statClock(sp.longestMonologueSeconds)}`,
+        `${statClock(sp.talkSeconds)} · ${sp.wpm} wpm · ${sp.questions} questions · monologue up to ${statClock(sp.longestMonologueSeconds)}`,
+      ) }),
+    );
+    row.dataset.speaker = String(sp.speaker);
+    bars.append(row);
+  }
+  box.append(bars);
+  if (st.longestMonologue && st.longestMonologue.seconds >= 60) {
+    const m = st.longestMonologue;
+    box.append(el('p', { className: 'hint warn', textContent: L(
+      `Самый длинный монолог: ${spName(m.speaker)}, ${statClock(m.seconds)} (с ${statClock(m.start)}). Монологов дольше минуты: ${st.longMonologues}.`,
+      `Longest monologue: ${spName(m.speaker)}, ${statClock(m.seconds)} (at ${statClock(m.start)}). Monologues over a minute: ${st.longMonologues}.`,
+    ) }));
+  }
+  // Trackers: count chips; a chip with hits opens the matching phrases.
+  const ed = s.editor;
+  const audio = ed?.available && ed.mediaUrl ? ensureEditorAudio(ed.mediaUrl) : null;
+  const list = el('div', { className: 'trackers' });
+  for (const tr of st.trackers) {
+    const head = el('summary', {},
+      el('span', { className: 'tracker-name', textContent: tr.name }),
+      el('span', { className: tr.count > 0 ? 'tracker-count hit' : 'tracker-count', textContent: String(tr.count) }),
+    );
+    const det = el('details', { className: 'tracker' }, head);
+    det.dataset.tracker = tr.name;
+    if (tr.hits.length === 0) {
+      det.append(el('p', { className: 'muted hint', textContent: L(`Не встретилось: ${tr.terms.join(', ')}`, `Not found: ${tr.terms.join(', ')}`) }));
+    }
+    for (const h of tr.hits) {
+      const who = typeof h.speaker === 'number' ? spName(h.speaker) + ' · ' : '';
+      const row = el('button', { type: 'button', className: 'phrase' },
+        el('span', { className: 'phrase-time', textContent: statClock(h.start) }),
+        el('span', { className: 'phrase-body', textContent: who + h.text }),
+      );
+      if (audio) {
+        row.addEventListener('click', () => {
+          audio.currentTime = Math.max(0, h.start);
+          void audio.play().catch(() => { /* autoplay / decode */ });
+        });
+      } else row.disabled = true;
+      det.append(row);
+    }
+    list.append(det);
+  }
+  box.append(el('label', {}, L('Трекеры слов', 'Keyword trackers')), list);
+  // Tracker editor: one line per tracker, «Название: слово, слов*»; empty = built-in.
+  const area = el('textarea', { rows: 6, spellcheck: false }) as HTMLTextAreaElement;
+  area.dataset.stats = 'trackers';
+  area.value = cs.trackers;
+  area.placeholder = cs.defaultTrackers;
+  area.addEventListener('change', () => void bridge.file.setCallTrackers(area.value).then(apply));
+  const reset = button(L('Вернуть встроенные', 'Restore built-in'), () => void bridge.file.setCallTrackers('').then(apply), 'link');
+  const cfg = el('details', { className: 'tracker-config' },
+    el('summary', { textContent: L('Настроить трекеры', 'Edit trackers') }),
+    el('p', { className: 'muted hint', textContent: L(
+      'По строке на трекер: «Название: слово, слов*, фраза из слов». «*» — любое окончание, ё = е. В терминале: chawo-va stats файл.txt',
+      'One line per tracker: «Name: word, wor*, a phrase». «*» = any ending, ё = е. In the terminal: chawo-va stats file.txt',
+    ) }),
+    area,
+    el('div', { className: 'row' }, reset),
+  );
+  box.append(cfg);
+  page.append(box);
+}
+
 function renderFile(): void {
   const s = fileState;
   const prev = document.activeElement as HTMLInputElement | null;
@@ -1841,6 +1982,7 @@ function renderFile(): void {
     }
   }
   page.append(editorBox);
+  renderCallStats(page, s);
 
   page.append(el('p', { className: 'status', textContent: s.status }));
   renderMeeting();

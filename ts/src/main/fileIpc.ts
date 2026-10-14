@@ -14,6 +14,7 @@ import { BrainException } from './brain/speechCleanup';
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { loadTimedTranscript, toTxt, type TranscriptSegment } from '../core/transcriptFormat';
 import { siblingAudioCandidates } from '../core/localMedia';
+import { computeCallStats, DEFAULT_TRACKERS_TEXT, parseTrackers, type CallStats } from '../core/callStats';
 import { allowMediaPath, isMediaAllowed, mediaUrlFor } from './localMediaProtocol';
 import { scriptCommand } from '../core/postScript';
 import * as Settings from './settings';
@@ -101,6 +102,8 @@ export interface FileStateDto {
   ru: boolean;
   /** Click-a-phrase transcript editor (timed segments + local audio). */
   editor: FileEditorDto;
+  /** «Статистика разговора» for the editor's transcript (null = no timed phrases). */
+  callStats: { stats: CallStats | null; trackers: string; defaultTrackers: string };
 }
 
 const PARALLELISM: readonly SettingsFileParallelism[] = ['Auto', 'Gentle1', 'Two', 'Four', 'Max'];
@@ -133,6 +136,16 @@ export function registerFileIpc(getWindow: () => BrowserWindow | null, settings:
   /** Line under the editor after a phrase fix. */
   let editorNote = '';
   let editorCache: FileEditorDto = emptyEditor();
+
+  // Stats are recomputed only when the editor's phrases or the trackers text change.
+  let statsFor: { editor: FileEditorDto; trackers: string; stats: CallStats | null } | null = null;
+  function callStatsDto(trackers: string): FileStateDto['callStats'] {
+    if (!statsFor || statsFor.editor !== editorCache || statsFor.trackers !== trackers) {
+      const segs = editorCache.segments;
+      statsFor = { editor: editorCache, trackers, stats: segs.length > 0 ? computeCallStats(segs, parseTrackers(trackers)) : null };
+    }
+    return { stats: statsFor.stats, trackers: trackers.trim() ? trackers : DEFAULT_TRACKERS_TEXT, defaultTrackers: DEFAULT_TRACKERS_TEXT };
+  }
 
   function emptyEditor(): FileEditorDto {
     return { available: false, reason: 'missing', audioPath: null, txtPath: null, segments: [], mediaUrl: null };
@@ -269,6 +282,7 @@ export function registerFileIpc(getWindow: () => BrowserWindow | null, settings:
       },
       ru: ruLang,
       editor: { ...refreshEditor(), note: editorNote },
+      callStats: callStatsDto(s.CallTrackers),
     };
   };
 
@@ -764,6 +778,17 @@ export function registerFileIpc(getWindow: () => BrowserWindow | null, settings:
       Log.write(`editor phrase fixed in ${changed.length} files`);
     }
     refreshEditor(true);
+    return state();
+  });
+
+  ipcMain.handle('file:callTrackers', (_e, text: unknown) => {
+    const s = settings.get();
+    if (typeof text === 'string') {
+      // The built-in text saved back unchanged stays '' so future defaults still apply.
+      const v = text.replace(/\r/g, '').trim();
+      s.CallTrackers = v === DEFAULT_TRACKERS_TEXT.trim() ? '' : v.slice(0, 8000);
+      Settings.save(s);
+    }
     return state();
   });
 
