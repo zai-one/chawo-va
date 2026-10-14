@@ -2,6 +2,9 @@
 // build the exact request, show the masked preview, catch a repeat, send, record the journal.
 
 import { lookup } from 'node:dns/promises';
+import http from 'node:http';
+import https from 'node:https';
+import type { LookupFunction } from 'node:net';
 import { basename } from 'node:path';
 import {
   buildRequest, idempotencyKey, makePayload, previewText, privateHost, scorePathFor, sendRequest,
@@ -69,9 +72,69 @@ export async function dnsCheck(url: string, rules: UrlRules = crmRules(), resolv
   } catch {
     return '';  // DNS failure: fetch reports it (ENOTFOUND)
   }
-  const loop = (a: string) => /^127\./.test(a) || a === '::1';
-  const bad = addrs.find((a) => privateHost(a) && !(rules.allowLocal && loop(a)));
+  const bad = addrs.find((a) => !addressAllowed(a, rules));
   return bad ? `the address resolves to a private network (${bad}); refused` : '';
+}
+
+const isLoop = (a: string) => /^127\./.test(a) || a === '::1';
+function addressAllowed(a: string, rules: UrlRules): boolean {
+  return !privateHost(a) || (!!rules.allowLocal && isLoop(a));
+}
+
+type Resolve = (host: string) => Promise<{ address: string; family: number }[]>;
+const resolveAll: Resolve = (h) => lookup(h, { all: true });
+
+/**
+ * DNS-rebinding guard: the socket connects only to an address that was checked in the same
+ * lookup. The name is resolved once, every address is checked, and the connection is handed
+ * exactly those addresses, so a second answer from DNS cannot point the request somewhere else.
+ */
+export function pinnedLookup(rules: UrlRules = crmRules(), resolve: Resolve = resolveAll): LookupFunction {
+  return ((hostname: string, options: { all?: boolean }, cb: (err: NodeJS.ErrnoException | null, address: string | { address: string; family: number }[], family?: number) => void) => {
+    resolve(hostname).then(
+      (addrs) => {
+        const bad = addrs.find((a) => !addressAllowed(a.address, rules));
+        if (bad || addrs.length === 0) {
+          const err: NodeJS.ErrnoException = new Error(bad ? `the address resolves to a private network (${bad.address}); refused` : `no address for ${hostname}`);
+          err.code = bad ? 'BLOCKED_ADDRESS' : 'ENOTFOUND';
+          return cb(err, '', 0);
+        }
+        if (options?.all) cb(null, addrs);
+        else cb(null, addrs[0]!.address, addrs[0]!.family);
+      },
+      (e: NodeJS.ErrnoException) => cb(e, '', 0),
+    );
+  }) as unknown as LookupFunction;
+}
+
+/** Up to 64 KB of the answer is kept: only the status, a created id and an error text are used. */
+export function pinnedFetch(rules: UrlRules = crmRules(), resolve: Resolve = resolveAll): Fetch {
+  const lookupFn = pinnedLookup(rules, resolve);
+  return (url, init) =>
+    new Promise((ok, fail) => {
+      const u = new URL(url);
+      if (u.protocol !== 'https:' && !(u.protocol === 'http:' && rules.allowLocal)) return fail(Object.assign(new Error('only https is allowed'), { code: 'BLOCKED_ADDRESS' }));
+      const mod = u.protocol === 'https:' ? https : http;
+      const req = mod.request(u, { method: init.method, headers: { ...init.headers, 'content-length': String(Buffer.byteLength(init.body)) }, signal: init.signal, lookup: lookupFn }, (res) => {
+        const chunks: Buffer[] = [];
+        let size = 0;
+        res.on('data', (c: Buffer) => {
+          if (size < 65536) chunks.push(c);
+          size += c.length;
+        });
+        res.on('error', fail);
+        res.on('end', () => {
+          const text = Buffer.concat(chunks).toString('utf8');
+          ok({
+            status: res.statusCode ?? 0,
+            headers: { get: (k: string) => { const v = res.headers[k.toLowerCase()]; return v == null ? null : Array.isArray(v) ? v.join(', ') : String(v); } },
+            text: async () => text,
+          });
+        });
+      });
+      req.on('error', fail);
+      req.end(init.body);
+    });
 }
 
 export async function deliver(p: Prepared, fetch: Fetch, record: (e: SentEntry) => void, now: () => number = Date.now, signal?: AbortSignal, checkHost: (url: string) => Promise<string> = (u) => dnsCheck(u)): Promise<SendResult> {
@@ -81,4 +144,5 @@ export async function deliver(p: Prepared, fetch: Fetch, record: (e: SentEntry) 
   return r;
 }
 
-export const nodeFetch: Fetch = (url, init) => globalThis.fetch(url, init) as unknown as ReturnType<Fetch>;
+/** Default transport: no redirects (http.request never follows them) and a pinned, checked address. */
+export const nodeFetch: Fetch = (url, init) => pinnedFetch()(url, init);
