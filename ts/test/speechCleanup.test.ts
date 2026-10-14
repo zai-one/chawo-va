@@ -148,3 +148,15 @@ describe('getModelsAsync URL', () => {
     ]);
   });
 });
+
+describe('isLoopbackEndpoint', () => {
+  it('loopback hosts whatever the port', async () => {
+    const { isLoopbackEndpoint } = await import('../src/main/brain/speechCleanup');
+    expect(isLoopbackEndpoint('http://127.0.0.1:43623/v1')).toBe(true);
+    expect(isLoopbackEndpoint('http://LOCALHOST:1234')).toBe(true);
+    expect(isLoopbackEndpoint('http://[::1]:8080/v1')).toBe(true);
+    expect(isLoopbackEndpoint('http://10.0.0.5:8080/v1')).toBe(false);
+    expect(isLoopbackEndpoint('https://api.deepseek.com/v1')).toBe(false);
+    expect(isLoopbackEndpoint('not a url')).toBe(false);
+  });
+});

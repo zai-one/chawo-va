@@ -21,7 +21,8 @@
     "cli": "node dist/cli.js",
     "build:native": "dotnet build native/win/ChawoNative.csproj -c Release -o native/win/bin/out",
     "dist:win": "npm run build && electron-builder --win --x64 --publish never",
-    "dist:dir": "npm run build && electron-builder --dir --publish never"
+    "dist:dir": "npm run build && electron-builder --dir --publish never",
+    "e2e": "npm run build && node scripts/e2e-smoke.cjs"
   },
   "devDependencies": {
     "@types/node": "^20.17.0",

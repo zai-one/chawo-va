@@ -249,3 +249,21 @@ describe('brain command and --brain / --brief', () => {
     }
   });
 });
+
+describe('--lang before the command', () => {
+  it('moves a leading --lang after the command', () => {
+    const r = parseArgs(['--lang', 'ru', 'transcribe', 'a.wav']);
+    expect(r.ok && r.options).toMatchObject({ command: 'transcribe', inputs: ['a.wav'], lang: 'Russian' });
+    const eq = parseArgs(['--lang=en', 'history', 'ёж']);
+    expect(eq.ok && eq.options).toMatchObject({ command: 'history', inputs: ['ёж'], lang: 'English' });
+  });
+  it('still reaches help / version and reports a missing value', () => {
+    const h = parseArgs(['--lang', 'ru', '--help']);
+    expect(h.ok && h.options.command).toBe('help');
+    const v = parseArgs(['--lang', 'en', '--version']);
+    expect(v.ok && v.options.command).toBe('version');
+    const bad = parseArgs(['--lang']);
+    expect(bad.ok).toBe(false);
+    if (!bad.ok) expect(bad.error).toContain('--lang');
+  });
+});

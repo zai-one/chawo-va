@@ -1640,11 +1640,14 @@ function renderFile(): void {
       el('span', { className: 'state', textContent: ru ? STATE_RU[it.state] : it.state.toLowerCase() }),
       el('span', { className: 'note muted', textContent: it.note }),
     );
+    // Actions share the last grid column, so «Показать» + «Слушать» + × stay on one line.
+    const acts = el('span', { className: 'acts' });
     if (it.outputPath) {
-      row.append(button(L('Показать', 'Show'), () => void bridge.file.reveal(it.outputPath), 'link'));
-      row.append(button(L('Слушать', 'Listen'), () => void bridge.file.openEditor(it.outputPath).then(apply), 'link'));
+      acts.append(button(L('Показать', 'Show'), () => void bridge.file.reveal(it.outputPath), 'link'));
+      acts.append(button(L('Слушать', 'Listen'), () => void bridge.file.openEditor(it.outputPath).then(apply), 'link'));
     }
-    if (it.state !== 'Running') row.append(button('×', () => void bridge.file.remove(it.id).then(apply), 'link x'));
+    if (it.state !== 'Running') acts.append(button('×', () => void bridge.file.remove(it.id).then(apply), 'link x'));
+    row.append(acts);
     list.append(row);
   }
   page.append(list);

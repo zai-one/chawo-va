@@ -120,6 +120,18 @@ export function isInsecureRemote(endpoint: string): boolean {
 }
 
 /** Short server name for menus, e.g. "api.openai.com" or "127.0.0.1:12345". */
+/** The endpoint is on this computer (localhost / 127.x / ::1), whatever the port. */
+export function isLoopbackEndpoint(endpoint: string): boolean {
+  let host: string;
+  try {
+    host = new URL(endpoint.trim()).hostname.toLowerCase();
+  } catch {
+    return false;
+  }
+  if (host.startsWith('[') && host.endsWith(']')) host = host.slice(1, -1);
+  return host === 'localhost' || host.endsWith('.localhost') || host === '::1' || /^127(\.\d{1,3}){3}$/.test(host);
+}
+
 export function hostOf(endpoint: string): string {
   try {
     const uri = new URL(endpoint.trim());
