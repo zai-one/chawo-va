@@ -153,6 +153,10 @@ export interface CliDeps {
   runScript?: (r: PostScriptRun) => Promise<PostScriptResult>;
   /** snippets.json of the app (read and written by `chawo-va snippets`). */
   snippetsPath?: () => string;
+  /** learned-words.json of the app (`chawo-va dictionary`, the «Из исправлений» block). */
+  learnedPath?: () => string;
+  /** settings.json of the app: `chawo-va dictionary` only reads WordReplacementRules in it. */
+  settingsFile?: () => string;
   /** Whole stdin as text (for `snippets add <trigger> -`). */
   readStdin?: () => Promise<string>;
   /** Custom «Кратко и задачи» templates (brief-templates.json, read-only here). */
@@ -197,6 +201,7 @@ export async function runCli(argv: readonly string[], d: CliDeps): Promise<numbe
   if (o.command === 'segments') return segmentsCommand(o, d);
   if (o.command === 'stats') return statsCommand(o, defaults, d);
   if (o.command === 'snippets') return snippetsCommand(o, d);
+  if (o.command === 'dictionary') return dictionaryCommand(o, d);
   if (o.command === 'serve') {
     const serveDeps: ServeDeps = {
       t: d.t,
@@ -1113,4 +1118,113 @@ async function snippetsCommand(o: CliOptions, d: CliDeps): Promise<number> {
   if (!o.quiet) d.err(t(`Удалён: «${a1}».`, `Removed: «${a1}».`) + '\n');
   d.log('cli snippets remove');
   return EXIT_OK;
+}
+
+/**
+ * `chawo-va dictionary`: the «Словарь» rules and «Из исправлений» from the command line. settings.json
+ * is only read: accepted rows are queued in learned-words.json and the app moves them into «Словарь»
+ * on its next look (dictation, the page), so a running app never overwrites them.
+ */
+async function dictionaryCommand(o: CliOptions, d: CliDeps): Promise<number> {
+  const t = d.t;
+  const L = await import('../core/selfDictionary');
+  const W = await import('../core/wordReplace');
+  if (!d.learnedPath || !d.settingsFile) {
+    d.err(t('Ошибка: словарь недоступен.', 'Error: the dictionary is not available.') + '\n');
+    return EXIT_FAILED;
+  }
+  const lpath = d.learnedPath();
+  const spath = d.settingsFile();
+  let raw: Record<string, unknown> = {};
+  try {
+    if (d.exists(spath)) raw = JSON.parse(d.readFile(spath)) as Record<string, unknown>;
+  } catch (e) {
+    d.err(t(`Ошибка: не прочитать ${spath}: `, `Error: could not read ${spath}: `) + (e instanceof Error ? e.message : String(e)) + '\n');
+    return EXIT_FAILED;
+  }
+  const stored = typeof raw.WordReplacementRules === 'string' ? raw.WordReplacementRules : '';
+  const data = L.loadLearned(lpath);
+  const rules = L.withPending(W.parseRules(stored.trim() ? stored : W.DEFAULT_RULES), data);
+  const [action, a1, a2] = o.inputs;
+  const line = (p: { from: string; to: string }) => `${p.from}\t${p.to}`;
+  try {
+    if (action === 'list') {
+      if (o.json) d.out(JSON.stringify(rules, null, 2) + '\n');
+      else for (const r of rules) d.out(line(r) + '\n');
+      d.log(`cli dictionary list ${rules.length}`);
+      return EXIT_OK;
+    }
+    if (action === 'suggest') {
+      const list = L.suggestions(data, rules);
+      if (o.json) d.out(JSON.stringify(list.map(({ from, to, count }) => ({ from, to, count })), null, 2) + '\n');
+      else if (list.length === 0) {
+        if (!o.quiet) d.err(t(`Предложений нет. Исправления копятся из «Истории» → «Исправить» и chawo-va dictionary learn; нужна одна и та же правка ${L.SUGGEST_AT} раза.`,
+          `No suggestions. Fixes come from History → Fix and chawo-va dictionary learn; the same fix is needed ${L.SUGGEST_AT} times.`) + '\n');
+      } else for (const p of list) d.out(`${line(p)}\t${p.count}\n`);
+      d.log(`cli dictionary suggest ${list.length}`);
+      return EXIT_OK;
+    }
+    if (action === 'accept') {
+      const p = L.findPair(data, a1!, a2);
+      const to = (a2 ?? p?.to ?? '').trim();
+      if (!to) {
+        d.err(t(`Ошибка: предложения «${a1}» нет. Укажите и как писать: chawo-va dictionary accept ${a1} <как писать>`, `Error: no suggestion «${a1}». Give the written form too: chawo-va dictionary accept ${a1} <written>`) + '\n');
+        return EXIT_FAILED;
+      }
+      const from = (p?.from ?? a1!).trim();
+      if (/[\r\n]/.test(from + to) || !from) {
+        d.err(t('Ошибка: пустая или многострочная строка.', 'Error: empty or multi-line text.') + '\n');
+        return EXIT_USAGE;
+      }
+      L.saveLearned(lpath, L.addPending(L.forget(data, from), from, to));
+      if (!o.quiet) d.err(t(`В словаре: ${from} → ${to}.`, `In the dictionary: ${from} → ${to}.`) + '\n');
+      d.log('cli dictionary accept');
+      return EXIT_OK;
+    }
+    if (action === 'dismiss') {
+      const p = L.findPair(data, a1!, a2);
+      if (!p) {
+        d.err(t(`Ошибка: предложения «${a1}» нет.`, `Error: no suggestion «${a1}».`) + '\n');
+        return EXIT_FAILED;
+      }
+      L.saveLearned(lpath, L.dismiss(data, p.from, p.to));
+      if (!o.quiet) d.err(t(`Скрыто: ${p.from} → ${p.to}.`, `Hidden: ${p.from} → ${p.to}.`) + '\n');
+      d.log('cli dictionary dismiss');
+      return EXIT_OK;
+    }
+    if (action === 'auto') {
+      const on = a1 === 'on';
+      L.saveLearned(lpath, { ...data, autoAdd: on });
+      if (!o.quiet) d.err((on ? t('Исправления, повторённые дважды, будут добавляться в словарь сами.', 'Fixes repeated twice will be added to the dictionary by themselves.') : t('Исправления только предлагаются.', 'Fixes are only suggested.')) + '\n');
+      d.log(`cli dictionary auto ${a1}`);
+      return EXIT_OK;
+    }
+    // learn <before> <after>
+    for (const f of [a1!, a2!]) {
+      if (!d.exists(f)) {
+        d.err(t(`Ошибка: нет файла ${f}`, `Error: no file ${f}`) + '\n');
+        return EXIT_FAILED;
+      }
+    }
+    const r = L.learnEdit(data, rules, d.readFile(a1!), d.readFile(a2!), (d.clock ?? Date.now)());
+    let next = r.data;
+    for (const p of r.added) next = L.addPending(next, p.from, p.to);
+    if (r.fixes.length > 0) L.saveLearned(lpath, next);
+    if (o.json) d.out(JSON.stringify({ fixes: r.fixes, added: r.added, suggested: r.suggested }, null, 2) + '\n');
+    else {
+      for (const p of r.fixes) d.out(line(p) + '\n');
+      if (!o.quiet) {
+        const pairs = (l: { from: string; to: string }[]) => l.map((p) => `${p.from} → ${p.to}`).join(', ');
+        d.err((r.fixes.length === 0 ? t('Исправлений слов не найдено.', 'No word fixes found.')
+          : t(`Запомнено исправлений: ${r.fixes.length}.`, `Fixes remembered: ${r.fixes.length}.`)
+            + (r.added.length ? t(` В словарь добавлено: ${pairs(r.added)}.`, ` Added to the dictionary: ${pairs(r.added)}.`) : '')
+            + (r.suggested.length ? t(` Предложено: ${pairs(r.suggested)} (chawo-va dictionary accept …).`, ` Suggested: ${pairs(r.suggested)} (chawo-va dictionary accept …).`) : '')) + '\n');
+      }
+    }
+    d.log(`cli dictionary learn ${r.fixes.length}`);
+    return EXIT_OK;
+  } catch (e) {
+    d.err(t('Ошибка: ', 'Error: ') + (e instanceof Error ? e.message : String(e)) + '\n');
+    return EXIT_FAILED;
+  }
 }

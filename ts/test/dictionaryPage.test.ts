@@ -141,3 +141,66 @@ describe('«Словарь» page', () => {
     applyLanguage('Russian');
   });
 });
+
+describe('«Словарь» → «Из исправлений»', () => {
+  it('shows learned fixes, adds one as a row, hides another, toggles auto-add', async () => {
+    const { saveLearned, loadLearned } = await import('../src/core/selfDictionary');
+    const lp = join(dir, 'learned-words.json');
+    saveLearned(lp, { autoAdd: false, pairs: [
+      { from: 'зайон', to: 'Zaion', count: 3, last: 1 },
+      { from: 'гигапис', to: 'GigaPisar', count: 2, last: 1 },
+      { from: 'однажды', to: 'Once', count: 1, last: 1 },
+      { from: 'цпу', to: 'ЦП', count: 4, last: 1 },
+    ] });
+    const { ctl, s } = make({ learnedPath: () => lp, snippetsPath: () => join(dir, 'snip-l.json') });
+    let st = ctl.state();
+    expect(st.learned.heading).toBe('Из исправлений');
+    // «цпу» is already a default rule → not offered; count 1 → not yet.
+    expect(st.learned.rows.map((r) => r.from)).toEqual(['зайон', 'гигапис']);
+    st = ctl.acceptLearned('зайон', 'Zaion');
+    expect(st.rows.some((r) => r.from === 'зайон' && r.to === 'Zaion')).toBe(true);
+    expect(s.WordReplacementRules).toContain('зайон -> Zaion');
+    expect(st.learned.rows.map((r) => r.from)).toEqual(['гигапис']);
+    st = ctl.dismissLearned('гигапис', 'GigaPisar');
+    expect(st.learned.rows).toEqual([]);
+    expect(st.learned.empty).toBe('Пока нечего предложить.');
+    st = ctl.setLearnAuto(true);
+    expect(st.learned.autoAdd).toBe(true);
+    expect(loadLearned(lp).autoAdd).toBe(true);
+  });
+});
+
+describe('learnFromEdit (history → dictionary glue)', () => {
+  it('auto-adds into settings rules on the second identical fix', async () => {
+    const { learnFromEdit } = await import('../src/main/dictionary/learnedWords');
+    const { saveLearned } = await import('../src/core/selfDictionary');
+    const lp = join(dir, 'learned-auto.json');
+    saveLearned(lp, { autoAdd: true, pairs: [] });
+    const s = Settings.defaults();
+    let saves = 0;
+    expect(learnFromEdit(s, () => void saves++, 'привет чаво бот', 'привет Чаво-бот', lp, 1).added).toEqual([]);
+    const r = learnFromEdit(s, () => void saves++, 'встреча чаво бот', 'встреча Чаво-бот', lp, 2);
+    expect(r.added).toEqual([{ from: 'чаво бот', to: 'Чаво-бот' }]);
+    expect(saves).toBe(1);
+    expect(s.WordReplacementRules).toContain('чаво бот -> Чаво-бот');
+    expect(s.WordReplacementRules).toContain('цпу -> CPU');
+  });
+});
+
+describe('applyPendingRules (rows queued by `chawo-va dictionary accept`)', () => {
+  it('moves pending rows into settings once and clears the queue; the page shows them', async () => {
+    const { applyPendingRules } = await import('../src/main/dictionary/learnedWords');
+    const { saveLearned, loadLearned } = await import('../src/core/selfDictionary');
+    const lp = join(dir, 'learned-pending.json');
+    saveLearned(lp, { autoAdd: false, pairs: [], pending: [{ from: 'кромка', to: 'Kromka' }] });
+    const { ctl, s, saves } = make({ learnedPath: () => lp, snippetsPath: () => join(dir, 'snip-p.json') });
+    const st = ctl.state();
+    expect(st.rows.some((r) => r.from === 'кромка' && r.to === 'Kromka')).toBe(true);
+    expect(s.WordReplacementRules).toContain('кромка -> Kromka');
+    expect(s.WordReplacementRules).toContain('цпу -> CPU');
+    expect(saves()).toBe(1);
+    expect(loadLearned(lp).pending).toBeUndefined();
+    expect(applyPendingRules(s, () => undefined, lp)).toBe(false);
+    expect(applyPendingRules(s, () => undefined, join(dir, 'none.json'))).toBe(false);
+  });
+});

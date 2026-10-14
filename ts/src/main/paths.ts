@@ -76,6 +76,11 @@ export function briefTemplatesPath(): string {
   return join(appDataDir(), 'brief-templates.json');
 }
 
+/** «Словарь из исправлений»: counted word fixes and the «Добавлять сами» switch (learned-words.json). */
+export function learnedWordsPath(): string {
+  return join(appDataDir(), 'learned-words.json');
+}
+
 /** Dictation history (one JSON line per take); shared by the «История» page and `chawo-va history`. */
 export function historyFilePath(): string {
   return join(localDataDir(), 'history.jsonl');

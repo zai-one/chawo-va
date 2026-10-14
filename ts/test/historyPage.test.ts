@@ -234,3 +234,29 @@ describe('HistoryController', () => {
     expect(copied).toEqual([]);
   });
 });
+
+describe('«История» → «Исправить»', () => {
+  it('saves the user text and passes the fix to the dictionary learner', () => {
+    const seen: [string, string][] = [];
+    const { ctl, store, rec } = make({
+      learn: (b, a) => {
+        seen.push([b, a]);
+        return seen.length === 1 ? { added: [], suggested: [{ from: 'таптейн', to: 'Taptain' }] } : { added: [{ from: 'таптейн', to: 'Taptain' }], suggested: [] };
+      },
+    });
+    rec('звонок таптейн');
+    const id = store.list()[0]!.id;
+    let st = ctl.edit(id, '  звонок Taptain\r\n');
+    expect(store.get(id)!.final).toBe('звонок Taptain');
+    expect(seen).toEqual([['звонок таптейн', 'звонок Taptain']]);
+    expect(st.status).toBe('Исправлено. На «Словаре» предложено: таптейн → Taptain.');
+    expect(st.labels.edit).toBe('Исправить');
+    st = ctl.edit(id, 'звонок Taptain');
+    expect(seen.length).toBe(1); // unchanged text → nothing
+    st = ctl.edit(id, '');
+    expect(store.get(id)!.final).toBe('звонок Taptain');
+    st = ctl.edit(id, 'звонок Taptain!');
+    expect(st.status).toBe('Исправлено. В словарь добавлено: таптейн → Taptain.');
+    expect(ctl.edit('nope', 'x').status).toBe(st.status);
+  });
+});
