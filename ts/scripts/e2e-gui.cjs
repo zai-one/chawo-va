@@ -319,6 +319,37 @@ app.whenReady().then(async () => {
     } catch (e) {
       check('gui: «Кратко и задачи» via the Brain', false, e.message);
     }
+    // «В CRM»: webhook set in «Настройки CRM», «В CRM» on the brief card → preview (no secret) → «Отправить» → mock got it.
+    try {
+      const crmBase = process.env.CHAWO_E2E_CRM;
+      if (!crmBase) throw new Error('no CHAWO_E2E_CRM');
+      await js(`document.querySelector('.nav button[data-page="file"]').click(); true`);
+      await sleep(700);
+      await js(`(() => { const d = document.querySelector('[data-crm="settings"]'); d.open = true; d.dispatchEvent(new Event('toggle')); return true; })()`);
+      await sleep(300);
+      await js(`(() => { const u = document.querySelector('[data-crm="webhook.url"]'); u.value = ${JSON.stringify(crmBase + '/hook')}; const s = document.querySelector('[data-crm="webhook.secret"]'); s.value = 'whsec-E2E-SECRET-0c0c'; document.querySelector('[data-crm="webhook.save"]').click(); return true; })()`);
+      await sleep(600);
+      const shownSecret = await js(`document.querySelector('[data-crm="webhook.secret"]').value + '|' + document.body.innerText.includes('whsec-E2E')`);
+      await js(`document.querySelector('[data-crm="open"]').click(); true`);
+      await sleep(600);
+      await js(`(() => { const s = document.querySelector('[data-crm="target"]'); s.value = 'webhook'; s.dispatchEvent(new Event('change')); return true; })()`);
+      await sleep(500);
+      await js(`document.querySelector('[data-crm="preview"]').click(); true`);
+      await sleep(600);
+      const pv = await js(`document.querySelector('[data-crm="previewText"]')?.textContent ?? ''`);
+      check('gui: «В CRM» shows exactly what goes out (no secrets)', pv.includes('/hook') && pv.includes('"tasks"') && !pv.includes('SECRET') && shownSecret === '|false', pv.slice(0, 300));
+      if (shots) writeFileSync(join(shots, 'crm-preview.png'), (await w.webContents.capturePage()).toPNG());
+      const before = await (await fetch(crmBase + '/__log')).json();
+      await js(`document.querySelector('[data-crm="send"]').click(); true`);
+      await sleep(1200);
+      const status = await js(`document.querySelector('[data-crm="status"]')?.textContent ?? ''`);
+      const after = await (await fetch(crmBase + '/__log')).json();
+      const hook = after.slice(before.length).find((g) => g.url === '/hook');
+      check('gui: «Отправить» posts the brief to the webhook once, signed', hook && JSON.parse(hook.body).kind === 'brief' && /^sha256=/.test(hook.sig) && after.length === before.length + 1 && /Отправлено|Sent/.test(status), status + ' ' + JSON.stringify(hook ?? {}).slice(0, 200));
+    } catch (e) {
+      check('gui: «В CRM»', false, e.message);
+    }
+
     // Templates: pick a built-in, save a custom one, the page shows the picker; the Brain gets the template.
     try {
       let st = await call('file:briefTemplate', 'minutes');

@@ -1204,3 +1204,8 @@ Re-align folder names and tooling with taptain-desktop once its layout is readab
   ответ реальным локальным Мозгом не проверен на этом компьютере (нет GGUF), только фейковым сервером; чат одним вопросом,
   без уточняющих. Документация: docs/user-guide.md («Спросить историю»), docs/cli.md (`ask` + полный --help).
   Следующее: автоопределение встречи (№8).
+
+- Выгрузка в CRM (№9, `ts/feat-crm-export`): только итог по кнопке «В CRM»/`crm send`, предпросмотр обязателен;
+  amoCRM (заметка), Bitrix24 (комментарий/задача), HubSpot (note + ассоциация), вебхук (JSON + HMAC, Idempotency-Key).
+  Токены — `crm.json` 0600 (не safeStorage: нужен CLI). SSRF: https, белый список хостов amo, DNS-проверка, без редиректов.
+  Gaps: реальные CRM не вызывались (только мок); DNS-rebinding между проверкой и запросом; гонка журнала GUI+CLI.

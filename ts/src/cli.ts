@@ -16,7 +16,7 @@ import { diarizeHook } from './main/diarize/diarizeRuntime';
 import { runCli, EXIT_INTERRUPTED, type CliDefaults, type CliDeps, type Engine, type EngineConfig } from './cli/run';
 import * as Log from './main/log';
 import { findComplete, looksComplete } from './main/models/speechModelStore';
-import { briefTemplatesPath, checklistsPath, env, historyFilePath, learnedWordsPath, settingsPath, snippetsPath } from './main/paths';
+import { briefTemplatesPath, checklistsPath, crmConfigPath, crmSentPath, env, historyFilePath, learnedWordsPath, settingsPath, snippetsPath } from './main/paths';
 import * as AskSources from './main/history/askSources';
 import * as BriefTemplates from './main/brain/briefTemplates';
 import * as CallScore from './main/brain/callScore';
@@ -170,6 +170,18 @@ export function realDeps(signal: AbortSignal): CliDeps {
     },
     briefTemplates: () => BriefTemplates.loadCustom(briefTemplatesPath()),
     checklists: () => CallScore.loadCustom(checklistsPath()),
+    crmConfigPath,
+    crmSentPath,
+    stdinIsTTY: Boolean(process.stdin.isTTY),
+    ask: async (question) => {
+      const rl = (await import('node:readline')).createInterface({ input: process.stdin, output: process.stderr });
+      try {
+        const a = await new Promise<string>((res) => rl.question(question, res));
+        return /^(y|yes|д|да)$/i.test(a.trim());
+      } finally {
+        rl.close();
+      }
+    },
     readStdin: async () => {
       const chunks: Buffer[] = [];
       for await (const c of process.stdin) chunks.push(c as Buffer);

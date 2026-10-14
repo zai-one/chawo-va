@@ -163,6 +163,17 @@ export interface CliDeps {
   learnedPath?: () => string;
   /** settings.json of the app: `chawo-va dictionary` only reads WordReplacementRules in it. */
   settingsFile?: () => string;
+  /** crm.json (settings + tokens) and crm-sent.json for `chawo-va crm`. */
+  crmConfigPath?: () => string;
+  crmSentPath?: () => string;
+  /** HTTP for `crm send`; tests inject a mock. */
+  crmFetch?: import('../core/crm').Fetch;
+  /** SSRF check before `crm send` (tests stub it; default resolves DNS). */
+  crmCheckHost?: (url: string) => Promise<string>;
+  /** stdin is a terminal: `crm send` may ask «Отправить?». */
+  stdinIsTTY?: boolean;
+  /** One y/N question on the terminal. */
+  ask?: (question: string) => Promise<boolean>;
   /** Whole stdin as text (for `snippets add <trigger> -`). */
   readStdin?: () => Promise<string>;
   /** Custom «Кратко и задачи» templates (brief-templates.json, read-only here). */
@@ -227,6 +238,7 @@ export async function runCli(argv: readonly string[], d: CliDeps): Promise<numbe
   if (o.command === 'stats') return statsCommand(o, defaults, d);
   if (o.command === 'snippets') return snippetsCommand(o, d);
   if (o.command === 'dictionary') return dictionaryCommand(o, d);
+  if (o.command === 'crm') return (await import('./crmCommand')).crmCommand(o.inputs, d);
   if (o.command === 'meeting') return meetingCommand(o, d);
   if (o.command === 'serve') {
     const serveDeps: ServeDeps = {

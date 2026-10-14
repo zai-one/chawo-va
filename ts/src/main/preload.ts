@@ -2,6 +2,13 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron';
 
 const api = {
+  crm: {
+    state: () => ipcRenderer.invoke('crm:state'),
+    setConfig: (target: string, fields: Record<string, unknown>) => ipcRenderer.invoke('crm:setConfig', target, fields),
+    preview: (path: string, target: string, id: string, score: boolean) => ipcRenderer.invoke('crm:preview', path, target, id, score),
+    clearPreview: () => ipcRenderer.invoke('crm:clearPreview'),
+    send: (force: boolean) => ipcRenderer.invoke('crm:send', force),
+  },
   versions: { app: process.env.npm_package_version ?? '', electron: process.versions.electron },
   file: {
     state: () => ipcRenderer.invoke('file:state'),
