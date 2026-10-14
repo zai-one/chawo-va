@@ -365,7 +365,7 @@ describe('readDefaults (settings.json read-only)', () => {
     writeFileSync(file, body);
     const before = statSync(file).mtimeMs;
     const { readDefaults } = await import('../src/cli');
-    expect(readDefaults()).toEqual({ model: 'multilingual_large_ctc', device: 'cpu', threads: 2, script: 'english', timestamps: false, language: 'English', postScript: 'python fix.py', historyKeep: 'Week', vad: true, diarize: false, brain: false, brief: false });
+    expect(readDefaults()).toEqual({ model: 'multilingual_large_ctc', device: 'cpu', threads: 2, script: 'english', timestamps: false, language: 'English', postScript: 'python fix.py', historyKeep: 'Week', vad: true, diarize: false, brain: false, brief: false, callTrackers: '' });
     expect(readFileSync(file, 'utf8')).toBe(body);
     expect(statSync(file).mtimeMs).toBe(before);
   });
@@ -1117,6 +1117,47 @@ describe('runCli brain --context («Контекст для Мозга»)', () =
     const m = harness({ fileText: { '/a.txt': 'Ну, привет.' } });
     expect(await run(m, 'brain', '/a.txt', '--context-file', '/nope.txt')).toBe(EXIT_FAILED);
     expect(m.err.join('')).toContain('Cannot read --context-file: /nope.txt');
+  });
+});
+
+describe('chawo-va stats', () => {
+  const SRT = [
+    '1', '00:00:00,000 --> 00:00:10,000', 'Спикер 1: Здравствуйте, у нас скидка.', '',
+    '2', '00:00:10,000 --> 00:00:14,000', 'Спикер 2: Это дорого?', '',
+    '3', '00:00:14,000 --> 00:00:20,000', 'Спикер 1: Давайте созвонимся.', '',
+  ].join('\n');
+
+  it('prints talk ratio and trackers from settings; --hits lists phrases', async () => {
+    const h = harness({ fileText: { '/rec/call.srt': SRT }, defaults: { callTrackers: 'Скидка: скидк*\nШаг: созвон*' } });
+    expect(await run(h, 'stats', '/rec/call.srt', '--hits')).toBe(EXIT_OK);
+    const out = h.out.join('');
+    expect(out).toContain('Talk ratio:');
+    expect(out).toContain('Speaker 1: 80%');
+    expect(out).toContain('Speaker 2: 20%');
+    expect(out).toContain('Скидка: 1');
+    expect(out).toContain('[0:14] Speaker 1: Давайте созвонимся.');
+    expect(out).toContain('Speaker switches: 2');
+  });
+
+  it('--track replaces settings; --json is one object per file with 1-based speakers', async () => {
+    const h = harness({ fileText: { '/rec/call.txt': 'x', '/rec/call.srt': SRT }, defaults: { callTrackers: 'Скидка: скидк*' } });
+    expect(await run(h, 'stats', '/rec/call.txt', '--json', '--track', 'Цена: дорог*')).toBe(EXIT_OK);
+    const doc = JSON.parse(h.out.join('').trim()) as { file: string; source: string; speakers: { speaker: number; share: number }[]; trackers: { name: string; count: number; hits: { speaker: number }[] }[] };
+    expect(doc.file).toBe('/rec/call.txt');
+    expect(doc.source).toBe('srt');
+    expect(doc.speakers.map((s) => s.speaker)).toEqual([1, 2]);
+    expect(doc.speakers[0]!.share).toBe(0.8);
+    expect(doc.trackers).toHaveLength(1);
+    expect(doc.trackers[0]).toMatchObject({ name: 'Цена', count: 1 });
+    expect(doc.trackers[0]!.hits[0]!.speaker).toBe(2);
+  });
+
+  it('missing file or no timings → exit 1 with a reason', async () => {
+    const h = harness({ fileText: { '/rec/plain.txt': 'Просто текст без меток.' } });
+    expect(await run(h, 'stats', '/rec/plain.txt', '/rec/nope.srt')).toBe(EXIT_FAILED);
+    const err = h.err.join('');
+    expect(err).toContain('no timings');
+    expect(err).toContain('no such file /rec/nope.srt');
   });
 });
 

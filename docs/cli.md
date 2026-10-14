@@ -15,6 +15,7 @@
 | `translate <тексты.txt…> [--to язык]` | Перевод через Мозг | `.translate.txt` |
 | `history [слова…]` | История диктовки, новые сверху (только чтение) | stdout |
 | `segments <.txt/.srt/.json…>` | Фразы со временем из готовой расшифровки | stdout |
+| `stats <.txt/.srt/.json…>` | «Статистика разговора»: доля речи, монологи, вопросы, темп, трекеры слов | stdout |
 | `snippets list\|add\|remove` | Сниппеты для «вставь …» при диктовке (тот же `snippets.json`, что на «Словаре») | stdout / `snippets.json` |
 | `serve` | Headless CPU-сервер расшифровки ([linux-server.md](linux-server.md)) | — |
 | `--help`, `--version` | Справка / версия (`chawo-va 2.0.0`) | stdout |
@@ -93,6 +94,23 @@
 
 `--json` (JSON Lines: `start`, `end`, `text`, `speaker?`), `-q`.
 
+### `stats`
+
+Статистика разговора по готовой расшифровке, те же числа, что карточка «Статистика разговора» на
+странице «Расшифровка файла». Фразы берутся как у `segments` (.srt → .json → метки в .txt); доля речи
+по спикерам — когда расшифровка сделана с `--diarize`.
+
+- `--track "Название: слово, слов*, фраза из слов"` — свой трекер, можно несколько раз; `*` — любое
+  окончание, ё = е. Без `--track` — трекеры из настроек (поле «Настроить трекеры»), а если оно пустое —
+  встроенные: Цена, Скидка, Конкуренты, Сроки, Следующий шаг, Возражения.
+- `--hits` — под каждым трекером фразы, где он сработал (`[м:сс] Спикер N: …`).
+- `--json` — один JSON-объект на файл: `durationSeconds`, `talkSeconds`, `words`, `diarized`,
+  `speakers[]` (`speaker` с 1, `share` 0..1, `talkSeconds`, `words`, `wpm`, `questions`,
+  `longestMonologueSeconds`), `turns`, `turnsPerMinute`, `longestMonologue`, `longMonologues`,
+  `trackers[]` (`name`, `terms`, `count`, `hits[]`).
+
+Монолог — подряд идущие фразы одного спикера с паузами не больше 5 с; «длинный» — от минуты.
+
 ### `snippets`
 
 - `snippets list [--json]` — показать: `фраза<TAB>текст` (переводы строк как `\n`) или JSON `[{trigger, text}]`.
@@ -146,6 +164,7 @@ chawo-va brain talk.txt && chawo-va brief talk.txt
 chawo-va brain call.txt --context "Клиент: ООО «Зюйд-Вест», Анна Карпенко"
 chawo-va translate talk.txt --to de --stdout
 chawo-va segments talk.srt --json
+chawo-va stats talk.txt --hits --track "Цена: дорог*, скидк*"
 chawo-va history счёт -n all
 ```
 
@@ -161,6 +180,7 @@ Chawo Voice Assistant — расшифровка файлов, «Кратко и
   chawo-va translate <тексты.txt…> [--to язык] [параметры]
   chawo-va history [слова для поиска…] [-n 20|all] [--json] [--raw]
   chawo-va segments <файлы.txt|.srt|.json…> [--json]
+  chawo-va stats <файлы.txt|.srt|.json…> [--track «Название: слово, слов*»] [--hits] [--json]
   chawo-va snippets list [--json] | add <фраза> <текст|-> | remove <фраза>
   chawo-va serve [--host 127.0.0.1|0.0.0.0] [--port 17831] [--token …] [--data-dir …]
 
@@ -237,6 +257,14 @@ Chawo Voice Assistant — расшифровка файлов, «Кратко и
       --json             JSON: start, end, text, speaker?
   -q, --quiet            без строки «N фраз»
 
+Параметры stats («Статистика разговора»: доля речи по спикерам, монологи, вопросы, темп, трекеры слов):
+  файлы…             .txt (с метками или рядом .srt/.json), .srt или .json; спикеры — после --diarize
+      --track «Цена: дорог*, скидк*»
+                         свой трекер (можно несколько; «*» — начало слова, фраза — слова подряд);
+                         без --track — трекеры из настроек (страница «Файл»), иначе встроенные
+      --hits             ещё и фразы, где сработал каждый трекер
+      --json             JSON: длительность, спикеры (доля, слова, темп, монолог), трекеры с фразами
+
 Параметры snippets (сниппеты для «вставь <фраза>» при диктовке, тот же snippets.json, что на странице «Словарь»):
       list [--json]      показать (JSON: [{trigger, text}])
       add <фраза> <текст> добавить или заменить; текст «-» — читать из stdin (несколько строк)
@@ -260,6 +288,7 @@ brain читает готовый .txt и пишет .brain.txt: абзацы б
 brief читает готовый .txt (рядом с записью или .brain.txt) и пишет .brief.txt через Мозг.
 translate переводит готовый .txt через Мозг (локальный по умолчанию) и пишет .translate.txt.
 segments печатает фразы со временем (как карточка «Расшифровка»): .srt → .json → метки в .txt.
+stats печатает статистику разговора по готовой расшифровке (как «Статистика разговора» на странице «Файл»).
 
 Коды выхода: 0 — всё готово, 1 — часть файлов не удалась, 2 — ошибка параметров,
 3 — нет модели / Мозга / yt-dlp, 130 — прервано (Ctrl+C).

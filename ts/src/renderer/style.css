@@ -126,3 +126,18 @@ label.stack { display: flex; flex-direction: column; gap: 3px; font-size: 12px; 
 .transcript-editor .phrase.active { background: #243044; outline: 1px solid var(--accent); }
 .transcript-editor .phrase-time { color: var(--muted); font-variant-numeric: tabular-nums; font-size: 12px; padding-top: 2px; }
 .transcript-editor .phrase-body { overflow-wrap: anywhere; }
+.call-stats .talk-bars { display: flex; flex-direction: column; gap: 6px; margin: 6px 0 10px; }
+.call-stats .talk-row { display: grid; grid-template-columns: 90px minmax(80px, 1fr) 44px; gap: 8px; align-items: center; }
+.call-stats .talk-meta { grid-column: 2 / 4; font-size: 12px; }
+.call-stats .talk-bar { height: 10px; border-radius: 5px; background: var(--bg); border: 1px solid var(--line); overflow: hidden; }
+.call-stats .talk-fill { display: block; height: 100%; background: var(--accent); }
+.call-stats .talk-pct { text-align: right; font-variant-numeric: tabular-nums; }
+.call-stats .trackers { display: flex; flex-direction: column; gap: 2px; margin: 4px 0 8px; }
+.call-stats .tracker summary { display: flex; justify-content: space-between; cursor: pointer; padding: 4px 6px; border-radius: 4px; }
+.call-stats .tracker summary:hover { background: var(--panel); }
+.call-stats .tracker-count { color: var(--muted); font-variant-numeric: tabular-nums; }
+.call-stats .tracker-count.hit { color: var(--accent); font-weight: 600; }
+.call-stats .phrase { display: grid; grid-template-columns: 56px minmax(0, 1fr); gap: 8px; text-align: left; width: 100%; border: 0; background: transparent; color: var(--fg); padding: 4px 10px; cursor: pointer; font: inherit; }
+.call-stats .phrase:disabled { cursor: default; }
+.call-stats .phrase-time { color: var(--muted); font-variant-numeric: tabular-nums; font-size: 12px; }
+.call-stats .tracker-config textarea { width: 100%; }
