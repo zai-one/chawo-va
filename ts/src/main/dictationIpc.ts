@@ -3,7 +3,7 @@
 // owns the take buffer, the recognizer, the settings writes and the clipboard. Chunks use
 // ipcRenderer.send on one channel, so they arrive before the stop that follows them.
 
-import { BrowserWindow, clipboard, ipcMain } from 'electron';
+import { BrowserWindow, app, clipboard, dialog, ipcMain, shell } from 'electron';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { wavBytes } from '../core/audio';
@@ -21,6 +21,8 @@ import type { GlobalKeyState } from './dictation/dictationPage';
 import type { SelectionReaderLike, TextInserterLike } from './native/nativeHelper';
 import * as Log from './log';
 import { WakeListener, finishWakeTake } from './dictation/wakeListener';
+import { checkLatest, RELEASES_PAGE } from './system/updater';
+import { t } from '../core/strings';
 
 /** The part of NativeHelper the dictation IPC uses (tests: a fake). */
 export interface GlobalKeys extends TextInserterLike, SelectionReaderLike {
@@ -145,6 +147,9 @@ export function registerDictationIpc(
     push,
     take: () => session.view(),
     changed: opts.changed,
+    version: () => {
+      try { return app.getVersion(); } catch { return ''; }
+    },
     globalKey: (): GlobalKeyState => {
       const k = opts.keys?.() ?? null;
       if (!k) return { kind: 'none' };
@@ -237,6 +242,74 @@ export function registerDictationIpc(
   });
   ipcMain.handle('dictation:micFailed', (_e, name: unknown, message: unknown) => {
     session.micFailed(str(name).slice(0, 64), str(message).slice(0, 300));
+    return state();
+  });
+
+  // Manual «Проверить обновления» (WPF CheckUpdates_Click → CheckForUpdatesAsync). Check only; no download.
+  let updatesBusy = false;
+  ipcMain.handle('dictation:checkUpdates', async () => {
+    if (updatesBusy) return state();
+    updatesBusy = true;
+    const w = getWindow();
+    const box = async (options: Electron.MessageBoxOptions) =>
+      (w && !w.isDestroyed() ? dialog.showMessageBox(w, options) : dialog.showMessageBox(options));
+    const local = (() => { try { return app.getVersion(); } catch { return ''; } })();
+    const title = t(`Chawo Voice Assistant ${local}`, `Chawo Voice Assistant ${local}`);
+    try {
+      const result = await checkLatest({
+        localVersion: local,
+        userAgent: `ChawoVoiceAssistant/${local}`,
+        log: (line) => Log.write(line),
+      });
+      if (result.kind === 'current') {
+        await box({
+          type: 'info',
+          buttons: ['OK'],
+          defaultId: 0,
+          title,
+          message: t(
+            `У вас последняя версия, ${local}.\n\nПроверено: ${RELEASES_PAGE}`,
+            `You have the latest version, ${local}.\n\nChecked: ${RELEASES_PAGE}`,
+          ),
+          noLink: true,
+        });
+      } else if (result.kind === 'newer') {
+        const info = result.info;
+        let notes = info.notes.trim();
+        if (notes.length > 500) notes = notes.slice(0, 500) + '…';
+        const extra = notes.length === 0 ? '' : notes + '\n\n';
+        const r = await box({
+          type: 'info',
+          buttons: [t('Открыть', 'Open'), t('Не сейчас', 'Not now')],
+          defaultId: 0,
+          cancelId: 1,
+          title: t('Есть обновление', 'Update available'),
+          message: t(
+            `Есть версия ${info.version}. У вас ${local}.\nПрограмма сама ничего не скачивает и не устанавливает.\n\n${extra}Страница:\n${info.url}\n\nОткрыть её в браузере?`,
+            `Version ${info.version} is out. You have ${local}.\nThe app does not download or install it.\n\n${extra}Page:\n${info.url}\n\nOpen it in the browser?`,
+          ),
+          noLink: true,
+        });
+        if (r.response === 0 && info.url.startsWith('https://github.com/zai-one/chawo-va/')) {
+          void shell.openExternal(info.url);
+        }
+      } else {
+        Log.write(`update check failed: ${result.message}`);
+        await box({
+          type: 'warning',
+          buttons: ['OK'],
+          defaultId: 0,
+          title,
+          message: t(
+            `Не удалось проверить обновления.\n${RELEASES_PAGE}\n${result.message}`,
+            `Could not check for updates.\n${RELEASES_PAGE}\n${result.message}`,
+          ),
+          noLink: true,
+        });
+      }
+    } finally {
+      updatesBusy = false;
+    }
     return state();
   });
 

@@ -314,6 +314,10 @@ interface DictationState {
   lastText: string;
   lastTextLabel: string;
   client: boolean;
+  version: string;
+  versionLabel: string;
+  checkUpdatesLabel: string;
+  checkUpdatesTip: string;
 }
 interface DictationApi {
   state(): Promise<DictationState>;
@@ -339,6 +343,7 @@ interface DictationApi {
   onWake(fn: (want: WakeWant) => void): () => void;
   wakePcm(chunk: Float32Array): void;
   wakeMicFailed(name: string, message: string): Promise<DictationState>;
+  checkUpdates(): Promise<DictationState>;
 }
 /** «Чаво»: keep a microphone open for the word (main decides), on this device ('' = default). */
 interface WakeWant { on: boolean; micId: string }
@@ -1149,6 +1154,18 @@ function renderDictation(): void {
     const note = el('p', { className: 'muted hint', textContent: s.wakeNote });
     note.dataset.d = 'wake-note';
     page.append(note);
+  }
+
+  // Manual update check (WPF CheckUpdatesButton at the bottom of Dictation). Check only; opens the release page if the user confirms.
+  const upd = button(s.checkUpdatesLabel, () => {
+    upd.disabled = true;
+    void bridge.dictation.checkUpdates().then(applyDictation).finally(() => { upd.disabled = false; });
+  });
+  upd.dataset.d = 'updates';
+  upd.title = s.checkUpdatesTip;
+  page.append(upd);
+  if (s.version) {
+    page.append(el('p', { className: 'muted hint', textContent: `${s.versionLabel} ${s.version}` }));
   }
 
   updateDictationLive();
@@ -2122,7 +2139,7 @@ function show(name: string): void {
   }
   page.replaceChildren(
     el('h1', { textContent: title(name) }),
-    el('p', { className: 'muted', textContent: L('TypeScript-версия в разработке. Этот раздел пока работает в WPF-приложении.', 'The TypeScript version is in progress. This section still lives in the WPF app.') }),
+    el('p', { className: 'muted', textContent: L('Этого раздела нет.', 'This section is not here.') }),
   );
 }
 

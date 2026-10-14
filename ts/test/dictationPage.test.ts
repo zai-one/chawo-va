@@ -291,3 +291,15 @@ describe('micErrorText', () => {
     expect(st.intro).toBe('Зажмите кнопку ниже и говорите. Отпустите, и появится текст: он показывается здесь и копируется в буфер обмена.');
   });
 });
+
+
+describe('version and update check labels', () => {
+  it('exposes version and «Проверить обновления» on the page state', () => {
+    const { ctl } = make({ version: () => '2.0.0' });
+    const st = ctl.state();
+    expect(st.version).toBe('2.0.0');
+    expect(st.versionLabel).toBe('Версия');
+    expect(st.checkUpdatesLabel).toBe('Проверить обновления');
+    expect(st.checkUpdatesTip).toContain('zai-one/chawo-va');
+  });
+});

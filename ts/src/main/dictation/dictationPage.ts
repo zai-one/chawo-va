@@ -84,6 +84,11 @@ export interface DictationStateDto {
   lastText: string;
   lastTextLabel: string;
   client: boolean;
+  /** package.json / app.getVersion(), shown under «Проверить обновления». */
+  version: string;
+  versionLabel: string;
+  checkUpdatesLabel: string;
+  checkUpdatesTip: string;
 }
 
 export interface DictationHooks {
@@ -101,6 +106,8 @@ export interface DictationHooks {
    * Windows, or the helper exe is not there). Missing: none.
    */
   globalKey?: () => GlobalKeyState;
+  /** App version for the page footer (defaults to ''). */
+  version?: () => string;
 }
 
 export type GlobalKeyState = { kind: 'on' } | { kind: 'starting' } | { kind: 'failed'; reason: string } | { kind: 'none' };
@@ -257,6 +264,11 @@ export class DictationController {
       lastText: take.lastText,
       lastTextLabel: t('Последняя фраза', 'Last phrase'),
       client,
+      version: (this.h.version?.() ?? '').trim(),
+      versionLabel: t('Версия', 'Version'),
+      checkUpdatesLabel: t('Проверить обновления', 'Check for updates'),
+      checkUpdatesTip: t('Спрашивает только GitHub этого репозитория (zai-one/chawo-va). Архив сам не скачивается.',
+        'Asks only this repository\'s GitHub (zai-one/chawo-va). The archive is not downloaded.'),
     };
   }
 
