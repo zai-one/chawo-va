@@ -7,10 +7,10 @@ name: TS E2E
 on:
   push:
     branches: ['ts-port', 'ts/**']
-    paths: ['ts/**', '.github/workflows/ts-e2e.yml']
+    paths: ['ts/**', 'docs/openapi.yaml', '.github/workflows/ts-e2e.yml']
   pull_request:
-    branches: ['ts-port']
-    paths: ['ts/**', '.github/workflows/ts-e2e.yml']
+    branches: ['main', 'ts-port']
+    paths: ['ts/**', 'docs/openapi.yaml', '.github/workflows/ts-e2e.yml']
   workflow_dispatch:
 
 permissions:

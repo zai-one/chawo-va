@@ -8,6 +8,8 @@ import type { CliOptions } from './args';
 import type { CliDeps, CliDefaults } from './run';
 import { EXIT_FAILED, EXIT_INTERRUPTED, EXIT_OK, EXIT_USAGE } from './run';
 import { isLinkInput } from '../core/mediaUrl';
+import { toSrt, toTxt, type TranscriptSegment } from '../core/transcriptFormat';
+import { writeExtras } from '../main/file/transcriptExport';
 
 export type FetchLike = typeof fetch;
 
@@ -85,7 +87,7 @@ async function pollJob(
   fetchImpl: FetchLike,
   signal: AbortSignal,
   pollMs: number,
-): Promise<{ text: string; seconds: number | null; model: string | null; device: string | null }> {
+): Promise<{ text: string; seconds: number | null; model: string | null; device: string | null; segments: TranscriptSegment[] | null }> {
   for (;;) {
     if (signal.aborted) {
       const e = new Error('Operation canceled');
@@ -106,6 +108,7 @@ async function pollJob(
       seconds?: number | null;
       model?: string | null;
       device?: string | null;
+      segments?: unknown;
     };
     if (doc.status === 'done') {
       return {
@@ -113,11 +116,26 @@ async function pollJob(
         seconds: typeof doc.seconds === 'number' ? doc.seconds : null,
         model: typeof doc.model === 'string' ? doc.model : null,
         device: typeof doc.device === 'string' ? doc.device : null,
+        segments: parseSegments(doc.segments),
       };
     }
     if (doc.status === 'error') throw new Error(doc.error || 'job failed');
     await sleep(pollMs, signal);
   }
+}
+
+/** Segments from a job response; null when absent or malformed (older servers). */
+export function parseSegments(raw: unknown): TranscriptSegment[] | null {
+  if (!Array.isArray(raw)) return null;
+  const out: TranscriptSegment[] = [];
+  for (const r of raw) {
+    if (!r || typeof r !== 'object') return null;
+    const g = r as { start?: unknown; end?: unknown; text?: unknown };
+    if (typeof g.start !== 'number' || typeof g.end !== 'number' || typeof g.text !== 'string') return null;
+    if (!Number.isFinite(g.start) || !Number.isFinite(g.end)) return null;
+    out.push({ start: g.start, end: g.end, text: g.text });
+  }
+  return out;
 }
 
 function guessContentType(path: string): string {
@@ -130,7 +148,8 @@ function guessContentType(path: string): string {
 /**
  * Transcribe files via a remote `chawo-va serve`. Links are not supported here (download locally
  * first). Brain / diarize / post-script still run locally after the text returns when those flags
- * are on — for v1 we only fetch the transcript text and write txt (same as a minimal remote run).
+ * are not run here. When the server returns timed segments, -f srt,vtt,json,md,docx are written
+ * with the same writers as a local run; otherwise only .txt.
  */
 export async function transcribeViaServer(
   o: CliOptions,
@@ -176,9 +195,7 @@ export async function transcribeViaServer(
   if (files.length === 0) return EXIT_FAILED;
 
   const formats = o.formats.length > 0 ? o.formats : (['txt'] as const);
-  if (formats.some((f) => f !== 'txt') && !o.stdout) {
-    say(t('На сервере пока только текст: остальные форматы пропущены.', 'Server returns text only; other formats are skipped.'));
-  }
+  const timestamps = o.timestamps ?? _defaults.timestamps;
 
   say(t(`Сервер: ${norm.base}`, `Server: ${norm.base}`));
   if (o.outDir && !o.stdout) d.mkdirp(o.outDir);
@@ -193,7 +210,10 @@ export async function transcribeViaServer(
       const { id } = await postJob(norm.base, token, bytes, src, guessContentType(src), fetchImpl, d.signal);
       say(prefix + t(`Задание ${id}…`, `Job ${id}…`));
       const result = await pollJob(norm.base, token, id, fetchImpl, d.signal, pollMs);
-      const text = result.text.endsWith('\n') ? result.text : result.text + (result.text ? '\n' : '');
+      const segs = result.segments;
+      // With segments the .txt is built like a local run (timestamps option respected).
+      const body = segs && segs.length > 0 ? toTxt(segs, timestamps) : result.text;
+      const text = body.endsWith('\n') ? body : body + (body ? '\n' : '');
       if (o.stdout) {
         if (files.length > 1) d.out(`==> ${src} <==\n`);
         d.out(text || '\n');
@@ -204,11 +224,31 @@ export async function transcribeViaServer(
           say(prefix + t(`Пропуск, уже есть: ${txt}`, `Skipped, already there: ${txt}`));
           continue;
         }
-        d.writeFile(txt, text);
+        const written: string[] = [];
+        if ((formats as readonly string[]).includes('txt')) d.writeFile(txt, text);
+        const timed = formats.filter((f) => f !== 'txt');
+        if (timed.length > 0 && !segs) {
+          say(prefix + t('Сервер не вернул фразы с метками времени: сохранён только .txt.', 'The server returned no timed segments: only .txt is saved.'));
+          if (!(formats as readonly string[]).includes('txt')) d.writeFile(txt, text);
+        } else if (segs) {
+          if ((formats as readonly string[]).includes('srt')) {
+            d.writeFile(txt.replace(/\.txt$/i, '.srt'), toSrt(segs));
+            written.push('.srt');
+          }
+          const extras = formats.filter((f): f is 'vtt' | 'json' | 'md' | 'docx' => f === 'vtt' || f === 'json' || f === 'md' || f === 'docx');
+          if (extras.length > 0) {
+            const dur = result.seconds ?? (segs.length ? segs[segs.length - 1]!.end : 0);
+            const res = writeExtras(txt, src, segs, dur, extras, timestamps, (p, data) => d.writeFile(p, data));
+            written.push(...res.written);
+            for (const f of res.failed) fail(prefix + t(`Ошибка: ${f}`, `Error: ${f}`));
+            if (res.failed.length > 0) failed++;
+          }
+        }
         const notes = [
           result.seconds != null ? `${result.seconds.toFixed(1)}s` : null,
           result.model,
           result.device,
+          ...written,
         ].filter(Boolean);
         say(prefix + t(`Готово: ${txt}`, `Done: ${txt}`) + (notes.length ? ` (${notes.join(' · ')})` : ''));
       }

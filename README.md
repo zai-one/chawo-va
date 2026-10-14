@@ -48,7 +48,13 @@ chawo-va brain note.txt
 - **Запись встречи** — микрофон + звук компьютера (Windows/Linux loopback).
 - **Приватность** — тёмная тема только, без телеметрии, ключи не в репозитории, локально по умолчанию (рендерер без сети). ORT не пишет device id.
 
-План будущего Linux-сервера расшифровки (только план): [`docs/linux-server.md`](docs/linux-server.md).
+## Документация (по-русски)
+
+- [Руководство пользователя](docs/user-guide.md) — установка, разделы, диктовка, расшифровка, форматы, Мозг, история, продажи, «Чаво», приватность
+- [Справочник CLI](docs/cli.md) — все команды и флаги `chawo-va`
+- [Linux-сервер `chawo-va serve`](docs/linux-server.md) — установка, systemd, токен, TTL, лимиты, примеры curl
+- [OpenAPI 3.1 спецификация сервера](docs/openapi.yaml)
+- [Руководство разработчика](docs/developer-guide.md) — сборка, тесты, e2e, релиз
 
 
 ## Speech model
@@ -85,7 +91,7 @@ Local GGUF via `llama-server`, or a cloud provider (DeepSeek, OpenRouter, OpenAI
 ```
 ts/                 Electron + TypeScript app (shipping 2.0)
 src/                Legacy WPF/.NET sources (1.x; not the installer)
-docs/               Plans and design notes
+docs/               User / CLI / server / developer guides (RU), OpenAPI spec, design notes
 tools/              Helpers (Telegram bot, icons, …)
 .github/workflows/  CI: Windows package, e2e smoke, legacy WPF builds
 ```

@@ -25,11 +25,13 @@
     "e2e": "npm run build && node scripts/e2e-smoke.cjs"
   },
   "devDependencies": {
+    "@apidevtools/swagger-parser": "^13.1.0",
     "@types/node": "^20.17.0",
     "electron": "^38.0.0",
     "electron-builder": "^26.15.3",
     "typescript": "^5.9.0",
-    "vitest": "^3.2.0"
+    "vitest": "^3.2.0",
+    "yaml": "^2.9.1"
   },
   "dependencies": {
     "onnxruntime-node": "^1.30.0",
