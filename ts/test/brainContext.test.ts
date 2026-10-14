@@ -1,6 +1,7 @@
 // «Контекст для Мозга» (COMPETITORS №5): the fenced, opt-in context block.
 import { describe, expect, it } from 'vitest';
-import { CONTEXT_MAX_CHARS, clip, contextBlock } from '../src/core/brainContext';
+import { CONTEXT_MAX_CHARS, clip, contextBlock, withContext } from '../src/core/brainContext';
+import { fileBrainContext } from '../src/main/brain/fileBrain';
 import * as Settings from '../src/main/settings';
 
 describe('contextBlock', () => {
@@ -53,3 +54,23 @@ describe('settings', () => {
     expect(Settings.fromJsonObject({}).settings.BrainContextClipboard).toBe(false);
   });
 });
+
+describe('withContext / fileBrainContext (file page and CLI)', () => {
+  it('withContext appends the block to the prompt, keeps the other args; empty block = same function', async () => {
+    const ask = async (p: string, t: string, n: number) => `${p}|${t}|${n}`;
+    expect(withContext(ask, '')).toBe(ask);
+    expect(await withContext(ask, '+CTX')('P', 'T', 5)).toBe('P+CTX|T|5');
+  });
+  it('file page: clipboard only, only when the switch is on; read errors are no context', () => {
+    let reads = 0;
+    const read = () => (reads++, 'ООО «Зюйд-Вест»');
+    expect(fileBrainContext({ BrainContextClipboard: false }, read)).toBe('');
+    expect(reads).toBe(0);
+    const on = fileBrainContext({ BrainContextClipboard: true }, read);
+    expect(on).toContain('ООО «Зюйд-Вест»');
+    expect(on).not.toContain('Program:');
+    expect(fileBrainContext({ BrainContextClipboard: true }, () => { throw new Error('x'); })).toBe('');
+    expect(fileBrainContext({ BrainContextClipboard: true }, () => '  ')).toBe('');
+  });
+});
+
