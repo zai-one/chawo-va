@@ -13,7 +13,7 @@ interface FileState {
   items: FileItem[];
   status: string;
   busy: boolean;
-  options: { timestamps: boolean; srt: boolean; extra: string[]; parallelism: string; diarize: boolean; brief: boolean };
+  options: { timestamps: boolean; srt: boolean; extra: string[]; parallelism: string; diarize: boolean; brief: boolean; score?: boolean };
   ffmpeg: { line: string; canDownload: boolean; installed: boolean };
   url: { line: string; canDownload: boolean; installed: boolean; managed: boolean; busy: boolean; folder: string };
   diarization: { onDisk: boolean; ready: boolean; downloading: boolean; line: string; canDownload: boolean };
@@ -28,6 +28,17 @@ interface FileState {
     where: string;
     available: boolean;
     text: string;
+    path: string | null;
+    busy: boolean;
+  };
+  score?: {
+    enabled: boolean;
+    checklist: string;
+    checklists: { id: string; name: string; builtin: boolean; items: string[] }[];
+    note: string;
+    where: string;
+    available: boolean;
+    result: { checklist: { id: string; name: string }; items: { item: string; verdict: 'yes' | 'partial' | 'no'; quote: string; note: string }[]; score: number; max: number; percent: number } | null;
     path: string | null;
     busy: boolean;
   };
@@ -70,6 +81,10 @@ interface FileApi {
   saveBriefTemplate(name: string, instruction: string): Promise<FileState>;
   deleteBriefTemplate(name: string): Promise<FileState>;
   runBrief(path?: string): Promise<FileState>;
+  setScoreChecklist(id: string): Promise<FileState>;
+  saveChecklist(name: string, items: string): Promise<FileState>;
+  deleteChecklist(name: string): Promise<FileState>;
+  runScore(path?: string): Promise<FileState>;
   setTranslateTarget(text: string): Promise<FileState>;
   runTranslate(to?: string, path?: string): Promise<FileState>;
   openEditor(path?: string): Promise<FileState>;
@@ -1661,6 +1676,8 @@ function ensureEditorAudio(mediaUrl: string): HTMLAudioElement {
 let urlDraft = '';
 /** «Перевести»: what the user is typing in the language field; null = show the saved value. */
 let translateDraft: string | null = null;
+/** Unsaved checklist items / name while typing (pushes re-render the page). */
+let checklistDraft: { items: string; name: string } | null = null;
 
 function renderFile(): void {
   const s = fileState;
@@ -1864,6 +1881,69 @@ function renderFile(): void {
     briefBox.append(card);
   }
   page.append(briefBox);
+
+  // «Проверка по чек-листу» — the Brain marks each item yes / partial / no with a quote (.score.json / .score.txt).
+  const sc = s.score ?? { enabled: false, checklist: 'sales', checklists: [], note: '', where: '', available: false, result: null, path: null, busy: false };
+  const cur = sc.checklists.find((x) => x.id === sc.checklist) ?? sc.checklists[0] ?? null;
+  const scoreOn = el('input', { type: 'checkbox', checked: sc.enabled, disabled: !sc.available && !sc.enabled });
+  scoreOn.dataset.score = 'enabled';
+  scoreOn.addEventListener('change', () => void bridge.file.setOptions({ score: scoreOn.checked }).then(apply));
+  const clSel = selectOf(sc.checklists.map((x) => ({ value: x.id, label: x.builtin ? x.name : `${x.name} ${L('(свой)', '(custom)')}` })), cur?.id ?? '',
+    (v) => { checklistDraft = null; void bridge.file.setScoreChecklist(v).then(apply); });
+  clSel.dataset.score = 'checklist';
+  clSel.setAttribute('aria-label', L('Чек-лист', 'Checklist'));
+  const items = el('textarea', { rows: Math.min(8, Math.max(3, cur?.items.length ?? 3)), spellcheck: true }) as HTMLTextAreaElement;
+  items.dataset.score = 'items';
+  items.value = checklistDraft?.items ?? (cur?.items ?? []).join('\n');
+  items.placeholder = L('Один пункт на строку', 'One item per line');
+  items.addEventListener('input', () => { checklistDraft = { items: items.value, name: checklistDraft?.name ?? '' }; });
+  const clName = el('input', { type: 'text', spellcheck: false, value: checklistDraft?.name ?? (cur && !cur.builtin ? cur.name : ''), placeholder: L('название своего чек-листа', 'your checklist name') });
+  clName.dataset.score = 'name';
+  clName.className = 'grow';
+  clName.addEventListener('input', () => { checklistDraft = { items: items.value, name: clName.value }; });
+  const saveCl = button(L('Сохранить чек-лист', 'Save checklist'), () => void bridge.file.saveChecklist(clName.value, items.value).then((st) => { if (!st.score?.note) checklistDraft = null; apply(st); }));
+  saveCl.dataset.score = 'save';
+  const clRow = el('div', { className: 'row tpl-row' }, clName, saveCl);
+  if (cur && !cur.builtin) {
+    const del = button(L('Удалить', 'Delete'), () => { checklistDraft = null; void bridge.file.deleteChecklist(cur.name).then(apply); }, 'link');
+    del.dataset.score = 'delete';
+    clRow.append(del);
+  }
+  const doScore = button(L('Проверить последнюю расшифровку', 'Score the last transcript'), () => void bridge.file.runScore().then(apply), 'primary');
+  doScore.dataset.score = 'run';
+  doScore.disabled = s.busy || sc.busy || !sc.available || !s.lastOutput;
+  const scoreBox = el('fieldset', { className: 'meeting-brief call-score' },
+    el('legend', { textContent: L('Проверка по чек-листу', 'Checklist score') }),
+    el('label', {}, scoreOn, L(' После расшифровки писать .score.json и .score.txt', ' After transcription also write .score.json and .score.txt')),
+    el('p', { className: 'muted hint', textContent: sc.available
+      ? L(`Мозг: ${sc.where}. Каждый пункт: да / частично / нет и цитата из звонка. Встроенный чек-лист можно взять за основу — сохраните под своим названием.`,
+        `Brain: ${sc.where}. Each item: yes / partial / no with a quote from the call. Start from the built-in checklist and save it under your own name.`)
+      : L('Нужен Мозг: скачайте локальную модель на «Мозге» или настройте свой сервер.', 'Needs the Brain: download a local model on Brain, or set up your own server.') }),
+    el('div', { className: 'row inline' }, el('label', { textContent: L('Чек-лист ', 'Checklist ') }), clSel),
+    items,
+    clRow,
+  );
+  if (sc.note) scoreBox.append(el('p', { className: 'hint warn', textContent: sc.note }));
+  scoreBox.append(el('div', { className: 'row' }, doScore));
+  if (sc.result) {
+    const r = sc.result;
+    const mark = { yes: '✓', partial: '½', no: '✗' } as const;
+    const list = el('ul', { className: 'score-items' });
+    for (const x of r.items) {
+      const li = el('li', { className: `v-${x.verdict}` }, el('span', { className: 'mark', textContent: mark[x.verdict] }), el('span', { textContent: x.item }));
+      if (x.quote) li.append(el('q', { textContent: x.quote }));
+      if (x.note) li.append(el('small', { className: 'muted', textContent: x.note }));
+      list.append(li);
+    }
+    scoreBox.append(el('div', { className: 'card result score-card' },
+      el('div', { className: 'card-head' },
+        el('strong', { textContent: L(`${r.checklist.name}: ${String(r.score).replace('.', ',')} из ${r.max} (${r.percent}%)`, `${r.checklist.name}: ${r.score} of ${r.max} (${r.percent}%)`) }),
+        sc.path ? button(L('Показать файл', 'Show file'), () => void bridge.file.reveal(sc.path!), 'link') : el('span'),
+      ),
+      list,
+    ));
+  }
+  page.append(scoreBox);
 
   // «Перевести» — offline translation of the last transcript via the same Brain (IDEAS №15).
   const tr = s.translate ?? { target: '', languages: [], where: '', available: false, text: '', path: null, busy: false };

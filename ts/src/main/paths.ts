@@ -76,6 +76,11 @@ export function briefTemplatesPath(): string {
   return join(appDataDir(), 'brief-templates.json');
 }
 
+/** Custom call checklists («Проверка по чек-листу»); shared by the File page and `chawo-va score`. */
+export function checklistsPath(): string {
+  return join(appDataDir(), 'checklists.json');
+}
+
 /** Dictation history (one JSON line per take); shared by the «История» page and `chawo-va history`. */
 export function historyFilePath(): string {
   return join(localDataDir(), 'history.jsonl');

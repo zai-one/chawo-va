@@ -193,6 +193,36 @@ app.whenReady().then(async () => {
     } catch (e) {
       check('gui: «Кратко и задачи» templates (pick, save, use, delete)', false, e.message);
     }
+    // «Проверка по чек-листу»: built-in, save a custom one, the card shows it, score writes .score.json/.txt, delete.
+    try {
+      let st = await call('file:scoreChecklist', 'sales');
+      const ok1 = st.score.checklist === 'sales' && st.score.checklists.length >= 1 && st.score.checklists[0].items.length === 6;
+      st = await call('file:saveChecklist', 'GUI чек-лист', '- Поздоровался\n- Назвал цену\n\n- Назвал цену');
+      const ok2 = st.score.checklist === 'GUI чек-лист' && st.score.checklists.some((x) => x.name === 'GUI чек-лист' && !x.builtin && x.items.length === 2);
+      st = await call('file:saveChecklist', 'sales', 'x');
+      const okRefuse = /встроенный|built-in/.test(st.score.note);
+      st = await call('file:runScore', txt);
+      let sj = null;
+      try {
+        sj = JSON.parse(readFileSync(join(tx, 'meet.score.json'), 'utf8'));
+      } catch {}
+      const okRun = sj && sj.max === 2 && sj.score === 1.5 && existsSync(join(tx, 'meet.score.txt')) && st.score.result?.percent === 75;
+      await js(`document.querySelector('.nav button[data-page="file"]').click(); true`);
+      await sleep(600);
+      const ui = await js(`(() => { const s = document.querySelector('[data-score="checklist"]'); const box = s && s.closest('fieldset'); return s ? { value: s.value, items: document.querySelector('[data-score="items"]').value, marks: box.querySelectorAll('.score-items li').length, head: box.querySelector('.score-card strong')?.textContent ?? '', bg: getComputedStyle(box.querySelector('textarea')).backgroundColor } : null; })()`);
+      if (shots) {
+        await js(`(document.querySelector('.call-score .score-card') ?? document.querySelector('.call-score')).scrollIntoView({ block: 'end' }); true`);
+        await sleep(400);
+        writeFileSync(join(shots, 'file-call-score.png'), (await w.webContents.capturePage()).toPNG());
+      }
+      st = await call('file:deleteChecklist', 'GUI чек-лист');
+      const ok3 = st.score.checklist === 'sales' && !st.score.checklists.some((x) => x.name === 'GUI чек-лист');
+      const dark = ui && /rgb\((\d+), (\d+), (\d+)\)/.exec(ui.bg);
+      const okDark = dark && Number(dark[1]) + Number(dark[2]) + Number(dark[3]) < 200;
+      check('gui: checklist score (pick, save, refuse built-in name, score, card, delete)', ok1 && ok2 && okRefuse && okRun && ok3 && ui && ui.value === 'GUI чек-лист' && ui.marks === 2 && /75%/.test(ui.head) && okDark, JSON.stringify({ ok1, ok2, okRefuse, okRun, ok3, ui, status: st.ffmpeg?.line }));
+    } catch (e) {
+      check('gui: checklist score (pick, save, refuse built-in name, score, card, delete)', false, e.message);
+    }
     try {
       step('file:runTranslate');
       const st = await call('file:runTranslate', 'de', txt);
