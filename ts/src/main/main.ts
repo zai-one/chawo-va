@@ -13,6 +13,7 @@ import { registerBrainIpc } from './brainIpc';
 import type { LastApp } from './brain/brainPage';
 import * as LocalBrain from './brain/localBrain';
 import { registerDictationIpc } from './dictationIpc';
+import { registerMcpIpc } from './mcpIpc';
 import { registerNetworkIpc } from './networkIpc';
 import { registerMeetingIpc } from './meetingIpc';
 import { registerHistoryIpc } from './historyIpc';
@@ -232,6 +233,7 @@ if (!app.requestSingleInstanceLock()) {
       },
     });
     registerDictionaryIpc({ get: () => settings });
+    registerMcpIpc({ get: () => settings });
     registerCrmIpc(() => win);
     const brain = registerBrainIpc(() => win, { get: () => settings }, { lastApp: () => lastApp });
     win = createWindow();

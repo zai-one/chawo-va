@@ -8,7 +8,7 @@ export const FORMATS = ['txt', 'srt', 'vtt', 'json', 'md', 'docx'] as const;
 export type OutputFormat = (typeof FORMATS)[number];
 
 export interface CliOptions {
-  command: 'transcribe' | 'brain' | 'brief' | 'score' | 'translate' | 'history' | 'ask' | 'segments' | 'stats' | 'serve' | 'snippets' | 'dictionary' | 'meeting' | 'crm' | 'help' | 'version';
+  command: 'transcribe' | 'brain' | 'brief' | 'score' | 'translate' | 'history' | 'ask' | 'segments' | 'stats' | 'serve' | 'snippets' | 'dictionary' | 'meeting' | 'crm' | 'mcp' | 'help' | 'version';
   inputs: string[];
   /** Empty = not given (txt). */
   formats: OutputFormat[];
@@ -155,7 +155,7 @@ export function parseArgs(argv: readonly string[]): ParseResult {
   if (first === '--version' || first === '-v' || first === 'version') return { ok: true, options: blank('version') };
   // `crm` has its own small option set (src/cli/crmCommand.ts parses the rest).
   if (first === 'crm') return { ok: true, options: { ...blank('crm'), inputs: args.slice(1) } };
-  if (first !== 'transcribe' && first !== 'brain' && first !== 'brief' && first !== 'score' && first !== 'translate' && first !== 'history' && first !== 'ask' && first !== 'segments' && first !== 'stats' && first !== 'serve' && first !== 'snippets' && first !== 'dictionary' && first !== 'meeting') return { ok: false, error: `unknown command: ${first}` };
+  if (first !== 'transcribe' && first !== 'brain' && first !== 'brief' && first !== 'score' && first !== 'translate' && first !== 'history' && first !== 'ask' && first !== 'segments' && first !== 'stats' && first !== 'serve' && first !== 'snippets' && first !== 'dictionary' && first !== 'meeting' && first !== 'mcp') return { ok: false, error: `unknown command: ${first}` };
 
   args.splice(1, 0, ...lead);
   const o = blank(first);
@@ -373,7 +373,8 @@ export function parseArgs(argv: readonly string[]): ParseResult {
   if ((o.brain !== null || o.brief !== null) && o.command !== 'transcribe')
     return { ok: false, error: o.command === 'brain' || o.command === 'brief' ? `--brain / --brief are switches for transcribe; \`${o.command}\` already does it` : '--brain and --brief are for transcribe' };
   if (o.server != null && o.command !== 'transcribe') return { ok: false, error: '--server is for transcribe' };
-  if ((o.askIn.length > 0 || o.noHistory || o.searchOnly) && o.command !== 'ask') return { ok: false, error: '--in, --no-history and --search are for ask' };
+  if (o.searchOnly && o.command !== 'ask') return { ok: false, error: '--search is for ask' };
+  if ((o.askIn.length > 0 || o.noHistory) && o.command !== 'ask' && o.command !== 'mcp') return { ok: false, error: '--in and --no-history are for ask and mcp' };
   if (o.server != null && (o.score === true || o.checklist != null)) return { ok: false, error: '--score does not work with --server; run `chawo-va score` on the .txt afterwards' };
   if ((o.track.length > 0 || o.hits) && o.command !== 'stats') return { ok: false, error: '--track and --hits are for stats' };
   if (o.template != null) {
@@ -416,6 +417,14 @@ export function parseArgs(argv: readonly string[]): ParseResult {
       return { ok: false, error: 'history prints to stdout; it takes search words, -n, --json, --raw' };
     if (o.instruction != null || o.to != null || o.postScript != null || o.noPostScript)
       return { ok: false, error: 'history takes search words, -n, --json, --raw' };
+    return { ok: true, options: o };
+  }
+  if (o.command === 'mcp') {
+    // stdio MCP server: only --in, --no-history, --lang. Anything else would be a surprise on stdout.
+    const speech = o.model || o.device || o.threads || o.script || o.modelDir;
+    if (o.inputs.length > 0) return { ok: false, error: 'mcp takes no arguments (folders go with --in)' };
+    if (o.formats.length > 0 || o.outDir || o.stdout || o.timestamps !== null || o.skipExisting || speech || o.instruction != null || o.to != null || o.postScript != null || o.noPostScript || o.raw || o.json || o.limit !== null || o.context != null || o.contextFile != null || o.checklist != null || o.score !== null || o.template != null || o.server != null || o.token != null || o.host != null || o.port != null)
+      return { ok: false, error: 'mcp takes only --in <folder>, --no-history and --lang' };
     return { ok: true, options: o };
   }
   if (o.command === 'ask') {
@@ -552,6 +561,7 @@ export function helpText(t: (ru: string, en: string) => string): string {
   chawo-va translate <тексты.txt…> [--to язык] [параметры]
   chawo-va history [слова для поиска…] [-n 20|all] [--json] [--raw]
   chawo-va ask <вопрос…> [--in папка|файл.txt]… [--no-history] [--search] [-n 8] [--json]
+  chawo-va mcp [--in папка]… [--no-history]
   chawo-va segments <файлы.txt|.srt|.json…> [--json]
   chawo-va stats <файлы.txt|.srt|.json…> [--track «Название: слово, слов*»] [--hits] [--json]
   chawo-va snippets list [--json] | add <фраза> <текст|-> | remove <фраза>
@@ -690,6 +700,12 @@ export function helpText(t: (ru: string, en: string) => string): string {
   -n, --limit <N>        сколько отрывков (по умолчанию 8, до 30)
       --json             {question, answer, cited, excerpts[…]}
 
+Параметры mcp (MCP-сервер только для чтения на stdin/stdout, для Claude Desktop / Cursor):
+      --in <папка|файл>  что открыть вместо папки встреч и папок «Спросить историю» (можно несколько)
+      --no-history       не отдавать фразы диктовки
+                         Включается на странице «Сеть» («MCP-сервер»), там же готовый конфиг.
+                         Порт не открывает, ничего не пишет, Мозг не вызывает.
+
 Чего нет в параметрах, берётся из настроек приложения (settings.json, только чтение).
 Модели не скачиваются (речь, VAD, спикеры): сначала скачайте их в приложении.
 WAV и Ogg/Opus читаются сами, остальные форматы (MP3, M4A, FLAC, …) — через ffmpeg.
@@ -717,6 +733,7 @@ Usage:
   chawo-va translate <text.txt…> [--to language] [options]
   chawo-va history [search words…] [-n 20|all] [--json] [--raw]
   chawo-va ask <question…> [--in folder|file.txt]… [--no-history] [--search] [-n 8] [--json]
+  chawo-va mcp [--in folder]… [--no-history]
   chawo-va segments <files.txt|.srt|.json…> [--json]
   chawo-va stats <files.txt|.srt|.json…> [--track "Name: word, wor*"] [--hits] [--json]
   chawo-va snippets list [--json] | add <trigger> <text|-> | remove <trigger>
@@ -854,6 +871,12 @@ ask options («Ask history»: a question over dictation phrases and meeting tran
       --search           only the found excerpts, no Brain
   -n, --limit <N>        how many excerpts (default 8, up to 30)
       --json             {question, answer, cited, excerpts[…]}
+
+mcp options (read-only MCP server on stdin/stdout, for Claude Desktop / Cursor):
+      --in <dir|file>    what to share instead of the meetings folder and «Ask history» folders (repeatable)
+      --no-history       do not share dictation phrases
+                         Turn it on on the Network page («MCP server»); the config snippet is there too.
+                         Opens no port, writes nothing, never calls the Brain.
 
 Anything not given falls back to the app's settings (settings.json, read-only).
 No model is downloaded (speech, VAD, speakers): download them in the app first.

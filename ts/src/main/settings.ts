@@ -86,6 +86,8 @@ export interface SettingsData {
   CallTrackers: string;
   /** «Спросить историю»: extra folders with transcripts, one per line (the meetings folder is always searched). */
   AskFolders: string;
+  /** `chawo-va mcp` (read-only MCP server for assistants) allowed; off by default. */
+  McpEnabled: boolean;
   /** «Перевести»: last target language (code, name or free text); empty = auto (RU→EN, else →RU). */
   TranslateTarget: string;
   StartHintDismissed: boolean;
@@ -173,6 +175,7 @@ export function defaults(): SettingsData {
     CallScoreChecklist: '',
     CallTrackers: '',
     AskFolders: '',
+    McpEnabled: false,
     TranslateTarget: '',
     StartHintDismissed: false,
     MicrophoneId: '',
@@ -436,6 +439,7 @@ export function fromJsonObject(raw: Record<string, unknown>): { settings: Settin
   d.CallScoreChecklist = asString(raw.CallScoreChecklist, d.CallScoreChecklist);
   d.CallTrackers = asString(raw.CallTrackers, d.CallTrackers).slice(0, 8000);
   d.AskFolders = asString(raw.AskFolders, d.AskFolders).slice(0, 8000);
+  d.McpEnabled = asBool(raw.McpEnabled, d.McpEnabled);
   d.TranslateTarget = asString(raw.TranslateTarget, d.TranslateTarget);
   d.StartHintDismissed = asBool(raw.StartHintDismissed, d.StartHintDismissed);
   d.MicrophoneId = asString(raw.MicrophoneId, d.MicrophoneId);
@@ -538,6 +542,7 @@ export function toJsonObject(s: SettingsData): Record<string, unknown> {
     CallScoreChecklist: s.CallScoreChecklist,
     CallTrackers: s.CallTrackers,
     AskFolders: s.AskFolders,
+    McpEnabled: s.McpEnabled,
     TranslateTarget: s.TranslateTarget,
     StartHintDismissed: s.StartHintDismissed,
     MicrophoneId: s.MicrophoneId,

@@ -230,6 +230,11 @@ const api = {
       return () => ipcRenderer.removeListener('history:state', h);
     },
   },
+  mcp: {
+    state: () => ipcRenderer.invoke('mcp:state'),
+    enable: (on: boolean) => ipcRenderer.invoke('mcp:enable', on),
+    copy: () => ipcRenderer.invoke('mcp:copy'),
+  },
   network: {
     state: () => ipcRenderer.invoke('network:state'),
     setRole: (v: string) => ipcRenderer.invoke('network:role', v),
