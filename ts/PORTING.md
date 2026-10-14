@@ -1,6 +1,6 @@
 # Porting log: WPF/.NET → Electron + TypeScript
 
-Branch `ts-port`, folder `ts/`. The WPF app in `../src` stays untouched and keeps shipping (1.19.0).
+Branch `ts-port`, folder `ts/`. From **2.0.0** the Electron app in this folder is the shipping product; the WPF app in `../src` stays untouched as legacy sources (1.19.0).
 
 Structure reference: the user's taptain-desktop / zai-brand projects are on GitLab, but the GitLab
 token is expired, so this started as a plain Electron + TypeScript skeleton (tsc, no bundler, vitest).
@@ -39,7 +39,8 @@ Re-align folder names and tooling with taptain-desktop once its layout is readab
 | App/SalesRag.cs | src/main/sales/salesRag.ts | ✅ SuggestDictionary + FindSnippet (word-against-word matching, see tick log) + tests |
 | App/SalesCatalog.cs, SalesFlow.cs, SalesCardWindow, App.ShowSales/PresentCall/PaintCall | src/main/sales/ (salesCatalog, salesFlow, salesCard, salesCardWindow, salesPage) + salesIpc.ts | ✅ catalog match, call stand-in, CRM boundary (always none), always-on-top card + tests |
 | App/KeepAwake.cs | src/main/network/keepAwake.ts (Electron `powerSaveBlocker` 'prevent-app-suspension'; no-op outside Electron) | ✅ ported + tests |
-| App/Updater.cs, Autostart.cs | src/main/system/ | ⏳ |
+| App/Updater.cs (CheckAsync) | src/main/system/updater.ts | ✅ manual check + «Проверить обновления» on Dictation; no download/install |
+| App/Autostart.cs | src/main/system/ | ⏳ |
 | SettingsWindow, SalesCardWindow, Download/Update windows, BrainServerPanel | src/renderer/ pages | 🟡 all seven pages work (DownloadWindow folded into the page as a progress card); SalesCardWindow is `salesCard.html` |
 | SettingsWindow network page (Role_Changed, Remote_LostFocus, CheckHost_Click, Lan_Click), App.StartHermes / RestartHermes / ApplyKeepAwake / HermesStatusText / LanUrls / ToggleLanAsync | src/main/network/networkPage.ts (NetworkController), src/main/networkIpc.ts, preload `network:`, renderer `renderNetwork` | ✅ ported + tests |
 | App/OverlayWindow.xaml(.cs) | src/main/overlay/overlayModel.ts (state, Tail, hint/caption timers, placement), overlayWindow.ts (frameless transparent always-on-top, never focused, drag → OverlayX/Y), overlayPreload.ts, src/renderer/overlay.html/.css/.ts (13 bars, ripple, live line) | ✅ listening / recognizing / status / hint / live draft + tests; caret placement (Win32) and Unpin button ⏳ |
@@ -1099,3 +1100,16 @@ Re-align folder names and tooling with taptain-desktop once its layout is readab
   (`CHAWO_VAD_TEST_MODEL`), deviceid в CI проверяет e2e.
   Gaps: CI без весов (настоящая расшифровка только локально); e2e GUI вызывает IPC-обработчики напрямую
   (клики только по навигации и редактору); Windows-пакет e2e не гоняет (там свой smoke в ts-windows).
+
+
+- 2026-10-13 tick (branch `ts/feat-release-2.0`, queue A — Release 2.0): версия `ts/package.json` → **2.0.0**.
+  Updater: `src/main/system/updater.ts` (порт CheckAsync из `Updater.cs`) — только
+  `https://api.github.com/repos/zai-one/chawo-va/releases/latest`, пропуск draft/prerelease,
+  semver > `app.getVersion()`, возвращает `html_url` или «актуально»; без скачивания/установки.
+  IPC `dictation:checkUpdates` + диалоги (как WPF), кнопка «Проверить обновления» и строка версии
+  внизу «Диктовки». Тесты updater (+8, injectable fetch). Autostart остаётся ⏳.
+  README: корневой описывает 2.0 / TS как основной продукт (установщик + zip, CLI, возможности,
+  attribution upstream, `src/` = legacy WPF); `ts/README.md` больше не говорит, что WPF shipping.
+  Workflow `.github/workflows/ts-windows.yml`: push на `main` / `ts-port` / `ts/**` и теги `v*`;
+  на теге — softprops/action-gh-release прикрепляет Setup.exe + portable zip к GitHub Release
+  (`contents: write`). Веса моделей по-прежнему не в пакете. Legacy WPF workflows не трогали.

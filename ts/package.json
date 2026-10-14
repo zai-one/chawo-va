@@ -1,7 +1,7 @@
 {
   "name": "chawo-va",
   "productName": "Chawo Voice Assistant",
-  "version": "2.0.0-alpha.0",
+  "version": "2.0.0",
   "description": "Chawo Voice Assistant: local dictation and file transcription (Electron + TypeScript port of the WPF app).",
   "license": "MIT",
   "private": true,

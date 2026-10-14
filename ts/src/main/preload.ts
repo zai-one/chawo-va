@@ -138,6 +138,7 @@ const api = {
     /** The word's always-on stream; fire-and-forget like appendPcm. */
     wakePcm: (chunk: Float32Array) => ipcRenderer.send('wake:pcm', chunk),
     wakeMicFailed: (name: string, message: string) => ipcRenderer.invoke('wake:micFailed', name, message),
+    checkUpdates: () => ipcRenderer.invoke('dictation:checkUpdates'),
   },
   brain: {
     state: (rebind = false) => ipcRenderer.invoke('brain:state', rebind),
