@@ -103,6 +103,16 @@ select.wide { min-width: 360px; max-width: 100%; }
 .hist-text { white-space: pre-wrap; overflow-wrap: anywhere; margin: 4px 0 2px; user-select: text; }
 .hist-raw { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; user-select: text; }
 .hist-acts { margin: 4px 0 0; gap: 4px; }
+.ask { border: 1px solid var(--line); border-radius: 8px; background: var(--panel); padding: 4px 12px 8px; margin: 0 0 12px; }
+.ask h2 { font-size: 14px; margin: 6px 0; }
+.ask-q { flex: 1; min-width: 240px; }
+.ask-where { gap: 6px; font-size: 12px; align-items: center; margin-top: 6px; }
+.ask-chip { border: 1px solid var(--line); border-radius: 10px; padding: 0 8px; display: inline-flex; align-items: center; gap: 2px; }
+.ask-chip button { padding: 0 2px; min-width: 0; }
+.ask-answer { white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; border-left: 2px solid var(--accent); padding: 4px 10px; margin: 4px 0; }
+.ask-src { display: flex; flex-direction: column; gap: 4px; margin-top: 2px; }
+.ask-ex { border: 1px solid var(--line); border-radius: 6px; padding: 4px 10px; }
+.ask-ex summary { cursor: pointer; font-size: 12px; }
 .formats { display: inline-flex; gap: 14px; flex-wrap: wrap; }
 /* «Продажи»: catalog rows (code, name, line, similar code, delete), the folder row and the call stand-in. */
 .dict.sales .dict-row { grid-template-columns: 110px minmax(0, 1fr) minmax(0, 1fr) 110px 90px; }

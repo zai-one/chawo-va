@@ -95,7 +95,7 @@ app.whenReady().then(async () => {
     }
 
     // Every *:state handler answers with an object.
-    for (const ch of ['file:state', 'meeting:state', 'speech:state', 'dict:state', 'dictation:state', 'history:state', 'sales:state', 'network:state']) {
+    for (const ch of ['file:state', 'meeting:state', 'speech:state', 'dict:state', 'dictation:state', 'history:state', 'ask:state', 'sales:state', 'network:state']) {
       try {
         const st = await call(ch);
         check(`gui: IPC ${ch}`, st && typeof st === 'object', Object.keys(st ?? {}).slice(0, 8).join(','));
@@ -154,6 +154,26 @@ app.whenReady().then(async () => {
       await call('history:query', '');
     } catch (e) {
       check('gui: history finds the seeded take', false, e.message);
+    }
+
+    // «Спросить историю» on the History page: type, click «Спросить», the answer and its source show up.
+    try {
+      await js(`document.querySelector('.nav button[data-page="history"]').click(); true`);
+      await sleep(800);
+      await js(`(() => { const q = document.querySelector('[data-ask="q"]'); q.value = 'что обещали Иванову?'; q.dispatchEvent(new Event('input')); document.querySelector('[data-ask="run"]').click(); return true; })()`);
+      let ui = null;
+      for (let i = 0; i < 40; i++) {
+        await sleep(250);
+        ui = await js(`(() => ({ answer: document.querySelector('[data-ask="answer"]')?.textContent ?? '', sources: Array.from(document.querySelectorAll('.ask-ex summary')).map((s) => s.textContent), status: document.querySelector('[data-ask="status"]')?.textContent ?? '' }))()`);
+        if (ui.answer) break;
+      }
+      if (shots) writeFileSync(join(shots, 'history-ask.png'), (await w.webContents.capturePage()).toPNG());
+      check('gui: «Спросить историю» answers with a cited transcript', /скидку 10%/.test(ui.answer) && ui.sources.some((x) => x.includes('встреча-иванов.txt')), JSON.stringify(ui));
+      const st = await call('ask:history', false);
+      check('gui: ask state (dictation toggle, meetings folder)', st.useHistory === false && st.meetingFolders.length === 1, JSON.stringify({ u: st.useHistory, m: st.meetingFolders }));
+      await call('ask:history', true);
+    } catch (e) {
+      check('gui: «Спросить историю» answers with a cited transcript', false, e.message);
     }
 
     // «История» → «Исправить» twice with the same word fix → «Словарь» → «Из исправлений» offers it → «В словарь».

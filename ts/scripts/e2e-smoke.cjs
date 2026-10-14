@@ -59,6 +59,7 @@ const baseEnv = {
   XDG_CACHE_HOME: prof.cache,
   XDG_CONFIG_HOME: join(prof.home, '.config'),
   XDG_DATA_HOME: join(prof.home, '.local', 'share'),
+  CHAWO_MEETINGS_DIR: join(tmp, 'meetings'),
   ELECTRON_ENABLE_LOGGING: '',
 };
 delete baseEnv.PISAR_APPDATA;
@@ -72,6 +73,7 @@ const Paths = require(join(root, 'dist/main/paths.js'));
 // ---- fake Brain: OpenAI-compatible, deterministic, records what it was asked ----
 const asked = [];
 function answer(system, user) {
+  if (/past dictation and meeting transcripts/.test(system)) return /Иванов/.test(user) ? 'Иванову обещали скидку 10% до пятницы [1].' : 'В отрывках ответа нет.';
   if (/Check whether the agent did each checklist item/.test(system)) {
     // Checklist: item 1 yes with a quote from the call, item 2 partial, the rest no; one invented quote.
     const n = (system.split('Checklist:\n')[1] ?? '').split('\n').filter((l) => /^\d+\. /.test(l)).length;
@@ -142,6 +144,10 @@ function seedHistory() {
   store.add({ raw: 'Поле в тумане', final: 'Поле в тумане.', command: null, brain: false, brainFailed: false, seconds: 1.0, ts: now - 90_000 }, 'Week');
   store.add({ raw: 'ну Совещание в пятницу', final: 'Совещание в пятницу.', command: null, brain: true, brainFailed: false, seconds: 2.3, ts: now - 60_000 }, 'Week');
   store.add({ raw: 'Ёжик в тумане', final: 'Ёжик в тумане.', command: null, brain: false, brainFailed: false, seconds: 1.1, ts: now - 30_000 }, 'Week');
+  // A finished meeting transcript for «Спросить историю» (CLI `ask` and the History page).
+  const meetings = process.env.CHAWO_MEETINGS_DIR;
+  mkdirSync(meetings, { recursive: true });
+  writeFileSync(join(meetings, 'встреча-иванов.txt'), '[00:01:00] Иванову обещали скидку 10% до пятницы.\n[00:02:00] Потом обсудили погоду.\n', 'utf8');
 }
 
 function installModel() {
@@ -184,7 +190,7 @@ async function cliCases(brainPort) {
   let r = await run(['--version']);
   check('cli --version', r.code === 0 && r.out.includes(pkg.version), brief(r));
   r = await run(['--help']);
-  const cmds = ['transcribe', 'brain', 'brief', 'translate', 'history', 'segments', 'stats', 'snippets', 'dictionary'];
+  const cmds = ['transcribe', 'brain', 'brief', 'translate', 'history', 'ask', 'segments', 'stats', 'snippets', 'dictionary'];
   check('cli --help lists every command', r.code === 0 && cmds.every((c) => r.out.includes('chawo-va ' + c)), brief(r));
   r = await run(['--lang', 'en', '--help']);
   check('cli --lang en --help (before the command)', r.code === 0 && r.out.includes('Usage'), brief(r));
@@ -280,6 +286,21 @@ async function cliCases(brainPort) {
   check('cli history -n 1 --json', r.code === 0 && hj.length === 1 && hj[0].final === 'Ёжик в тумане.', brief(r));
   r = await run(['history', '--raw', '-n', 'all']);
   check('cli history --raw', r.code === 0 && r.out.includes('ну Совещание'), brief(r));
+  // ---- ask («Спросить историю»): meetings folder + dictation, local search, fake Brain answer ----
+  r = await run(['ask', 'скидку', 'Иванову', '--search']);
+  check('cli ask --search (excerpts, no Brain)', r.code === 0 && r.out.includes('Иванову обещали') && r.out.includes('встреча-иванов.txt'), brief(r));
+  const askedBefore = asked.length;
+  r = await run(['ask', 'что', 'обещали', 'Иванову?']);
+  const askSent = asked.slice(askedBefore).find((a) => /past dictation/.test(a.full));
+  check('cli ask (Brain answer + cited source)', r.code === 0 && r.out.includes('скидку 10% до пятницы [1]') && r.out.includes('[1] встреча-иванов.txt') && Boolean(askSent), brief(r));
+  r = await run(['ask', 'совещание', 'пятницу', '--no-history', '--json']);
+  {
+    let doc = null;
+    try { doc = JSON.parse(r.out); } catch { /* checked below */ }
+    check('cli ask --no-history --json', r.code === 0 && doc && doc.excerpts.every((e) => e.kind === 'transcript') && doc.searched.sources === 1, brief(r));
+  }
+  r = await run(['ask', 'Ёжик', '--in', join(tmp, 'nope-folder'), '--search']);
+  check('cli ask --in (dictation still searched)', r.code === 0 && r.out.includes('Ёжик'), brief(r));
 
   // ---- Brain commands on a text transcript (fake 127.0.0.1 server) ----
   const bd = join(tmp, 'brain');

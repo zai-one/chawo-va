@@ -472,7 +472,34 @@ interface HistoryApi {
   edit(id: string, text: string): Promise<HistoryState>;
   onState(fn: (s: HistoryState) => void): () => void;
 }
-const bridge = (window as unknown as { chawo: { file: FileApi; meeting: MeetingApi; speech: SpeechApi; dict: DictApi; brain: BrainApi; dictation: DictationApi; network: NetworkApi; sales: SalesApi; history: HistoryApi } }).chawo;
+interface AskExcerpt { n: number; title: string; when: string; path: string | null; text: string; cited: boolean }
+interface AskState {
+  ru: boolean;
+  title: string;
+  placeholder: string;
+  question: string;
+  busy: boolean;
+  status: string;
+  answer: string | null;
+  excerpts: AskExcerpt[];
+  useHistory: boolean;
+  meetingFolders: string[];
+  folders: string[];
+  brainLine: string;
+  labels: { ask: string; cancel: string; history: string; meetings: string; addFolder: string; remove: string; copy: string; open: string; sources: string; where: string };
+}
+interface AskApi {
+  state(): Promise<AskState>;
+  run(q: string): Promise<AskState>;
+  cancel(): Promise<AskState>;
+  setHistory(on: boolean): Promise<AskState>;
+  addFolder(): Promise<AskState>;
+  removeFolder(p: string): Promise<AskState>;
+  copy(): Promise<AskState>;
+  open(p: string): Promise<AskState>;
+  onState(fn: (s: AskState) => void): () => void;
+}
+const bridge = (window as unknown as { chawo: { file: FileApi; meeting: MeetingApi; speech: SpeechApi; dict: DictApi; brain: BrainApi; dictation: DictationApi; network: NetworkApi; sales: SalesApi; history: HistoryApi; ask: AskApi } }).chawo;
 
 const titlesEn: Record<string, string> = {
   dictation: 'Dictation',
@@ -505,6 +532,9 @@ let brainState: BrainState | null = null;
 let dictationState: DictationState | null = null;
 let networkState: NetworkState | null = null;
 let historyState: HistoryState | null = null;
+let askState: AskState | null = null;
+/** What is typed in the «Спросить» box, kept across redraws of the History page. */
+let askDraft: string | null = null;
 let salesState: SalesState | null = null;
 let ru = true;
 const L = (r: string, e: string) => (ru ? r : e);
@@ -1397,10 +1427,90 @@ function fillHistoryList(s: HistoryState): void {
   }
 }
 
+const applyAsk = (st: AskState) => {
+  askState = st;
+  if (current === 'history') fillAsk();
+};
+
+/** «Спросить историю»: question, where to look, the answer with its sources. Redrawn on its own. */
+function fillAsk(): void {
+  const box = page.querySelector<HTMLElement>('[data-ask="box"]');
+  const a = askState;
+  if (!box || !a) return;
+  const typing = document.activeElement instanceof HTMLInputElement && document.activeElement.dataset.ask === 'q';
+  const caret = typing ? (document.activeElement as HTMLInputElement).selectionStart : null;
+  const q = el('input', { type: 'text', value: askDraft ?? a.question, placeholder: a.placeholder, spellcheck: false, maxLength: 500 });
+  q.dataset.ask = 'q';
+  q.className = 'ask-q';
+  q.addEventListener('input', () => (askDraft = q.value));
+  const go = () => {
+    if (a.busy || !q.value.trim()) return;
+    void bridge.ask.run(q.value).then(applyAsk);
+  };
+  q.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') go();
+  });
+  const run = a.busy ? button(a.labels.cancel, () => void bridge.ask.cancel().then(applyAsk)) : button(a.labels.ask, go, 'primary');
+  run.dataset.ask = 'run';
+  const hist = el('input', { type: 'checkbox', checked: a.useHistory });
+  hist.addEventListener('change', () => void bridge.ask.setHistory(hist.checked).then(applyAsk));
+  const where = el('div', { className: 'row ask-where muted' }, el('span', { textContent: a.labels.where }), el('label', {}, hist, ' ' + a.labels.history));
+  const chip = (label: string, tip: string, remove?: () => void) => {
+    const c = el('span', { className: 'ask-chip', textContent: label, title: tip });
+    if (remove) c.append(button('×', remove, 'link'));
+    return c;
+  };
+  if (a.meetingFolders.length > 0) where.append(chip(a.labels.meetings, a.meetingFolders.join('\n')));
+  for (const f of a.folders) {
+    const name = f.split(/[\\/]/).filter(Boolean).pop() ?? f;
+    where.append(chip(name, f, () => void bridge.ask.removeFolder(f).then(applyAsk)));
+  }
+  where.append(button(a.labels.addFolder, () => void bridge.ask.addFolder().then(applyAsk), 'link'));
+  const kids: Node[] = [
+    el('h2', { textContent: a.title }),
+    el('div', { className: 'row' }, q, run),
+    where,
+    el('p', { className: 'muted hint', textContent: a.brainLine }),
+  ];
+  const status = el('p', { className: 'status line', textContent: a.status });
+  status.dataset.ask = 'status';
+  kids.push(status);
+  if (a.answer) {
+    const ans = el('div', { className: 'ask-answer', textContent: a.answer });
+    ans.dataset.ask = 'answer';
+    kids.push(ans, el('div', { className: 'row hist-acts' }, button(a.labels.copy, () => void bridge.ask.copy().then(applyAsk), 'link')));
+  }
+  if (a.excerpts.length > 0) {
+    const list = el('div', { className: 'ask-src' });
+    list.dataset.ask = 'sources';
+    // With an answer only the cited excerpts are open; the rest stay folded.
+    for (const x of a.excerpts) {
+      const head = el('summary', {}, el('b', { textContent: `[${x.n}] ` }), `${x.title}${x.when ? ' · ' + x.when : ''}`);
+      const item = el('details', { className: 'ask-ex' }, head, el('div', { className: 'hist-text', textContent: x.text }));
+      item.open = a.answer ? x.cited : true;
+      if (x.path) {
+        const p = x.path;
+        item.append(el('div', { className: 'row hist-acts' }, button(a.labels.open, () => void bridge.ask.open(p).then(applyAsk), 'link')));
+      }
+      list.append(item);
+    }
+    kids.push(el('div', { className: 'muted hint', textContent: a.labels.sources }), list);
+  }
+  box.replaceChildren(...kids);
+  if (typing) {
+    q.focus();
+    if (caret != null) q.setSelectionRange(caret, caret);
+  }
+}
+
 function renderHistory(): void {
   const s = historyState;
   page.replaceChildren(el('h1', { textContent: title('history') }));
   if (!s) return;
+  const askBox = el('section', { className: 'ask' });
+  askBox.dataset.ask = 'box';
+  page.append(askBox);
+  fillAsk();
   page.append(el('p', { className: 'muted', textContent: s.intro }));
   const keep = selectOf(s.keepChoices, s.keep, (v) => void bridge.history.setKeep(v).then(applyHistory));
   keep.setAttribute('aria-label', s.keepLabel);
@@ -2479,6 +2589,7 @@ function show(name: string): void {
   if (name === 'history') {
     renderHistory();
     void bridge.history.state().then(applyHistory);
+    void bridge.ask.state().then(applyAsk);
     return;
   }
   if (name === 'sales') {
@@ -2514,6 +2625,7 @@ bridge.dictation.onLevel(onLevel);
 bridge.dictation.onCue(playCue);
 bridge.network.onState(applyNetwork);
 bridge.history.onState(applyHistory);
+bridge.ask.onState(applyAsk);
 bridge.file.onToast((msg) => {
   if (fileState) apply({ ...fileState, status: msg });
 });

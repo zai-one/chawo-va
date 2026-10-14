@@ -1275,6 +1275,97 @@ describe('chawo-va stats', () => {
   });
 });
 
+
+describe('cli ask', () => {
+  const dirs: string[] = [];
+  afterEach(() => {
+    for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true });
+  });
+  const NOW = new Date(2026, 9, 14, 12, 0, 0).getTime();
+
+  function setup(o: { target?: 'None' | 'Local' | 'Cloud'; cloud?: string | null; answer?: string; keep?: HistoryKeep } = {}) {
+    const dir = mkdtempSync(join(tmpdir(), 'chawo-ask-cli-'));
+    dirs.push(dir);
+    const meet = join(dir, 'Встречи');
+    mkdirSync(meet);
+    writeFileSync(join(meet, 'звонок.txt'), '[00:01:00] Иванову обещали скидку 10% до пятницы.\n[00:02:00] Обсудили погоду.');
+    const path = join(dir, 'history.jsonl');
+    new HistoryStore(path, () => NOW).add({ raw: 'x', final: 'Петрову отправить счёт.', command: null, brain: false, brainFailed: false, seconds: 1, ts: NOW - 1000 }, 'Forever');
+    const h = harness({ defaults: { historyKeep: o.keep ?? 'Forever' } });
+    const sent: string[] = [];
+    h.deps.historyPath = () => path;
+    h.deps.clock = () => NOW;
+    h.deps.exists = (p) => require('node:fs').existsSync(p);
+    h.deps.askFolders = () => [meet];
+    h.deps.askBrain = () => ({
+      target: o.target ?? 'Local',
+      cloud: o.cloud ?? null,
+      ask: async (_p, text) => {
+        sent.push(text);
+        return o.answer ?? 'Обещали скидку 10% до пятницы [1].';
+      },
+    });
+    return { h, dir, meet, sent };
+  }
+
+  it('answers with the cited source; only excerpts go to the Brain', async () => {
+    const { h, sent, meet } = setup();
+    expect(await run(h, 'ask', 'что', 'обещали', 'Иванову?')).toBe(EXIT_OK);
+    const out = h.out.join('');
+    expect(out).toContain('Обещали скидку 10% до пятницы [1].');
+    expect(out).toContain(`[1] звонок.txt`);
+    expect(out).toContain(join(meet, 'звонок.txt'));
+    expect(sent[0]).toContain('Иванову обещали');
+    expect(sent[0]).not.toContain('Петрову');
+    expect(h.logs.join('\n')).toMatch(/cli ask sources=2/);
+  });
+
+  it('--search prints excerpts without the Brain; dictation phrases are searched too', async () => {
+    const { h, sent } = setup();
+    expect(await run(h, 'ask', 'счёт', 'Петрову', '--search')).toBe(EXIT_OK);
+    expect(sent).toHaveLength(0);
+    expect(h.out.join('')).toMatch(/\[1\] Dictation 14\.10 · 14\.10\.2026\n\[11:59\] Петрову отправить счёт\./);
+  });
+
+  it('--no-history and --in replace the defaults', async () => {
+    const { h, dir } = setup();
+    const other = join(dir, 'other');
+    mkdirSync(other);
+    writeFileSync(join(other, 'n.md'), 'Петрову скидки не будет.');
+    expect(await run(h, 'ask', 'Петрову', '--in', other, '--no-history', '--search', '--json')).toBe(EXIT_OK);
+    const j = JSON.parse(h.out.join(''));
+    expect(j.answer).toBeNull();
+    expect(j.excerpts.map((e: { source: string }) => e.source)).toEqual(['n.md']);
+    expect(j.searched.sources).toBe(1);
+  });
+
+  it('no Brain → excerpts with a note; cloud → a note where the text goes', async () => {
+    const a = setup({ target: 'None' });
+    expect(await run(a.h, 'ask', 'Иванову')).toBe(EXIT_OK);
+    expect(a.h.err.join('')).toContain('The Brain is not set up');
+    expect(a.h.out.join('')).toContain('Иванову обещали');
+    const c = setup({ target: 'Cloud', cloud: 'Xiaomi' });
+    expect(await run(c.h, 'ask', 'Иванову')).toBe(EXIT_OK);
+    expect(c.h.err.join('')).toContain('will go to Xiaomi');
+  });
+
+  it('nothing found / nothing to search', async () => {
+    const { h } = setup();
+    expect(await run(h, 'ask', 'бюджет')).toBe(EXIT_OK);
+    expect(h.err.join('')).toMatch(/Nothing found/);
+    const e = setup({ keep: 'Off' });
+    e.h.deps.askFolders = () => [];
+    expect(await run(e.h, 'ask', 'Иванову')).toBe(EXIT_FAILED);
+    expect(e.h.err.join('')).toMatch(/Nothing to search/);
+  });
+
+  it('a Brain failure → 1 with the reason', async () => {
+    const { h } = setup();
+    h.deps.askBrain = () => ({ target: 'Local', cloud: null, ask: async () => { throw new Error('timeout'); } });
+    expect(await run(h, 'ask', 'Иванову')).toBe(EXIT_FAILED);
+    expect(h.err.join('')).toContain('timeout');
+  });
+});
 describe('runCli transcribe --brain --context («Контекст для Мозга»)', () => {
   it('goes into the .brain.txt prompts only, not the brief and not the text', async () => {
     const prompts: string[] = [];
