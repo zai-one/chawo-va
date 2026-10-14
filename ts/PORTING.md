@@ -994,8 +994,7 @@ Re-align folder names and tooling with taptain-desktop once its layout is readab
   0; SIGINT через 1.5 с → «Прервано», 130, процессов yt-dlp не осталось. GUI под xvfb
   (`scripts/smoke-url.cjs`, после правки `fetchAudio`): MP3 с 127.0.0.1 и YouTube по-прежнему → .txt.
   Gaps: папка «Загрузки» в Windows берётся как %USERPROFILE%\Downloads (перенесённую в реестре папку CLI
-  не видит — приложение видит); onnxruntime-node при первом запуске пишет `~/.cache/Microsoft/
-  DeveloperTools/.onnxruntime/deviceid` (не от этой ветки, сети не видно — стоит проверить отдельно).
+  не видит — приложение видит). onnxruntime-node deviceid — закрыто в `ts/feat-ort-privacy` (`ORT_DISABLE_TELEMETRY=1`).
 - 2026-10-13 tick: PR #22 (`ts/feat-cli-url`) слит в `ts-port` (npm ci, 816 тестов, build зелёные). Дальше batch 2 п.9 —
   слово-активатор «Чаво», ветка `ts/feat-wake-word`. Галка «Начинать запись по слову «Чаво»» на «Диктовке» (по
   умолчанию выключена, `WakeWord`), под ней строка состояния: «Слушаю «Чаво»…» / в роли «Клиент» не работает /
@@ -1047,3 +1046,11 @@ Re-align folder names and tooling with taptain-desktop once its layout is readab
   `scripts/smoke-transcript-editor.cjs` (без модели: openEditor + fixture wav/srt, клик/seek, active).
   Gaps: без реальной модели в smoke (UI+seek проверены инъекцией); длинный seek по MP3 через chromium
   decode пути — только исходный файл очереди, не декодированный 16 кГц WAV.
+
+- 2026-10-13 tick (branch `ts/feat-ort-privacy`): приватность ORT — не пишем `~/.cache/Microsoft/
+  DeveloperTools/.onnxruntime/deviceid`. `core/ortPrivacy.ts` ставит `ORT_DISABLE_TELEMETRY=1` до загрузки
+  onnxruntime-node (идемпотентно; уже выставленный disable 1/true/yes/on/y не перезаписывает). Подключено
+  первым импортом в `recognizer.ts` / `vad.ts`, перед dynamic `import('onnxruntime-node')` в
+  `main/vad/vadModel.ts`, и на входах GUI (`main/main.ts`) и CLI (`cli.ts`). GUI+CLI паритет.
+  Тесты: ortPrivacy (+3: флаги; не затирает yes/true; child process с чистым XDG_CACHE_HOME + Silero session —
+  deviceid нет). 847 зелёные (844 до), `tsc`/build. Live: `scripts/smoke-ort-privacy.cjs` → deviceid:false.
