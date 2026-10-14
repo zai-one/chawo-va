@@ -144,7 +144,8 @@ export function registerFileIpc(getWindow: () => BrowserWindow | null, settings:
   let scoreBusy = false;
   let scoreNote = '';
   let scoreAbort: AbortController | null = null;
-  let scoreCloudOk: boolean | null = null;
+  /** Cloud consent for this queue run, tied to the service it was given for (a provider switch asks again). */
+  let scoreCloudOk: { cloud: string; ok: boolean } | null = null;
   const customChecklists = () => CallScore.loadCustom(checklistsPath());
   const checklistFor = (s: SettingsData) => CallScore.resolveChecklist(s.CallScoreChecklist, customChecklists());
   /** One scoring pass; writes .score.json/.txt beside rawTxt. Throws on Brain failure. */
@@ -435,8 +436,8 @@ export function registerFileIpc(getWindow: () => BrowserWindow | null, settings:
       if (kind === 'Cloud') {
         const cloud = MeetingBrief.cloudName(s);
         if (cloud) {
-          if (scoreCloudOk === null) scoreCloudOk = await askCloud(cloud);
-          if (!scoreCloudOk) return { note: t('чек-лист пропущен', 'checklist skipped') };
+          if (scoreCloudOk?.cloud !== cloud) scoreCloudOk = { cloud, ok: await askCloud(cloud) };
+          if (!scoreCloudOk.ok) return { note: t('чек-лист пропущен', 'checklist skipped') };
         }
       }
       try {
@@ -461,6 +462,9 @@ export function registerFileIpc(getWindow: () => BrowserWindow | null, settings:
     enqueue: (path) => void queue.add([path], false),
     runQueue: () => {
       if (runner.busy) return;
+      // A new run from «По ссылке»: consent from an earlier run does not carry over.
+      briefCloudOk = null;
+      scoreCloudOk = null;
       void runner.run().catch((e) => Log.write(`file run: ${e instanceof Error ? e.message : String(e)}`));
     },
     changed: () => {
@@ -935,13 +939,14 @@ export function registerFileIpc(getWindow: () => BrowserWindow | null, settings:
   });
 
   return {
-    busy: () => runner.busy || urlImport.busy || diarBusy || briefBusy || translateBusy,
+    busy: () => runner.busy || urlImport.busy || diarBusy || briefBusy || translateBusy || scoreBusy,
     /** A finished meeting recording: queue it and start (or join) the run. */
     enqueue: (path: string) => {
       queue.add([path], false);
       if (!runner.busy && !ffmpegBusy) {
         ffmpegStatus = '';
         briefCloudOk = null;
+        scoreCloudOk = null;
         void runner.run().catch((e) => Log.write(`file run: ${e instanceof Error ? e.message : String(e)}`));
       }
     },
