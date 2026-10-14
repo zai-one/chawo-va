@@ -152,6 +152,7 @@ export async function transformAsync(
   signal: AbortSignal,
   selection = false,
   fetchImpl: FetchLike = globalThis.fetch,
+  context = '',
 ): Promise<string> {
   let prompt: string;
   const instruction = s.BrainInstruction.trim();
@@ -170,6 +171,8 @@ export async function transformAsync(
   } else {
     prompt = (selection ? SelectionPrompt : CommandPrompt) + '\n\nКоманда пользователя к тексту: ' + command + '.';
   }
+  // «Контекст для Мозга» (opt-in): reference text appended to the instruction, never to the text itself.
+  prompt += context;
   const action = actionLabel(command);
 
   if (s.Brain === 'Local') {

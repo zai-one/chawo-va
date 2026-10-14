@@ -320,8 +320,33 @@ describe('ask command', () => {
   it('refuses a missing question, file options and ask flags elsewhere', () => {
     expect(err(['ask'])).toContain('needs a question');
     expect(err(['ask', 'x', '--out', '/o'])).toContain('ask prints to stdout');
+    expect(err(['ask', 'x', '--context', 'y'])).toContain('ask prints to stdout');
     expect(err(['ask', 'x', '--in'])).toContain('--in needs a value');
     expect(err(['history', '--search'])).toContain('are for ask');
     expect(err(['transcribe', 'a.wav', '--in', '/a'])).toContain('are for ask');
   });
 });
+describe('brain --context / --context-file («Контекст для Мозга»)', () => {
+  it('parses both forms; off by default', () => {
+    const a = parseArgs(['brain', 'a.txt']);
+    expect(a.ok && a.options.context === null && a.options.contextFile === null).toBe(true);
+    const b = parseArgs(['brain', 'a.txt', '--context', 'Анна Карпенко']);
+    expect(b.ok && b.options.context).toBe('Анна Карпенко');
+    const c = parseArgs(['brain', 'a.txt', '--context-file=ctx.txt']);
+    expect(c.ok && c.options.contextFile).toBe('ctx.txt');
+  });
+  it('rejects misuse', () => {
+    expect(parseArgs(['brain', 'a.txt', '--context', ' '])).toMatchObject({ ok: false });
+    expect(parseArgs(['brain', 'a.txt', '--context', 'x', '--context-file', 'y'])).toMatchObject({ ok: false });
+    expect(parseArgs(['brief', 'a.txt', '--context', 'x'])).toMatchObject({ ok: false, error: '--context / --context-file are for brain and transcribe --brain' });
+    expect(parseArgs(['transcribe', 'a.wav', '--no-brain', '--context', 'x'])).toMatchObject({ ok: false, error: '--context needs the Brain; drop --no-brain' });
+    expect(parseArgs(['transcribe', 'a.wav', '--server', 'http://h:1', '--context', 'x'])).toMatchObject({ ok: false });
+    const tr = parseArgs(['transcribe', 'a.wav', '--brain', '--context-file', 'c.txt']);
+    expect(tr.ok && tr.options.contextFile).toBe('c.txt');
+  });
+  it('help mentions the options in both languages', () => {
+    expect(helpText((ru) => ru)).toContain('--context-file <файл>');
+    expect(helpText((_ru, en) => en)).toContain('--context <text>');
+  });
+});
+

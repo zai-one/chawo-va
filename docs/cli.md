@@ -63,6 +63,13 @@
 
 `-t`/`--no-timestamps` (по умолчанию — как в исходном `.txt`), `--stdout`, `-o/--out`, `--lang`, `-q`.
 
+«Контекст для Мозга» (по желанию): `--context «текст»` или `--context-file <файл>` (первые 2000 знаков) —
+имена, термины, тема встречи. Контекст идёт Мозгу как подсказка к каждому запросу, в `.brain.txt` не
+попадает. Без флага контекста нет. С облачным Мозгом stderr пишет, что контекст уходит на сервер.
+Вместе оба флага нельзя; для других команд они не принимаются (код 2).
+Те же флаги есть у `transcribe --brain` (или при «Прогнать через мозг» в настройках): контекст идёт только
+в `.brain.txt`, не в `.brief.txt`. С `--no-brain` и с `--server` — ошибка (код 2).
+
 ### `brief`
 
 `--template <имя>`, `--instruction «…»`, `--stdout`, `-o/--out`, `--lang`, `-q`.
@@ -175,6 +182,8 @@ chawo-va transcribe ./recordings -o ./out -f txt,docx --skip-existing
 chawo-va transcribe "https://www.youtube.com/watch?v=…" -f srt
 chawo-va transcribe long.wav --server http://host:17831 --token "$CHAWO_SERVE_TOKEN" -f srt,vtt,json,md,docx
 chawo-va brain talk.txt && chawo-va brief talk.txt
+chawo-va brain call.txt --context "Клиент: ООО «Зюйд-Вест», Анна Карпенко"
+chawo-va transcribe call.m4a --brain --context-file client.txt
 chawo-va translate talk.txt --to de --stdout
 chawo-va segments talk.srt --json
 chawo-va stats talk.txt --hits --track "Цена: дорог*, скидк*"
@@ -224,6 +233,8 @@ Chawo Voice Assistant — расшифровка файлов, «Кратко и
       --brain / --no-brain
                          ещё и «Прогнать через мозг» → .brain.txt (убрать слова-паразиты +
                          «Кратко»); по умолчанию — из настроек
+      --context <текст> / --context-file <файл>
+                         контекст для .brain.txt (как у brain; нужен Мозг)
       --brief / --no-brief
                          ещё и «Кратко и задачи» → .brief.txt (--template / --instruction — формат);
                          по умолчанию — из настроек. Сбой Мозга — пометка, .txt всё равно пишется
@@ -244,6 +255,9 @@ Chawo Voice Assistant — расшифровка файлов, «Кратко и
   -t / --no-timestamps   [чч:мм:сс] в .brain.txt (по умолчанию — как в исходном .txt)
       --stdout           печатать в stdout вместо .brain.txt
   -o, --out <папка>      куда писать .brain.txt
+      --context <текст>  контекст для Мозга: имена, термины (только подсказка, в текст не вставляется;
+                         с облачным Мозгом уходит на сервер)
+      --context-file <файл>  то же из текстового файла (первые 2000 знаков)
       --lang ru|en       язык сообщений
   -q, --quiet
 

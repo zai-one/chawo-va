@@ -278,6 +278,22 @@ async function cliCases(brainPort) {
   check('cli brain → .brain.txt', r.code === 0 && brainTxt.includes('Анна подготовит') && /Кратко|Summary/.test(brainTxt), brief(r));
   r = await run(['brain', meet, '--stdout', '-q']);
   check('cli brain --stdout', r.code === 0 && r.out.includes('Анна'), brief(r));
+  // «Контекст для Мозга»: off unless asked; --context / --context-file land fenced in the prompt, never in the text.
+  const plainAsk = asked.length;
+  r = await run(['brain', meet, '--stdout', '-q']);
+  check('cli brain: no context by default', r.code === 0 && asked.slice(plainAsk).every((a) => !a.full.includes('<context>')), brief(r));
+  const ctxAsk = asked.length;
+  r = await run(['brain', meet, '--stdout', '-q', '--context', 'Клиент: ООО «Зюйд-Вест», Анна Карпенко']);
+  check('cli brain --context', r.code === 0 && !r.out.includes('Зюйд') && asked.slice(ctxAsk).length > 0 && asked.slice(ctxAsk).every((a) => a.full.includes('<context>') && a.full.includes('Зюйд-Вест')), brief(r));
+  const ctxFile = join(bd, 'ctx.txt');
+  writeFileSync(ctxFile, 'Проект «Чаво», термин RAG\n', 'utf8');
+  const fileAsk = asked.length;
+  r = await run(['brain', meet, '--stdout', '-q', '--context-file', ctxFile]);
+  check('cli brain --context-file', r.code === 0 && asked.slice(fileAsk).length > 0 && asked.slice(fileAsk).every((a) => a.full.includes('термин RAG')), brief(r));
+  r = await run(['brain', meet, '--stdout', '-q', '--context-file', join(bd, 'missing.txt')]);
+  check('cli brain --context-file missing → error', r.code !== 0 && /context-file/.test(r.err) && !/at .*\.js:\d+/.test(r.err), brief(r));
+  r = await run(['brief', meet, '--context', 'x']);
+  check('cli --context is only for brain', r.code !== 0 && /--context/.test(r.err), brief(r));
   r = await run(['brief', meet]);
   check('cli brief → .brief.txt', r.code === 0 && read(join(bd, 'meet.brief.txt')).includes('Задачи'), brief(r));
   r = await run(['brief', meet, '--instruction', 'Только задачи', '--stdout']);
@@ -310,10 +326,16 @@ async function cliCases(brainPort) {
   r = await run(['transcribe', speech, '--model', 'ctc']);
   check('cli transcribe --model ctc without it → exit 3', r.code === 3, brief(r));
 
+  // «Контекст для Мозга» on transcribe: usage errors need no model.
+  r = await run(['transcribe', speech, '--no-brain', '--context', 'x']);
+  check('cli transcribe --no-brain --context → usage error', r.code === 2 && /--context/.test(r.err), brief(r));
+  r = await run(['transcribe', speech, '--server', 'http://127.0.0.1:9', '--context', 'x']);
+  check('cli transcribe --server --context → usage error', r.code === 2 && /--server/.test(r.err), brief(r));
+
   const haveModel = installModel();
   if (!haveModel) {
     const why = 'no speech model (set CHAWO_SMOKE_MODEL_DIR)';
-    for (const n of ['transcribe → txt', 'transcribe every format', 'transcribe --stdout', 'transcribe --skip-existing', 'transcribe a folder', 'transcribe --post-script', 'transcribe --brain --brief', 'transcribe --diarize without speaker models', 'transcribe a link']) {
+    for (const n of ['transcribe --brain --context', 'transcribe → txt', 'transcribe every format', 'transcribe --stdout', 'transcribe --skip-existing', 'transcribe a folder', 'transcribe --post-script', 'transcribe --brain --brief', 'transcribe --diarize without speaker models', 'transcribe a link']) {
       if (process.env.CHAWO_SMOKE_REQUIRE_MODEL === '1') failc('cli ' + n, why);
       else skip('cli ' + n, why);
     }
@@ -364,6 +386,11 @@ async function cliCases(brainPort) {
     r = await run(['transcribe', speech, '-o', bdir, '--brain', '--brief']);
     const st = join(bdir, basename(speech).replace(/\.[^.]+$/, ''));
     check('cli transcribe --brain --brief', r.code === 0 && existsSync(st + '.txt') && existsSync(st + '.brain.txt') && read(st + '.brief.txt').includes('Задачи'), brief(r));
+    const tcAsk = asked.length;
+    const tcDir = join(tmp, 'tbrain-ctx');
+    r = await run(['transcribe', speech, '-o', tcDir, '--brain', '--context', 'Клиент Зюйд-Вест', '-q']);
+    const tcPrompts = asked.slice(tcAsk).filter((a) => /Remove only filler words/.test(a.full));
+    check('cli transcribe --brain --context', r.code === 0 && tcPrompts.length > 0 && tcPrompts.every((a) => a.full.includes('Зюйд-Вест')) && !read(join(tcDir, basename(speech).replace(/\.[^.]+$/, '.brain.txt'))).includes('Зюйд'), brief(r));
 
     r = await run(['transcribe', speech, '--diarize', '--stdout']);
     check('cli transcribe --diarize without speaker models', r.code === 0 && /speaker|спикер/i.test(r.err), brief(r));

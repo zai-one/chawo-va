@@ -261,6 +261,7 @@ interface BrainState {
   everyTake: { visible: boolean; on: boolean; hint: string };
   instruction: { visible: boolean; text: string; hint: string };
   selection: { visible: boolean; on: boolean; hint: string };
+  context: { visible: boolean; clipboard: boolean; app: boolean; hint: string; warning: string };
   download: BrainDownload | null;
   appRules: {
     heading: string;
@@ -282,6 +283,7 @@ interface BrainApi {
   setEveryTake(v: boolean): Promise<BrainState>;
   setInstruction(v: string): Promise<BrainState>;
   setSelection(v: boolean): Promise<BrainState>;
+  setContext(v: { clipboard?: boolean; app?: boolean }): Promise<BrainState>;
   setDevice(v: string): Promise<BrainState>;
   setLocalModel(v: string): Promise<BrainState>;
   setCustomUrl(v: string): Promise<BrainState>;
@@ -819,6 +821,19 @@ function renderBrain(): void {
     cb.addEventListener('change', () => void bridge.brain.setSelection(cb.checked).then(applyBrain));
     page.append(el('label', { className: 'check' }, cb, ' ', L('Править выделенный текст голосом', 'Edit selected text by voice')),
       el('p', { className: 'muted hint indent', textContent: s.selection.hint }));
+  }
+  if (s.context.visible) {
+    const clip = el('input', { type: 'checkbox', checked: s.context.clipboard });
+    clip.id = 'brain-context-clipboard';
+    clip.addEventListener('change', () => void bridge.brain.setContext({ clipboard: clip.checked }).then(applyBrain));
+    const app = el('input', { type: 'checkbox', checked: s.context.app });
+    app.id = 'brain-context-app';
+    app.addEventListener('change', () => void bridge.brain.setContext({ app: app.checked }).then(applyBrain));
+    page.append(el('label', { className: 'block', textContent: L('Контекст для Мозга (по желанию)', 'Context for the Brain (opt-in)') }),
+      el('label', { className: 'check' }, clip, ' ', L('Текст из буфера обмена', 'Clipboard text')),
+      el('label', { className: 'check' }, app, ' ', L('Программа и заголовок окна', 'Program and window title')),
+      el('p', { className: 'muted hint indent', textContent: s.context.hint }));
+    if (s.context.warning) page.append(el('p', { className: 'hint warn indent', textContent: s.context.warning }));
   }
   renderAppRules(s);
 }

@@ -68,6 +68,10 @@ export interface CliOptions {
   port: number | null;
   /** serve: job/transcript data directory. */
   dataDir: string | null;
+  /** brain / transcribe --brain: --context <text> — «Контекст для Мозга» (names, terms). Opt-in. */
+  context: string | null;
+  /** brain: --context-file <file> — the same, read from a text file. */
+  contextFile: string | null;
 }
 
 export type ParseResult = { ok: true; options: CliOptions } | { ok: false; error: string };
@@ -86,7 +90,7 @@ const SCRIPTS: Record<string, CtcScript> = { auto: 'auto', ru: 'russian', russia
 const LANGS: Record<string, 'Russian' | 'English'> = { ru: 'Russian', russian: 'Russian', en: 'English', english: 'English' };
 
 /** Options that take a value: --out DIR and --out=DIR both work. */
-const VALUED = new Set(['--format', '-f', '--out', '-o', '--model', '--device', '--threads', '-j', '--script', '--model-dir', '--lang', '--instruction', '--template', '--track', '--to', '--post-script', '--limit', '-n', '--server', '--token', '--host', '--port', '--data-dir', '--in']);
+const VALUED = new Set(['--format', '-f', '--out', '-o', '--model', '--device', '--threads', '-j', '--script', '--model-dir', '--lang', '--instruction', '--template', '--track', '--to', '--post-script', '--limit', '-n', '--server', '--token', '--host', '--port', '--data-dir', '--context', '--context-file', '--in']);
 
 function blank(command: CliOptions['command']): CliOptions {
   return {
@@ -126,6 +130,8 @@ function blank(command: CliOptions['command']): CliOptions {
     host: null,
     port: null,
     dataDir: null,
+    context: null,
+    contextFile: null,
   };
 }
 
@@ -262,6 +268,14 @@ export function parseArgs(argv: readonly string[]): ParseResult {
         o.limit = Number(lower);
         break;
       }
+      case '--context':
+        if (!v.trim()) return { ok: false, error: '--context is empty' };
+        o.context = v;
+        break;
+      case '--context-file':
+        if (!v) return { ok: false, error: '--context-file is empty' };
+        o.contextFile = v;
+        break;
       case '--json':
         o.json = true;
         break;
@@ -379,7 +393,7 @@ export function parseArgs(argv: readonly string[]): ParseResult {
   if (o.command === 'ask') {
     // Words after `ask` are the question; -n = how many excerpts.
     const speech = o.model || o.device || o.threads || o.script || o.modelDir;
-    if (o.formats.length > 0 || o.outDir || o.stdout || o.timestamps !== null || o.skipExisting || speech || o.instruction != null || o.to != null || o.postScript != null || o.noPostScript || o.raw)
+    if (o.formats.length > 0 || o.outDir || o.stdout || o.timestamps !== null || o.skipExisting || speech || o.instruction != null || o.to != null || o.postScript != null || o.noPostScript || o.raw || o.context != null || o.contextFile != null)
       return { ok: false, error: 'ask prints to stdout; it takes a question, --in, --no-history, --search, -n, --json' };
     if (o.inputs.join(' ').trim().length === 0) return { ok: false, error: 'ask needs a question' };
     if (o.limit === Number.POSITIVE_INFINITY) o.limit = 30;
@@ -423,6 +437,12 @@ export function parseArgs(argv: readonly string[]): ParseResult {
     if (o.inputs.length === 0) return { ok: false, error: 'no files given' };
     return { ok: true, options: o };
   }
+  if ((o.context != null || o.contextFile != null) && o.command !== 'brain' && o.command !== 'transcribe') return { ok: false, error: '--context / --context-file are for brain and transcribe --brain' };
+  if ((o.context != null || o.contextFile != null) && o.command === 'transcribe') {
+    if (o.brain === false) return { ok: false, error: '--context needs the Brain; drop --no-brain' };
+    if (o.server != null) return { ok: false, error: '--context does not work with --server (the Brain is not run there)' };
+  }
+  if (o.context != null && o.contextFile != null) return { ok: false, error: '--context and --context-file cannot be used together' };
   if (o.limit !== null || o.json || o.raw) return { ok: false, error: '-n, --json and --raw are for history ( --json also for segments)' };
   if (o.inputs.length === 0) return { ok: false, error: 'no files given' };
   if (o.command === 'brain') {
@@ -487,6 +507,8 @@ export function helpText(t: (ru: string, en: string) => string): string {
       --brain / --no-brain
                          ещё и «Прогнать через мозг» → .brain.txt (убрать слова-паразиты +
                          «Кратко»); по умолчанию — из настроек
+      --context <текст> / --context-file <файл>
+                         контекст для .brain.txt (как у brain; нужен Мозг)
       --brief / --no-brief
                          ещё и «Кратко и задачи» → .brief.txt (--template / --instruction — формат);
                          по умолчанию — из настроек. Сбой Мозга — пометка, .txt всё равно пишется
@@ -507,6 +529,9 @@ export function helpText(t: (ru: string, en: string) => string): string {
   -t / --no-timestamps   [чч:мм:сс] в .brain.txt (по умолчанию — как в исходном .txt)
       --stdout           печатать в stdout вместо .brain.txt
   -o, --out <папка>      куда писать .brain.txt
+      --context <текст>  контекст для Мозга: имена, термины (только подсказка, в текст не вставляется;
+                         с облачным Мозгом уходит на сервер)
+      --context-file <файл>  то же из текстового файла (первые 2000 знаков)
       --lang ru|en       язык сообщений
   -q, --quiet
 
@@ -615,6 +640,8 @@ Options:
       --brain / --no-brain
                          also «Run through the Brain» → .brain.txt (filler words removed +
                          «Summary»); default: settings
+      --context <text> / --context-file <file>
+                         context for .brain.txt (as for brain; needs the Brain)
       --brief / --no-brief
                          also «Brief and tasks» → .brief.txt (--template / --instruction for the format);
                          default: settings. A Brain failure is a note; the .txt is written anyway
@@ -635,6 +662,9 @@ brain options (same as «Run through the Brain» on the page):
   -t / --no-timestamps   [hh:mm:ss] in .brain.txt (default: as in the source .txt)
       --stdout           print to stdout instead of .brain.txt
   -o, --out <dir>        where to write .brain.txt
+      --context <text>   context for the Brain: names, terms (a hint only, never inserted;
+                         with a cloud Brain it goes to the server)
+      --context-file <file>  the same from a text file (first 2000 characters)
       --lang ru|en       message language
   -q, --quiet
 

@@ -8,7 +8,7 @@
 // Renderer console errors, uncaught exceptions, preload errors and crashed renderers fail the pass.
 // Writes a JSON report: { checks: [{ name, ok, skip?, detail }] } and quits.
 // Usage: electron --no-sandbox scripts/e2e-gui.cjs <report.json> <work dir> [speech audio] [shots dir]
-const { app, BrowserWindow, ipcMain } = require('electron');
+const { app, BrowserWindow, clipboard, ipcMain } = require('electron');
 const { existsSync, mkdirSync, readFileSync, writeFileSync, copyFileSync } = require('node:fs');
 const { join, basename } = require('node:path');
 const args = process.argv.slice(process.argv.findIndex((a) => a.endsWith('e2e-gui.cjs')) + 1);
@@ -108,6 +108,42 @@ app.whenReady().then(async () => {
       check('gui: IPC brain:state', st && typeof st === 'object', Object.keys(st ?? {}).slice(0, 8).join(','));
     } catch (e) {
       check('gui: IPC brain:state', false, e.message);
+    }
+
+    // «Контекст для Мозга»: off by default, two compact checkboxes on the «Мозг» page, a click turns one on.
+    try {
+      let st = await call('brain:state');
+      const off = st.context && st.context.visible && !st.context.clipboard && !st.context.app;
+      await js(`document.querySelector('.nav button[data-page="brain"]').click(); true`);
+      await sleep(600);
+      const ui = await js(`(() => { const c = document.getElementById('brain-context-clipboard'); const a = document.getElementById('brain-context-app'); return c && a ? { c: c.checked, a: a.checked } : null; })()`);
+      await js(`document.getElementById('brain-context-clipboard').click(); true`);
+      await sleep(600);
+      st = await call('brain:state');
+      const on = st.context.clipboard && !st.context.app && st.context.warning === '';
+      const after = await js(`document.getElementById('brain-context-clipboard')?.checked ?? null`);
+      if (shots) writeFileSync(join(shots, 'brain-context.png'), (await w.webContents.capturePage()).toPNG());
+      st = await call('brain:context', { clipboard: false });
+      check('gui: «Контекст для Мозга» opt-in checkboxes', off && ui && !ui.c && !ui.a && on && after === true && !st.context.clipboard, JSON.stringify({ off, ui, on, after }));
+    } catch (e) {
+      check('gui: «Контекст для Мозга» opt-in checkboxes', false, e.message);
+    }
+
+    // «Прогнать через мозг» on the file page: the real clipboard goes in only with the switch on.
+    try {
+      const FileBrain = require('../dist/main/brain/fileBrain.js');
+      const SettingsM = require('../dist/main/settings.js');
+      const saved = clipboard.readText();
+      clipboard.writeText('E2E Зюйд-Вест');
+      await call('brain:context', { clipboard: false });
+      const off = FileBrain.fileBrainContext(SettingsM.load(), () => clipboard.readText());
+      await call('brain:context', { clipboard: true });
+      const on = FileBrain.fileBrainContext(SettingsM.load(), () => clipboard.readText());
+      await call('brain:context', { clipboard: false });
+      clipboard.writeText(saved);
+      check('gui: file-page Brain context = clipboard only when on', off === '' && on.includes('<context>') && on.includes('E2E Зюйд-Вест') && !on.includes('Program:'), JSON.stringify({ off, on: on.slice(-60) }));
+    } catch (e) {
+      check('gui: file-page Brain context = clipboard only when on', false, e.message);
     }
 
     // History: the seeded take is found by a search word (ё = е), same as `chawo-va history`.
