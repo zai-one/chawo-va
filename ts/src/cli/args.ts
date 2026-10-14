@@ -8,7 +8,7 @@ export const FORMATS = ['txt', 'srt', 'vtt', 'json', 'md', 'docx'] as const;
 export type OutputFormat = (typeof FORMATS)[number];
 
 export interface CliOptions {
-  command: 'transcribe' | 'brain' | 'brief' | 'translate' | 'history' | 'segments' | 'help' | 'version';
+  command: 'transcribe' | 'brain' | 'brief' | 'translate' | 'history' | 'segments' | 'serve' | 'help' | 'version';
   inputs: string[];
   /** Empty = not given (txt). */
   formats: OutputFormat[];
@@ -46,6 +46,16 @@ export interface CliOptions {
   brain: boolean | null;
   /** transcribe: --brief / --no-brief; null = settings MeetingBriefEnabled («Кратко и задачи» → .brief.txt). */
   brief: boolean | null;
+  /** transcribe: remote 'chawo-va serve' base URL; null = local model. */
+  server: string | null;
+  /** serve / transcribe --server: Bearer token; also CHAWO_SERVE_TOKEN. */
+  token: string | null;
+  /** serve: listen host (default 127.0.0.1 without token, 0.0.0.0 with token). */
+  host: string | null;
+  /** serve: listen port (default 17831). */
+  port: number | null;
+  /** serve: job/transcript data directory. */
+  dataDir: string | null;
 }
 
 export type ParseResult = { ok: true; options: CliOptions } | { ok: false; error: string };
@@ -64,7 +74,7 @@ const SCRIPTS: Record<string, CtcScript> = { auto: 'auto', ru: 'russian', russia
 const LANGS: Record<string, 'Russian' | 'English'> = { ru: 'Russian', russian: 'Russian', en: 'English', english: 'English' };
 
 /** Options that take a value: --out DIR and --out=DIR both work. */
-const VALUED = new Set(['--format', '-f', '--out', '-o', '--model', '--device', '--threads', '-j', '--script', '--model-dir', '--lang', '--instruction', '--to', '--post-script', '--limit', '-n']);
+const VALUED = new Set(['--format', '-f', '--out', '-o', '--model', '--device', '--threads', '-j', '--script', '--model-dir', '--lang', '--instruction', '--to', '--post-script', '--limit', '-n', '--server', '--token', '--host', '--port', '--data-dir']);
 
 function blank(command: CliOptions['command']): CliOptions {
   return {
@@ -93,6 +103,11 @@ function blank(command: CliOptions['command']): CliOptions {
     diarize: null,
     brain: null,
     brief: null,
+    server: null,
+    token: null,
+    host: null,
+    port: null,
+    dataDir: null,
   };
 }
 
@@ -108,7 +123,7 @@ export function parseArgs(argv: readonly string[]): ParseResult {
   const first = args[0];
   if (first === '--help' || first === '-h' || first === 'help') return { ok: true, options: blank('help') };
   if (first === '--version' || first === '-v' || first === 'version') return { ok: true, options: blank('version') };
-  if (first !== 'transcribe' && first !== 'brain' && first !== 'brief' && first !== 'translate' && first !== 'history' && first !== 'segments') return { ok: false, error: `unknown command: ${first}` };
+  if (first !== 'transcribe' && first !== 'brain' && first !== 'brief' && first !== 'translate' && first !== 'history' && first !== 'segments' && first !== 'serve') return { ok: false, error: `unknown command: ${first}` };
 
   args.splice(1, 0, ...lead);
   const o = blank(first);
@@ -251,6 +266,29 @@ export function parseArgs(argv: readonly string[]): ParseResult {
         toggles.add(a);
         o.brief = a === '--brief';
         break;
+      case '--server':
+        if (!v) return { ok: false, error: '--server is empty' };
+        o.server = v;
+        break;
+      case '--token':
+        if (!v) return { ok: false, error: '--token is empty' };
+        o.token = v;
+        break;
+      case '--host':
+        if (!v) return { ok: false, error: '--host is empty' };
+        o.host = v;
+        break;
+      case '--port': {
+        if (!/^\d{1,5}$/.test(lower)) return { ok: false, error: `bad --port: ${v}` };
+        const n = Number(lower);
+        if (n < 1 || n > 65535) return { ok: false, error: `bad --port: ${v}` };
+        o.port = n;
+        break;
+      }
+      case '--data-dir':
+        if (!v) return { ok: false, error: '--data-dir is empty' };
+        o.dataDir = v;
+        break;
       default:
         return { ok: false, error: `unknown option: ${a}` };
     }
@@ -263,6 +301,22 @@ export function parseArgs(argv: readonly string[]): ParseResult {
   if (toggles.has('--brief') && toggles.has('--no-brief')) return { ok: false, error: '--brief and --no-brief cannot be used together' };
   if ((o.brain !== null || o.brief !== null) && o.command !== 'transcribe')
     return { ok: false, error: o.command === 'brain' || o.command === 'brief' ? `--brain / --brief are switches for transcribe; \`${o.command}\` already does it` : '--brain and --brief are for transcribe' };
+  if (o.server != null && o.command !== 'transcribe') return { ok: false, error: '--server is for transcribe' };
+  if ((o.host != null || o.port != null || o.dataDir != null) && o.command !== 'serve')
+    return { ok: false, error: '--host, --port and --data-dir are for serve' };
+  if (o.token != null && o.command !== 'serve' && o.command !== 'transcribe')
+    return { ok: false, error: '--token is for serve or transcribe --server' };
+  if (o.command === 'serve') {
+    if (o.inputs.length > 0) return { ok: false, error: 'serve takes no file arguments' };
+    if (o.formats.length > 0 || o.outDir || o.stdout || o.timestamps !== null || o.skipExisting)
+      return { ok: false, error: 'serve does not take --format / --out / --stdout / --timestamps / --skip-existing' };
+    if (o.instruction != null || o.to != null || o.postScript != null || o.noPostScript || o.limit !== null || o.json || o.raw)
+      return { ok: false, error: 'serve takes --host --port --token --data-dir --model --model-dir --threads --script --lang' };
+    if (o.vad !== null || o.diarize !== null || o.brain !== null || o.brief !== null || o.server != null)
+      return { ok: false, error: 'serve does not take --vad / --diarize / --brain / --brief / --server' };
+    if (o.device === 'gpu') return { ok: false, error: 'serve is CPU-only; drop --device gpu' };
+    return { ok: true, options: o };
+  }
   if (o.command === 'history') {
     // Words after `history` are the search, like the page's search box (every word must occur).
     const speech = o.model || o.device || o.threads || o.script || o.modelDir;
@@ -316,6 +370,7 @@ export function helpText(t: (ru: string, en: string) => string): string {
   chawo-va translate <тексты.txt…> [--to язык] [параметры]
   chawo-va history [слова для поиска…] [-n 20|all] [--json] [--raw]
   chawo-va segments <файлы.txt|.srt|.json…> [--json]
+  chawo-va serve [--host 127.0.0.1|0.0.0.0] [--port 17831] [--token …] [--data-dir …]
 
 Параметры:
   -f, --format txt,srt,vtt,json,md,docx
@@ -344,9 +399,18 @@ export function helpText(t: (ru: string, en: string) => string): string {
       --brief / --no-brief
                          ещё и «Кратко и задачи» → .brief.txt (--instruction — свой формат);
                          по умолчанию — из настроек. Сбой Мозга — пометка, .txt всё равно пишется
+      --server <URL>     расшифровать на удалённом 'chawo-va serve' (job API; локальной модели нет)
+      --token <секрет>   Bearer для --server / для serve (или CHAWO_SERVE_TOKEN)
       --lang ru|en       язык сообщений
   -q, --quiet            без прогресса
   -h, --help / -v, --version
+
+Параметры serve (headless CPU-сервер, без GUI):
+      --host <адрес>     127.0.0.1 без токена; с --token можно 0.0.0.0
+      --port <N>         порт (по умолчанию 17831)
+      --token <секрет>   обязателен, чтобы слушать не-localhost (или CHAWO_SERVE_TOKEN)
+      --data-dir <папка> задания и txt (TTL 2 ч); иначе ~/.local/share/chawo-serve или /tmp/chawo-serve
+      --model / --model-dir / -j --threads / --script — как у transcribe; устройство всегда CPU
 
 Параметры brain (то же, что «Прогнать через мозг» на странице):
   -t / --no-timestamps   [чч:мм:сс] в .brain.txt (по умолчанию — как в исходном .txt)
@@ -406,6 +470,7 @@ Usage:
   chawo-va translate <text.txt…> [--to language] [options]
   chawo-va history [search words…] [-n 20|all] [--json] [--raw]
   chawo-va segments <files.txt|.srt|.json…> [--json]
+  chawo-va serve [--host 127.0.0.1|0.0.0.0] [--port 17831] [--token …] [--data-dir …]
 
 Options:
   -f, --format txt,srt,vtt,json,md,docx
@@ -434,9 +499,18 @@ Options:
       --brief / --no-brief
                          also «Brief and tasks» → .brief.txt (--instruction for your format);
                          default: settings. A Brain failure is a note; the .txt is written anyway
+      --server <URL>     transcribe on a remote 'chawo-va serve' (job API; no local model)
+      --token <secret>   Bearer for --server / for serve (or CHAWO_SERVE_TOKEN)
       --lang ru|en       message language
   -q, --quiet            no progress
   -h, --help / -v, --version
+
+serve options (headless CPU server, no GUI):
+      --host <addr>      127.0.0.1 without a token; with --token you may use 0.0.0.0
+      --port <N>         port (default 17831)
+      --token <secret>   required to listen off localhost (or CHAWO_SERVE_TOKEN)
+      --data-dir <dir>   jobs and txt (TTL 2 h); else ~/.local/share/chawo-serve or /tmp/chawo-serve
+      --model / --model-dir / -j --threads / --script — same as transcribe; device is always CPU
 
 brain options (same as «Run through the Brain» on the page):
   -t / --no-timestamps   [hh:mm:ss] in .brain.txt (default: as in the source .txt)

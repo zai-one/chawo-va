@@ -266,4 +266,23 @@ describe('--lang before the command', () => {
     expect(bad.ok).toBe(false);
     if (!bad.ok) expect(bad.error).toContain('--lang');
   });
+
+  it('serve: host/port/token/data-dir; no files; gpu refused', () => {
+    const o = ok(['serve', '--host', '0.0.0.0', '--port', '19000', '--token', 'sekrit', '--data-dir', '/tmp/x', '--model', 'v3', '-j', '2']);
+    expect(o).toMatchObject({ command: 'serve', host: '0.0.0.0', port: 19000, token: 'sekrit', dataDir: '/tmp/x', model: 'v3_e2e_rnnt', threads: 2, inputs: [] });
+    expect(err(['serve', 'a.wav'])).toContain('no file');
+    expect(err(['serve', '--device', 'gpu'])).toContain('CPU-only');
+    expect(err(['serve', '--port', '99999'])).toContain('bad --port');
+    expect(err(['transcribe', 'a.wav', '--host', '0.0.0.0'])).toContain('for serve');
+  });
+
+  it('transcribe --server / --token', () => {
+    const o = ok(['transcribe', 'a.wav', '--server', 'http://192.168.1.2:17831', '--token', 't']);
+    expect(o).toMatchObject({ server: 'http://192.168.1.2:17831', token: 't' });
+    expect(err(['brain', 'a.txt', '--server', 'http://x'])).toContain('--server is for transcribe');
+    expect(err(['transcribe', 'a.wav', '--server'])).toContain('needs a value');
+    expect(helpText((r) => r)).toMatch(/chawo-va serve/);
+    expect(helpText((_, e) => e)).toMatch(/--server/);
+  });
+
 });

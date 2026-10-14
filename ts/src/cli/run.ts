@@ -11,6 +11,8 @@ import { clock, fromTxt, loadTimedTranscript, srtTime, toSrt, toTxt, type Transc
 import { writeExtras } from '../main/file/transcriptExport';
 import { applyDiarization, type FileDiarizeHook } from '../main/file/fileRunner';
 import { helpText, langFromArgv, parseArgs, type CliOptions } from './args';
+import { runServe, type ServeDeps } from './serveRun';
+import { transcribeViaServer } from './serveClient';
 import { HistoryStore, keepMs, type HistoryEntry, type HistoryKeep } from '../main/history/historyStore';
 import { isLinkInput, parseMediaUrl } from '../core/mediaUrl';
 import { FILE_TIMEOUT_MS, failureText, logLine, runPostScript, scriptCommand, type PostScriptResult, type PostScriptRun } from '../core/postScript';
@@ -183,6 +185,18 @@ export async function runCli(argv: readonly string[], d: CliDeps): Promise<numbe
   if (o.command === 'translate') return translate(o, d);
   if (o.command === 'history') return history(o, defaults, d);
   if (o.command === 'segments') return segmentsCommand(o, d);
+  if (o.command === 'serve') {
+    const serveDeps: ServeDeps = {
+      t: d.t,
+      out: d.out,
+      err: d.err,
+      findModel: d.findModel,
+      log: d.log,
+      signal: d.signal,
+    };
+    return runServe(o, serveDeps);
+  }
+  if (o.command === 'transcribe' && o.server) return transcribeViaServer(o, defaults, d);
   return transcribe(o, defaults, d);
 }
 
