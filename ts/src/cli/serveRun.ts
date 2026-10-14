@@ -156,7 +156,10 @@ export async function runServe(o: CliOptions, d: ServeDeps): Promise<number> {
       try {
         const segs = await engine.transcribe(samples, () => undefined, signal);
         const text = segs.map((s) => s.text).filter(Boolean).join('\n');
-        return { text, seconds: samples.length / 16000, model: kind, device: j.deviceActual };
+        const segments = segs
+          .filter((s) => s.text)
+          .map((s) => ({ start: Math.round(s.start * 1000) / 1000, end: Math.round(s.end * 1000) / 1000, text: s.text }));
+        return { text, seconds: samples.length / 16000, model: kind, device: j.deviceActual, segments };
       } finally {
         signal.removeEventListener('abort', onAbort);
       }

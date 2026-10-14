@@ -1,0 +1,417 @@
+openapi: 3.1.0
+info:
+  title: Chawo VA transcription server (chawo-va serve)
+  version: 2.0.0
+  summary: Hermes-compatible speech-to-text over HTTP plus an async job API for long files.
+  description: |
+    HTTP API of `chawo-va serve` (ts/src/main/network/serveServer.ts). CPU only, one speech model
+    per process (default `v3_e2e_rnnt`).
+
+    **Auth.** Peers on loopback (`127.0.0.1`, `::1`) never need a token. Without a configured token
+    the server binds loopback only and answers any non-loopback peer with `403 localhost_only`.
+    With a token (`--token` / `CHAWO_SERVE_TOKEN`) every non-loopback request needs
+    `Authorization: Bearer <token>`, otherwise `401 unauthorized`. The token is never accepted in
+    the query string. Auth is checked before routing, so it applies to every path, including
+    unknown ones.
+
+    **Body.** Every POST needs `Content-Length` (chunked uploads are rejected with
+    `400 bad_request`); the maximum is 1 800 000 000 bytes. The body is raw audio, or
+    `multipart/form-data` whose first file part is the audio.
+
+    **Aliases.** Each `/v1/...` path is also served without the `/v1` prefix (`/health`,
+    `/transcribe`, `/jobs`, `/jobs/{id}`), with identical behaviour.
+
+    **Jobs** are kept on disk under `<data-dir>/jobs/<id>/` and are deleted 2 hours (`ttl_ms`)
+    after creation, whatever their status. Unfinished jobs are re-queued after a restart.
+    Every response is `application/json; charset=utf-8` with `Connection: close`.
+  license:
+    name: MIT
+    identifier: MIT
+servers:
+  - url: http://127.0.0.1:17831
+    description: Default local bind (port 17831, overridable with --port)
+security:
+  - {}
+  - bearerAuth: []
+tags:
+  - name: hermes
+    description: Synchronous Hermes-compatible endpoints (same JSON as the Windows Hermes host).
+  - name: jobs
+    description: Asynchronous jobs for long files.
+paths:
+  /v1/health:
+    get:
+      tags: [hermes]
+      operationId: getHealth
+      summary: Server and model status
+      responses:
+        '200':
+          description: Server is up.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Health' }
+              example:
+                ok: true
+                model_loaded: true
+                model: v3_e2e_rnnt
+                device: cpu
+                provider: cpu
+                port: 17831
+                listen: 127.0.0.1
+                jobs: { workers: 2, queued: 0, active: 0 }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/LocalhostOnly' }
+  /health:
+    get:
+      tags: [hermes]
+      operationId: getHealthAlias
+      summary: Alias of GET /v1/health
+      responses:
+        '200':
+          description: Server is up.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Health' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/LocalhostOnly' }
+  /v1/transcribe:
+    post:
+      tags: [hermes]
+      operationId: transcribe
+      summary: Transcribe a short recording synchronously
+      description: |
+        Hermes-compatible. Accepts WAV or Ogg/Opus (decoded natively, no ffmpeg). Requests are
+        serialized on one shared model; use the job API for long files.
+      parameters:
+        - $ref: '#/components/parameters/ContentLength'
+      requestBody:
+        $ref: '#/components/requestBodies/Audio'
+      responses:
+        '200':
+          description: Recognized text.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TranscribeResult' }
+              example:
+                text: Привет, это проверка.
+                model: v3_e2e_rnnt
+                device: cpu
+                provider: cpu
+                sample_rate: 16000
+                seconds: 1.23
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/LocalhostOnly' }
+        '503':
+          description: The speech model is not loaded.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+              example: { error: model_not_loaded }
+  /transcribe:
+    post:
+      tags: [hermes]
+      operationId: transcribeAlias
+      summary: Alias of POST /v1/transcribe
+      parameters:
+        - $ref: '#/components/parameters/ContentLength'
+      requestBody:
+        $ref: '#/components/requestBodies/Audio'
+      responses:
+        '200':
+          description: Recognized text.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TranscribeResult' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/LocalhostOnly' }
+        '503':
+          description: The speech model is not loaded.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+  /v1/jobs:
+    post:
+      tags: [jobs]
+      operationId: createJob
+      summary: Upload audio and queue a transcription job
+      description: |
+        Stores the audio and returns immediately with `status: queued`. The worker uses the full
+        CLI decode chain (WAV/Ogg natively, other formats through ffmpeg when installed), VAD
+        split and the same segment builder as `chawo-va transcribe`.
+      parameters:
+        - $ref: '#/components/parameters/ContentLength'
+        - $ref: '#/components/parameters/ContentDisposition'
+      requestBody:
+        $ref: '#/components/requestBodies/Audio'
+      responses:
+        '201':
+          description: Job created.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Job' }
+              example:
+                id: 3f2a9c0d4e5b6a7f8091a2b3
+                status: queued
+                created_at: '2026-10-13T18:00:00.000Z'
+                updated_at: '2026-10-13T18:00:00.000Z'
+                filename: talk.wav
+                bytes: 3200044
+                text: null
+                result_path: null
+                error: null
+                seconds: null
+                model: null
+                device: null
+                segments: null
+                ttl_ms: 7200000
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/LocalhostOnly' }
+  /jobs:
+    post:
+      tags: [jobs]
+      operationId: createJobAlias
+      summary: Alias of POST /v1/jobs
+      parameters:
+        - $ref: '#/components/parameters/ContentLength'
+        - $ref: '#/components/parameters/ContentDisposition'
+      requestBody:
+        $ref: '#/components/requestBodies/Audio'
+      responses:
+        '201':
+          description: Job created.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Job' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/LocalhostOnly' }
+  /v1/jobs/{id}:
+    parameters:
+      - $ref: '#/components/parameters/JobId'
+    get:
+      tags: [jobs]
+      operationId: getJob
+      summary: Job status and, when done, the transcript
+      responses:
+        '200':
+          description: Job record.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Job' }
+              example:
+                id: 3f2a9c0d4e5b6a7f8091a2b3
+                status: done
+                created_at: '2026-10-13T18:00:00.000Z'
+                updated_at: '2026-10-13T18:00:42.000Z'
+                filename: talk.wav
+                bytes: 3200044
+                text: "Привет.\nЭто проверка."
+                result_path: result.txt
+                error: null
+                seconds: 100.0
+                model: v3_e2e_rnnt
+                device: cpu
+                segments:
+                  - { start: 0.0, end: 1.2, text: Привет. }
+                  - { start: 1.5, end: 3.1, text: Это проверка. }
+                ttl_ms: 7200000
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/LocalhostOnly' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [jobs]
+      operationId: deleteJob
+      summary: Cancel (if running) and delete a job with its files
+      responses:
+        '200':
+          description: Deleted.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Deleted' }
+              example: { ok: true, id: 3f2a9c0d4e5b6a7f8091a2b3 }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/LocalhostOnly' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /jobs/{id}:
+    parameters:
+      - $ref: '#/components/parameters/JobId'
+    get:
+      tags: [jobs]
+      operationId: getJobAlias
+      summary: Alias of GET /v1/jobs/{id}
+      responses:
+        '200':
+          description: Job record.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Job' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/LocalhostOnly' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [jobs]
+      operationId: deleteJobAlias
+      summary: Alias of DELETE /v1/jobs/{id}
+      responses:
+        '200':
+          description: Deleted.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Deleted' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/LocalhostOnly' }
+        '404': { $ref: '#/components/responses/NotFound' }
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      description: |
+        Value of `--token` / `CHAWO_SERVE_TOKEN`. Required only for non-loopback peers.
+  parameters:
+    ContentLength:
+      name: Content-Length
+      in: header
+      required: true
+      description: Body size in bytes (0 … 1800000000). Chunked bodies are rejected.
+      schema: { type: integer, minimum: 0, maximum: 1800000000 }
+    ContentDisposition:
+      name: Content-Disposition
+      in: header
+      required: false
+      description: |
+        Optional `attachment; filename="talk.mp3"`. The name is kept as the job `filename` and its
+        extension helps the decoder. Without it, `audio/wav` → `audio.wav`, `*ogg*`/`*opus*` → `audio.ogg`.
+      schema: { type: string }
+    JobId:
+      name: id
+      in: path
+      required: true
+      description: Job id from POST /v1/jobs (24 hex chars; the router accepts `[A-Za-z0-9_-]+`).
+      schema: { type: string, pattern: '^[A-Za-z0-9_-]+$' }
+  requestBodies:
+    Audio:
+      required: true
+      description: Raw audio bytes, or multipart/form-data whose first file part is the audio. An empty body is `400 empty_body`.
+      content:
+        audio/wav:
+          schema: { type: string, contentMediaType: audio/wav }
+        audio/ogg:
+          schema: { type: string, contentMediaType: audio/ogg }
+        application/octet-stream:
+          schema: { type: string, contentMediaType: application/octet-stream }
+        multipart/form-data:
+          schema:
+            type: object
+            properties:
+              file:
+                type: string
+                contentMediaType: application/octet-stream
+  responses:
+    BadRequest:
+      description: |
+        `empty_body` — no audio; `bad_audio` — the audio could not be decoded (sync transcribe);
+        `bad_request` — missing/too large Content-Length, malformed multipart, short body.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          examples:
+            empty: { value: { error: empty_body } }
+            badAudio: { value: { error: bad_audio, detail: unsupported audio } }
+            badRequest: { value: { error: bad_request, detail: POST needs Content-Length } }
+    Unauthorized:
+      description: Non-loopback peer without a valid bearer token.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example: { error: unauthorized }
+    LocalhostOnly:
+      description: No token is configured and the peer is not loopback.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example: { error: localhost_only }
+    NotFound:
+      description: Unknown job id (or an unknown route).
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example: { error: not_found }
+  schemas:
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+          enum: [empty_body, bad_audio, bad_request, unauthorized, localhost_only, not_found, model_not_loaded]
+        detail:
+          type: string
+          description: Human-readable reason (bad_audio, bad_request).
+    Health:
+      type: object
+      required: [ok, model_loaded, model, device, provider, port, listen, jobs]
+      properties:
+        ok: { type: boolean, const: true }
+        model_loaded: { type: boolean }
+        model: { type: [string, 'null'], examples: [v3_e2e_rnnt] }
+        device: { type: [string, 'null'], examples: [cpu] }
+        provider: { type: [string, 'null'], examples: [cpu] }
+        port: { type: integer }
+        listen: { type: string, description: Bind address. }
+        jobs:
+          type: object
+          required: [workers, queued, active]
+          properties:
+            workers: { type: integer, minimum: 1, maximum: 5 }
+            queued: { type: integer, minimum: 0 }
+            active: { type: integer, minimum: 0 }
+    TranscribeResult:
+      type: object
+      required: [text, model, device, provider, sample_rate, seconds]
+      properties:
+        text: { type: [string, 'null'] }
+        model: { type: [string, 'null'] }
+        device: { type: [string, 'null'] }
+        provider: { type: [string, 'null'] }
+        sample_rate: { type: integer, const: 16000 }
+        seconds: { type: number, description: Audio length, rounded to milliseconds. }
+    Segment:
+      type: object
+      required: [start, end, text]
+      properties:
+        start: { type: number, minimum: 0, description: Seconds from the start. }
+        end: { type: number, minimum: 0 }
+        text: { type: string }
+    Job:
+      type: object
+      required: [id, status, created_at, updated_at, filename, bytes, text, result_path, error, seconds, model, device, segments, ttl_ms]
+      properties:
+        id: { type: string }
+        status: { type: string, enum: [queued, running, done, error] }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+        filename: { type: [string, 'null'] }
+        bytes: { type: integer, description: Size of the stored audio. }
+        text: { type: [string, 'null'], description: Transcript (phrases joined by newlines) when done. }
+        result_path: { type: [string, 'null'], description: 'Relative to the job dir: `result.txt` when done.' }
+        error: { type: [string, 'null'], description: Reason when status is error. }
+        seconds: { type: [number, 'null'], description: Audio length when done. }
+        model: { type: [string, 'null'] }
+        device: { type: [string, 'null'] }
+        segments:
+          description: Timed phrases when done (null before, or for jobs from an older server).
+          oneOf:
+            - type: 'null'
+            - type: array
+              items: { $ref: '#/components/schemas/Segment' }
+        ttl_ms: { type: integer, description: 'Lifetime from created_at; default 7200000 (2 h).' }
+    Deleted:
+      type: object
+      required: [ok, id]
+      properties:
+        ok: { type: boolean, const: true }
+        id: { type: string }

@@ -30,6 +30,15 @@ export interface JobRecord {
   seconds: number | null;
   model: string | null;
   device: string | null;
+  /** Timed phrases (seconds) when done; null for older jobs / before done. */
+  segments: JobSegment[] | null;
+}
+
+/** One timed phrase of a finished job (same shape as the .json export rows). */
+export interface JobSegment {
+  start: number;
+  end: number;
+  text: string;
 }
 
 export type JobTranscribe = (audioPath: string, signal: AbortSignal) => Promise<{
@@ -37,6 +46,7 @@ export type JobTranscribe = (audioPath: string, signal: AbortSignal) => Promise<
   seconds: number;
   model: string;
   device: string;
+  segments?: JobSegment[];
 }>;
 
 export interface ServeJobsOptions {
@@ -146,6 +156,7 @@ export class ServeJobStore {
       seconds: null,
       model: null,
       device: null,
+      segments: null,
     };
     this.writeMeta(rec, audioName);
     this.jobs.set(id, rec);
@@ -176,6 +187,7 @@ export class ServeJobStore {
       seconds: rec.seconds,
       model: rec.model,
       device: rec.device,
+      segments: rec.segments,
       ttl_ms: this.ttlMs,
     };
   }
@@ -256,6 +268,9 @@ export class ServeJobStore {
       rec.seconds = result.seconds;
       rec.model = result.model;
       rec.device = result.device;
+      rec.segments = Array.isArray(result.segments)
+        ? result.segments.map((g) => ({ start: g.start, end: g.end, text: g.text }))
+        : null;
       rec.error = null;
       rec.updatedAt = this.now();
       this.writeMeta(rec);
@@ -335,6 +350,7 @@ export class ServeJobStore {
         seconds: meta.seconds,
         model: meta.model,
         device: meta.device,
+        segments: Array.isArray(meta.segments) ? meta.segments : null,
       });
       if (meta.status !== 'done' && meta.status !== 'error') this.queue.push(meta.id);
     }
