@@ -1496,8 +1496,8 @@ async function meetingCommand(o: CliOptions, d: CliDeps): Promise<number> {
     if (!o.quiet) {
       d.out(t('Встреча не обнаружена.\n', 'No meeting detected.\n'));
       if (!result.appsSupported && s.MeetingAutoDetectApps) {
-        d.err(t('Подсказка: приложения встреч распознаются на Windows; календарь .ics — на любой ОС.\n',
-          'Note: meeting apps are detected on Windows; .ics calendar works on any OS.\n'));
+        d.err(t('Подсказка: приложения встреч распознаются на Windows и Linux; на macOS — только календарь .ics.\n',
+          'Note: meeting apps are detected on Windows and Linux; on macOS only the .ics calendar works.\n'));
       }
     }
     return EXIT_OK;
