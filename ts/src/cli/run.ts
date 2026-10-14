@@ -830,11 +830,6 @@ async function history(o: CliOptions, defaults: CliDefaults, d: CliDeps): Promis
   return EXIT_OK;
 }
 
-/**
- * `chawo-va ask <вопрос…>`: «Спросить историю» from the command line. Local search over the
- * dictation phrases (within «Хранить») and transcripts (meetings folder + AskFolders, or --in);
- * the Brain gets only the question and the found excerpts. --search, or no Brain: excerpts only.
- */
 /** `chawo-va mcp`: read-only MCP server on stdio, only when switched on in the app (McpEnabled). */
 async function mcpCommand(o: CliOptions, defaults: CliDefaults, d: CliDeps): Promise<number> {
   const t = d.t;
@@ -869,6 +864,11 @@ async function mcpCommand(o: CliOptions, defaults: CliDefaults, d: CliDeps): Pro
   return EXIT_OK;
 }
 
+/**
+ * `chawo-va ask <вопрос…>`: «Спросить историю» from the command line. Local search over the
+ * dictation phrases (within «Хранить») and transcripts (meetings folder + AskFolders, or --in);
+ * the Brain gets only the question and the found excerpts. --search, or no Brain: excerpts only.
+ */
 async function askCommand(o: CliOptions, defaults: CliDefaults, d: CliDeps): Promise<number> {
   const t = d.t;
   const say = (line: string) => {

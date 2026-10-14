@@ -174,10 +174,15 @@ export class McpServer {
           const n = p.toLowerCase();
           return !n.endsWith('.brief.txt') && !n.endsWith('.score.txt') && !n.endsWith('.brain.txt');
         }).slice(0, limit);
-        const items = files.map((p) => {
-          const st = statSync(p);
+        const items = files.flatMap((p) => {
+          let st;
+          try {
+            st = statSync(p);
+          } catch {
+            return []; // removed between listing and stat
+          }
           const stem = p.replace(/\.[^./\\]+$/, '');
-          return { path: p, name: basename(p), folder: dirname(p), modified: new Date(st.mtimeMs).toISOString(), bytes: st.size, brief: existsSync(stem + '.brief.txt'), score: existsSync(stem + '.score.json'), timings: existsSync(stem + '.srt') || existsSync(stem + '.json') };
+          return [{ path: p, name: basename(p), folder: dirname(p), modified: new Date(st.mtimeMs).toISOString(), bytes: st.size, brief: existsSync(stem + '.brief.txt'), score: existsSync(stem + '.score.json'), timings: existsSync(stem + '.srt') || existsSync(stem + '.json') }];
         });
         const body = items.length === 0 ? 'No transcripts in the shared folders.' : items.map((x) => `${x.modified}  ${x.path}${x.brief ? '  [brief]' : ''}${x.score ? '  [score]' : ''}`).join('\n');
         return { ...text(body), structuredContent: { meetings: items } as unknown as Json };
