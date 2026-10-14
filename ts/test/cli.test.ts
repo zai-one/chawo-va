@@ -1221,3 +1221,46 @@ describe('chawo-va stats', () => {
   });
 });
 
+describe('runCli transcribe --brain --context («Контекст для Мозга»)', () => {
+  it('goes into the .brain.txt prompts only, not the brief and not the text', async () => {
+    const prompts: string[] = [];
+    const briefPrompts: string[] = [];
+    const h = harness({
+      existing: ['/a.wav'],
+      fileBrainCloud: 'api.example.com',
+      fileBrainAsk: async (p, t) => (prompts.push(p), defaultFileBrainAsk(p, t)),
+      briefAsk: async (p) => (briefPrompts.push(p), 'Кратко\n- x\n\nЗадачи\n- y\n'),
+    });
+    expect(await run(h, 'transcribe', '/a.wav', '--brain', '--brief', '--context', 'Анна Карпенко')).toBe(EXIT_OK);
+    expect(prompts.length).toBeGreaterThan(0);
+    expect(prompts.every((p) => p.includes('<context>') && p.includes('Анна Карпенко'))).toBe(true);
+    expect(briefPrompts.every((p) => !p.includes('<context>'))).toBe(true);
+    expect(String(h.files.get('/a.brain.txt'))).not.toContain('Карпенко');
+    expect(h.err.join('')).toContain('Brain context: 13 characters, goes to api.example.com');
+  });
+  it('settings FileUseBrain + --context-file; a missing file fails before transcribing', async () => {
+    const prompts: string[] = [];
+    const h = harness({ existing: ['/a.wav'], defaults: { brain: true }, fileText: { '/ctx.txt': 'термин RAG' }, fileBrainAsk: async (p, t) => (prompts.push(p), defaultFileBrainAsk(p, t)) });
+    expect(await run(h, 'transcribe', '/a.wav', '--context-file', '/ctx.txt')).toBe(EXIT_OK);
+    expect(prompts.every((p) => p.includes('термин RAG'))).toBe(true);
+    const m = harness({ existing: ['/a.wav'] });
+    expect(await run(m, 'transcribe', '/a.wav', '--brain', '--context-file', '/nope.txt')).toBe(EXIT_FAILED);
+    expect([...m.files.keys()]).toEqual([]);
+  });
+  it('no flag: no context in the .brain.txt prompts', async () => {
+    const prompts: string[] = [];
+    const h = harness({ existing: ['/a.wav'], fileBrainAsk: async (p, t) => (prompts.push(p), defaultFileBrainAsk(p, t)) });
+    expect(await run(h, 'transcribe', '/a.wav', '--brain')).toBe(EXIT_OK);
+    expect(prompts.length > 0 && prompts.every((p) => !p.includes('<context>'))).toBe(true);
+  });
+});
+
+describe('runCli transcribe --context without the Brain', () => {
+  it('is not silently ignored: a note says to add --brain', async () => {
+    const h = harness({ existing: ['/a.wav'] });
+    expect(await run(h, 'transcribe', '/a.wav', '--context', 'x')).toBe(EXIT_OK);
+    expect(h.err.join('')).toContain('add --brain');
+    expect([...h.files.keys()]).toEqual(['/a.txt']);
+  });
+});
+

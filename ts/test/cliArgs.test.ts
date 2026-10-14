@@ -316,8 +316,11 @@ describe('brain --context / --context-file («Контекст для Мозга
   it('rejects misuse', () => {
     expect(parseArgs(['brain', 'a.txt', '--context', ' '])).toMatchObject({ ok: false });
     expect(parseArgs(['brain', 'a.txt', '--context', 'x', '--context-file', 'y'])).toMatchObject({ ok: false });
-    expect(parseArgs(['brief', 'a.txt', '--context', 'x'])).toMatchObject({ ok: false, error: '--context / --context-file are for brain' });
-    expect(parseArgs(['transcribe', 'a.wav', '--context-file', 'x'])).toMatchObject({ ok: false });
+    expect(parseArgs(['brief', 'a.txt', '--context', 'x'])).toMatchObject({ ok: false, error: '--context / --context-file are for brain and transcribe --brain' });
+    expect(parseArgs(['transcribe', 'a.wav', '--no-brain', '--context', 'x'])).toMatchObject({ ok: false, error: '--context needs the Brain; drop --no-brain' });
+    expect(parseArgs(['transcribe', 'a.wav', '--server', 'http://h:1', '--context', 'x'])).toMatchObject({ ok: false });
+    const tr = parseArgs(['transcribe', 'a.wav', '--brain', '--context-file', 'c.txt']);
+    expect(tr.ok && tr.options.contextFile).toBe('c.txt');
   });
   it('help mentions the options in both languages', () => {
     expect(helpText((ru) => ru)).toContain('--context-file <файл>');

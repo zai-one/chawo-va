@@ -1,7 +1,8 @@
 // IPC for the «Расшифровка файла» page. The renderer never touches the filesystem: it asks the
 // main process to pick, add, run, stop and reveal, and receives queue/status pushes.
 
-import { BrowserWindow, Notification, app, dialog, ipcMain, shell } from 'electron';
+import { BrowserWindow, Notification, app, clipboard, dialog, ipcMain, shell } from 'electron';
+import { contextBlock, withContext } from '../core/brainContext';
 import { dirname, join } from 'node:path';
 import { FileQueue, FileRunner, Ffmpeg, UrlImport, YtDlp, OPEN_FILTERS, load16k, localPrepare, remoteFatal, remotePrepare } from './file';
 import { diarizeHook, getDiarizeRuntime } from './diarize';
@@ -333,7 +334,10 @@ export function registerFileIpc(getWindow: () => BrowserWindow | null, settings:
         return { note: t('мозг не настроен', 'the Brain is not set up') };
       }
       try {
-        const result = await FileBrain.runAsync(s, kind, segments, opts.timestamps, status, signal);
+        // «Контекст для Мозга»: on the file page only the clipboard, and only when that switch is on.
+        const ctx = FileBrain.fileBrainContext(s, () => clipboard.readText());
+        if (ctx) Log.write(`file brain context: ${ctx.length} chars`);
+        const result = await FileBrain.runAsync(s, kind, segments, opts.timestamps, status, signal, ctx ? withContext(FileBrain.createAsk(s, kind), ctx) : undefined);
         const note =
           result.keptAsIs > 0
             ? t(`мозг · абзацев ${result.paragraphs}, как есть ${result.keptAsIs}`, `brain · ${result.paragraphs} paragraphs, kept as-is ${result.keptAsIs}`)
