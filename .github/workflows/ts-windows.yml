@@ -70,7 +70,7 @@ jobs:
           if ($LASTEXITCODE -ne 0 -or "$v" -notmatch '^chawo-va \d') { Fail "chawo-va --version: $v" }
           Write-Host $v
           $seg = & "$app/chawo-va.cmd" segments "$env:GITHUB_WORKSPACE/ts/test/fixtures/transcript-editor/sample.srt"
-          if ($LASTEXITCODE -ne 0 -or "$seg" -notmatch '3 phrases') { Fail "chawo-va segments: $seg" }
+          if ($LASTEXITCODE -ne 0 -or @($seg).Count -ne 3 -or "$seg" -notmatch 'Speaker 2: Second phrase') { Fail "chawo-va segments: $seg" }
           $seg | Write-Host
 
           # 4. The Windows native modules load from app.asar.unpacked in the packaged runtime.
