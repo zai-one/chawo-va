@@ -235,5 +235,21 @@ describe('log', () => {
     expect(fromJsonObject(obj).settings.MeetingBriefInstruction).toBe('Только риски');
     expect(fromJsonObject({}).settings.MeetingBriefEnabled).toBe(false);
   });
+  it('MeetingAutoDetect / Calendar / Apps round-trip (off by default)', () => {
+    const s = defaults();
+    expect(s.MeetingAutoDetect).toBe(false);
+    expect(s.MeetingAutoDetectApps).toBe(true);
+    expect(s.MeetingAutoDetectCalendar).toBe('');
+    s.MeetingAutoDetect = true;
+    s.MeetingAutoDetectApps = false;
+    s.MeetingAutoDetectCalendar = '/home/u/cal.ics';
+    const obj = toJsonObject(s);
+    expect(obj).toMatchObject({ MeetingAutoDetect: true, MeetingAutoDetectApps: false, MeetingAutoDetectCalendar: '/home/u/cal.ics' });
+    const back = fromJsonObject(obj).settings;
+    expect(back.MeetingAutoDetect).toBe(true);
+    expect(back.MeetingAutoDetectApps).toBe(false);
+    expect(back.MeetingAutoDetectCalendar).toBe('/home/u/cal.ics');
+    expect(fromJsonObject({}).settings.MeetingAutoDetect).toBe(false);
+  });
 
 });

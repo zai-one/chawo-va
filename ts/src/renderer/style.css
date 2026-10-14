@@ -173,3 +173,7 @@ label.stack { display: flex; flex-direction: column; gap: 3px; font-size: 12px; 
 .crm-target { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 6px 0; }
 .crm-target strong { flex: 0 0 90px; }
 .crm-target input { flex: 1 1 170px; width: auto; min-width: 0; }
+.meeting .meeting-offer { margin: 0 0 10px; padding: 10px 12px; border: 1px solid var(--accent); border-radius: 8px; background: color-mix(in srgb, var(--accent) 12%, var(--bg)); }
+.meeting .meeting-offer .offer-title { margin: 0 0 4px; font-weight: 600; }
+.meeting .cal-row { margin: 6px 0; gap: 8px; align-items: center; }
+.meeting .cal-row input.grow { flex: 1; min-width: 0; font: inherit; background: var(--bg); color: var(--fg); border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; }

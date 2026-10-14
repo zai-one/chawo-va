@@ -150,6 +150,16 @@ function writeSettings(port) {
   s.CleanupEndpointUrl = `http://127.0.0.1:${port}/v1`;
   s.CleanupModel = 'fake-local';
   s.Language = 'Russian';
+  // Meeting auto-detect fixture: an in-progress .ics event (apps stay off — no Zoom in CI).
+  const icsDir = join(tmp, 'ics');
+  mkdirSync(icsDir, { recursive: true });
+  const now = new Date();
+  const pad = (n) => String(n).padStart(2, '0');
+  const stamp = (d) => `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}T${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`;
+  const end = new Date(now.getTime() + 60 * 60_000);
+  writeFileSync(join(icsDir, 'meet.ics'), `BEGIN:VEVENT\nSUMMARY:E2E Meeting\nDTSTART:${stamp(now)}\nDTEND:${stamp(end)}\nEND:VEVENT\n`);
+  s.MeetingAutoDetectCalendar = join(icsDir, 'meet.ics');
+  // Apps stay on (default); on Linux the process list is unsupported/empty — calendar still hits.
   mkdirSync(dirname(Paths.settingsPath()), { recursive: true });
   writeFileSync(Paths.settingsPath(), JSON.stringify(Settings.toJsonObject(s), null, 2));
 }
@@ -210,7 +220,7 @@ async function cliCases(brainPort) {
   let r = await run(['--version']);
   check('cli --version', r.code === 0 && r.out.includes(pkg.version), brief(r));
   r = await run(['--help']);
-  const cmds = ['transcribe', 'brain', 'brief', 'translate', 'history', 'ask', 'segments', 'stats', 'snippets', 'dictionary'];
+  const cmds = ['transcribe', 'brain', 'brief', 'translate', 'history', 'ask', 'segments', 'stats', 'snippets', 'dictionary', 'meeting'];
   check('cli --help lists every command', r.code === 0 && cmds.every((c) => r.out.includes('chawo-va ' + c)), brief(r));
   r = await run(['--lang', 'en', '--help']);
   check('cli --lang en --help (before the command)', r.code === 0 && r.out.includes('Usage'), brief(r));
@@ -257,6 +267,16 @@ async function cliCases(brainPort) {
   }
   r = await run(['stats', join(tmp, 'nope.srt')]);
   check('cli stats missing file → exit 1', r.code === 1, brief(r));
+
+  // ---- meeting detect (calendar .ics from writeSettings; apps off — no Zoom in CI) ----
+  r = await run(['meeting', 'detect', '--json']);
+  let md = null;
+  try { md = JSON.parse(r.out.trim()); } catch { /* below */ }
+  check('cli meeting detect --json (calendar fixture)', r.code === 0 && md && md.active === true && Array.isArray(md.calendar) && md.calendar.some((c) => c.summary === 'E2E Meeting'), brief(r));
+  r = await run(['meeting', 'detect']);
+  check('cli meeting detect (text)', r.code === 0 && /E2E Meeting|встречу|meeting/i.test(r.out), brief(r));
+  r = await run(['meeting', 'watch']);
+  check('cli meeting unknown action → usage', r.code === 2, brief(r));
 
   // ---- snippets (snippets.json, separate from settings.json) ----
   r = await run(['snippets', 'add', 'реквизиты', 'ИНН 7700000000, КПП 770001001']);

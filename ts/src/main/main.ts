@@ -160,7 +160,7 @@ if (!app.requestSingleInstanceLock()) {
     setPlatformDecoder(chromiumDecode);
     const files = registerFileIpc(() => win, { get: () => settings });
     // «Запись встречи»: mic + computer sound into a WAV that then goes through the file queue.
-    const meeting = registerMeetingIpc(() => win, { get: () => settings }, files);
+    const meeting = registerMeetingIpc(() => win, { get: () => settings }, files, { showWindow });
     disposeMeeting = () => meeting.dispose();
     // The floating pill: created lazily on the first take with «Показывать плашку» on.
     const overlay = new OverlayWindow({ get: () => settings, save: Settings.save });

@@ -61,6 +61,13 @@ const api = {
     cancel: () => ipcRenderer.invoke('meeting:cancel'),
     failed: (reason: string) => ipcRenderer.invoke('meeting:failed', reason),
     setSystem: (on: boolean) => ipcRenderer.invoke('meeting:system', on),
+    setAutoDetect: (on: boolean) => ipcRenderer.invoke('meeting:autoDetect', on),
+    setAutoDetectApps: (on: boolean) => ipcRenderer.invoke('meeting:autoDetectApps', on),
+    setAutoDetectCalendar: (path: string) => ipcRenderer.invoke('meeting:autoDetectCalendar', path),
+    pickCalendar: () => ipcRenderer.invoke('meeting:pickCalendar'),
+    offerSnooze: () => ipcRenderer.invoke('meeting:offerSnooze'),
+    offerNever: () => ipcRenderer.invoke('meeting:offerNever'),
+    detectNow: () => ipcRenderer.invoke('meeting:detectNow'),
     onState: (fn: (s: unknown) => void) => {
       const h = (_e: unknown, s: unknown) => fn(s);
       ipcRenderer.on('meeting:state', h);

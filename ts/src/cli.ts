@@ -160,6 +160,13 @@ export function realDeps(signal: AbortSignal): CliDeps {
     snippetsPath,
     learnedPath: learnedWordsPath,
     settingsFile: settingsPath,
+    meetingDetectSettings: () => {
+      const s = readSettings();
+      return {
+        MeetingAutoDetectApps: s.MeetingAutoDetectApps,
+        MeetingAutoDetectCalendar: s.MeetingAutoDetectCalendar,
+      };
+    },
     briefTemplates: () => BriefTemplates.loadCustom(briefTemplatesPath()),
     checklists: () => CallScore.loadCustom(checklistsPath()),
     crmConfigPath,

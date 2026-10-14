@@ -66,6 +66,12 @@ export interface SettingsData {
   FileDiarize: boolean;
   /** «Запись встречи»: also record the computer sound (Zoom/Teams/Telegram), not just the mic. */
   MeetingSystemAudio: boolean;
+  /** Offer to record when Zoom/Teams/… or a local .ics event looks active. Off by default. */
+  MeetingAutoDetect: boolean;
+  /** When MeetingAutoDetect is on: watch known meeting apps (Windows process heuristics). */
+  MeetingAutoDetectApps: boolean;
+  /** Optional path to a .ics file or a folder of .ics (local calendar only, no cloud APIs). */
+  MeetingAutoDetectCalendar: string;
   /** After file/meeting transcription, also write name.brief.txt («Кратко и задачи»). Off by default. */
   MeetingBriefEnabled: boolean;
   /** User-editable format instruction for the brief card; empty = built-in default. */
@@ -157,6 +163,9 @@ export function defaults(): SettingsData {
     FileUseBrain: false,
     FileDiarize: false,
     MeetingSystemAudio: true,
+    MeetingAutoDetect: false,
+    MeetingAutoDetectApps: true,
+    MeetingAutoDetectCalendar: '',
     MeetingBriefEnabled: false,
     MeetingBriefInstruction: '',
     MeetingBriefTemplate: '',
@@ -417,6 +426,9 @@ export function fromJsonObject(raw: Record<string, unknown>): { settings: Settin
   d.FileUseBrain = asBool(raw.FileUseBrain, d.FileUseBrain);
   d.FileDiarize = asBool(raw.FileDiarize, d.FileDiarize);
   d.MeetingSystemAudio = asBool(raw.MeetingSystemAudio, d.MeetingSystemAudio);
+  d.MeetingAutoDetect = asBool(raw.MeetingAutoDetect, d.MeetingAutoDetect);
+  d.MeetingAutoDetectApps = asBool(raw.MeetingAutoDetectApps, d.MeetingAutoDetectApps);
+  d.MeetingAutoDetectCalendar = asString(raw.MeetingAutoDetectCalendar, d.MeetingAutoDetectCalendar);
   d.MeetingBriefEnabled = asBool(raw.MeetingBriefEnabled, d.MeetingBriefEnabled);
   d.MeetingBriefInstruction = asString(raw.MeetingBriefInstruction, d.MeetingBriefInstruction);
   d.MeetingBriefTemplate = asString(raw.MeetingBriefTemplate, d.MeetingBriefTemplate);
@@ -516,6 +528,9 @@ export function toJsonObject(s: SettingsData): Record<string, unknown> {
     FileUseBrain: s.FileUseBrain,
     FileDiarize: s.FileDiarize,
     MeetingSystemAudio: s.MeetingSystemAudio,
+    MeetingAutoDetect: s.MeetingAutoDetect,
+    MeetingAutoDetectApps: s.MeetingAutoDetectApps,
+    MeetingAutoDetectCalendar: s.MeetingAutoDetectCalendar,
     MeetingBriefEnabled: s.MeetingBriefEnabled,
     MeetingBriefInstruction: s.MeetingBriefInstruction,
     MeetingBriefTemplate: s.MeetingBriefTemplate,
