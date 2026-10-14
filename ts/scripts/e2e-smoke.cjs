@@ -302,6 +302,60 @@ async function cliCases(brainPort) {
   r = await run(['ask', 'Ёжик', '--in', join(tmp, 'nope-folder'), '--search']);
   check('cli ask --in (dictation still searched)', r.code === 0 && r.out.includes('Ёжик'), brief(r));
 
+  // ---- mcp: opt-in stdio MCP server, driven by the official SDK client + a raw JSON-lines check ----
+  r = await run(['mcp']);
+  check('cli mcp is off by default → exit 3', r.code === 3 && r.out === '' && /MCP/.test(r.err), brief(r));
+  {
+    const sp = Paths.settingsPath();
+    const before = readFileSync(sp, 'utf8');
+    writeFileSync(sp, JSON.stringify({ ...JSON.parse(before), McpEnabled: true }, null, 2));
+    const secret = join(tmp, 'secret.txt');
+    writeFileSync(secret, 'секретный пароль', 'utf8');
+    try {
+      const { Client } = require('@modelcontextprotocol/sdk/client/index.js');
+      const { StdioClientTransport } = require('@modelcontextprotocol/sdk/client/stdio.js');
+      const transport = new StdioClientTransport({ command: process.execPath, args: [cli, 'mcp'], env: baseEnv, cwd: tmp, stderr: 'pipe' });
+      const client = new Client({ name: 'chawo-e2e', version: '1.0.0' });
+      await client.connect(transport);
+      const info = client.getServerVersion();
+      const tools = (await client.listTools()).tools.map((x) => x.name).sort();
+      check('mcp (SDK client): initialize + tools/list', info?.name === 'chawo-va' && tools.join(',') === 'get_brief,get_score,get_stats,get_transcript,list_meetings,search', JSON.stringify({ info, tools }));
+      const found = await client.callTool({ name: 'search', arguments: { query: 'скидку Иванову' } });
+      const hit = (found.structuredContent?.results || []).find((x) => x.kind === 'transcript');
+      check('mcp tools/call search finds the meeting', !found.isError && hit && hit.path.endsWith('встреча-иванов.txt'), JSON.stringify(found).slice(0, 220));
+      const list = await client.callTool({ name: 'list_meetings', arguments: {} });
+      check('mcp tools/call list_meetings', (list.structuredContent?.meetings || []).some((m) => m.name === 'встреча-иванов.txt'), JSON.stringify(list).slice(0, 220));
+      const tr = hit ? await client.callTool({ name: 'get_transcript', arguments: { path: hit.path } }) : { isError: true, content: [] };
+      check('mcp tools/call get_transcript', !tr.isError && tr.content[0].text.includes('скидку 10%'), JSON.stringify(tr).slice(0, 220));
+      const out = await client.callTool({ name: 'get_transcript', arguments: { path: secret } });
+      const out2 = await client.callTool({ name: 'get_transcript', arguments: { path: join(process.env.CHAWO_MEETINGS_DIR, '..', 'secret.txt') } });
+      check('mcp refuses files outside the meetings folder', out.isError && out2.isError && !JSON.stringify([out, out2]).includes('секретный'), JSON.stringify(out).slice(0, 220));
+      await client.close();
+    } catch (e) {
+      failc('mcp (SDK client)', String(e && e.stack || e).slice(0, 300));
+    }
+    // Raw: every stdout line must be one JSON-RPC message, even around bad input.
+    const raw = await new Promise((resolve) => {
+      const child = spawn(process.execPath, [cli, 'mcp', '--lang', 'en'], { env: baseEnv, cwd: tmp, stdio: ['pipe', 'pipe', 'pipe'] });
+      let o = '';
+      child.stdout.setEncoding('utf8').on('data', (c) => (o += c));
+      const timer = setTimeout(() => child.kill('SIGKILL'), 30_000);
+      child.on('close', (code) => { clearTimeout(timer); resolve({ code, out: o }); });
+      child.stdin.end([
+        '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"raw","version":"1"}}}',
+        '{"jsonrpc":"2.0","method":"notifications/initialized"}',
+        'garbage',
+        '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"get_stats","arguments":{"path":"встреча-иванов.txt"}}}',
+        '{"jsonrpc":"2.0","id":3,"method":"tools/list"}',
+        '',
+      ].join('\n'));
+    });
+    let msgs = null;
+    try { msgs = raw.out.trim().split('\n').map((l) => JSON.parse(l)); } catch { /* checked below */ }
+    check('mcp raw stdio: only JSON-RPC lines on stdout, exits 0 at EOF', raw.code === 0 && msgs && msgs.length === 4 && msgs.every((m) => m.jsonrpc === '2.0') && msgs.some((m) => m.id === 2 && m.result.isError) && msgs.some((m) => m.error && m.error.code === -32700), `exit ${raw.code}; ${raw.out.slice(0, 220)}`);
+    writeFileSync(sp, before);
+  }
+
   // ---- Brain commands on a text transcript (fake 127.0.0.1 server) ----
   const bd = join(tmp, 'brain');
   mkdirSync(bd, { recursive: true });

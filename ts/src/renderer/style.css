@@ -163,3 +163,4 @@ label.stack { display: flex; flex-direction: column; gap: 3px; font-size: 12px; 
 .call-stats .phrase:disabled { cursor: default; }
 .call-stats .phrase-time { color: var(--muted); font-variant-numeric: tabular-nums; font-size: 12px; }
 .call-stats .tracker-config textarea { width: 100%; }
+.mcp-box pre.mcp-snippet { margin: 6px 0; padding: 8px 10px; background: var(--bg); color: var(--fg); border: 1px solid var(--line); border-radius: 6px; font: 12px/1.4 ui-monospace, Consolas, monospace; white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; max-height: 220px; overflow: auto; }

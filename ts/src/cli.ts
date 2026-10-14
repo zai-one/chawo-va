@@ -67,6 +67,7 @@ export function readDefaults(): CliDefaults {
     score: s.CallScoreEnabled,
     checklist: s.CallScoreChecklist,
     callTrackers: s.CallTrackers,
+    mcpEnabled: s.McpEnabled,
   };
 }
 
@@ -166,6 +167,18 @@ export function realDeps(signal: AbortSignal): CliDeps {
       const chunks: Buffer[] = [];
       for await (const c of process.stdin) chunks.push(c as Buffer);
       return Buffer.concat(chunks).toString('utf8');
+    },
+    mcpIo: () => {
+      // The protocol owns stdout: keep a handle to the real writer, then send every other
+      // stdout write (console.log in a library, a stray warning) to stderr so it cannot corrupt it.
+      const real = process.stdout.write.bind(process.stdout);
+      process.stdout.write = process.stderr.write.bind(process.stderr) as typeof process.stdout.write;
+      console.log = console.error;
+      console.info = console.error;
+      console.debug = console.error;
+      // The client went away (EPIPE): nobody is listening, so leave quietly instead of a stack trace.
+      process.stdout.on('error', () => process.exit(0));
+      return { input: process.stdin, write: (s: string) => void real(s) };
     },
     clock: () => Date.now(),
     log: (line) => Log.write(line),

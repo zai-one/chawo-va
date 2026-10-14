@@ -16,6 +16,7 @@
 | `translate <тексты.txt…> [--to язык]` | Перевод через Мозг | `.translate.txt` |
 | `history [слова…]` | История диктовки, новые сверху (только чтение) | stdout |
 | `ask <вопрос…>` | «Спросить историю»: ответ Мозга по фразам диктовки и расшифровкам встреч, с источниками | stdout |
+| `mcp [--in папка]… [--no-history]` | MCP-сервер по stdio (только чтение) для Claude Desktop, Cursor и других; включается на «Сети» | stdout (JSON-RPC) |
 | `segments <.txt/.srt/.json…>` | Фразы со временем из готовой расшифровки | stdout |
 | `stats <.txt/.srt/.json…>` | «Статистика разговора»: доля речи, монологи, вопросы, темп, трекеры слов | stdout |
 | `snippets list\|add\|remove` | Сниппеты для «вставь …» при диктовке (тот же `snippets.json`, что на «Словаре») | stdout / `snippets.json` |
@@ -202,6 +203,45 @@ seconds, final, raw, command, brain, brainFailed`), `--raw`, `-q`.
 Облачный Мозг: в stderr печатается, куда уйдут вопрос и отрывки. Коды: 0 — готово (и «ничего не
 нашлось»), 1 — искать негде или Мозг не ответил, 2 — ошибка параметров.
 
+### `mcp`
+
+Read-only MCP-сервер ([Model Context Protocol](https://modelcontextprotocol.io/)) по stdio: ассистент
+(Claude Desktop, Cursor и др.) сам запускает `chawo-va mcp` и читает ваши расшифровки и историю.
+**Выключен по умолчанию**: включите галочку «Разрешить chawo-va mcp» на странице «Сеть», иначе команда
+пишет подсказку в stderr и выходит с кодом 3. Порт не открывается; инструментов записи нет.
+
+Инструменты:
+
+| Инструмент | Что делает |
+|------------|------------|
+| `search` `{query, limit?, history?}` | Тот же локальный поиск, что `ask --search`: отрывки из расшифровок и фраз диктовки |
+| `list_meetings` `{limit?}` | Последние расшифровки (новые сверху), есть ли «Кратко», чек-лист, таймкоды |
+| `get_transcript` `{path, offset?, maxChars?}` | Текст расшифровки частями по 60 000 символов (`nextOffset` — следующая часть) |
+| `get_brief` / `get_score` / `get_stats` `{path}` | `.brief.txt`, `.score.json`, «Статистика разговора» для файла |
+
+Что доступно: папка встреч, папки «Спросить историю» с «Истории» (или только `--in`, можно несколько раз),
+фразы диктовки за срок «Хранить» (без них — `--no-history`). Пути — только абсолютные, внутри этих папок
+после разрешения символических ссылок и `..`; только `.txt`/`.md`/`.srt`/`.json`, до 20 МБ (как у `ask`).
+Символические ссылки внутри папок пропускаются. В stdout идут только сообщения протокола (по строке JSON),
+всё остальное — в stderr. Сервер завершается, когда клиент закрывает stdin.
+
+Готовый конфиг — кнопка «Копировать конфиг» на «Сети» (с путём к вашей установке). Вид для Windows
+(`claude_desktop_config.json` или `~/.cursor/mcp.json`):
+
+```json
+{
+  "mcpServers": {
+    "chawo-va": {
+      "command": "C:\\Users\\you\\AppData\\Local\\Programs\\Chawo Voice Assistant\\Chawo Voice Assistant.exe",
+      "args": ["C:\\Users\\you\\AppData\\Local\\Programs\\Chawo Voice Assistant\\resources\\app.asar\\dist\\cli.js", "mcp"],
+      "env": { "ELECTRON_RUN_AS_NODE": "1" }
+    }
+  }
+}
+```
+
+Облачный ассистент отправит прочитанное в своё облако — это решаете вы, когда подключаете клиента.
+
 ### `serve`
 
 | Флаг | Значение |
@@ -221,7 +261,7 @@ seconds, final, raw, command, brain, brainFailed`), `--raw`, `-q`.
 | 0 | Всё готово |
 | 1 | Часть файлов не удалась |
 | 2 | Ошибка параметров |
-| 3 | Нет модели / Мозга / yt-dlp |
+| 3 | Нет модели / Мозга / yt-dlp; `mcp` не включён на «Сети» |
 | 130 | Прервано (Ctrl+C) |
 
 ## Переменные окружения
@@ -247,6 +287,7 @@ chawo-va stats talk.txt --hits --track "Цена: дорог*, скидк*"
 chawo-va history счёт -n all
 chawo-va ask "что обещали клиенту Иванову?"
 chawo-va ask скидка Ромашка --in ~/Calls --search -n 3
+chawo-va mcp --in ~/Calls --no-history   # для MCP-клиента; включается на «Сети»
 ```
 
 ## Полный вывод `chawo-va --lang ru --help` (v2.0.0)
@@ -262,6 +303,7 @@ Chawo Voice Assistant — расшифровка файлов, «Кратко и
   chawo-va translate <тексты.txt…> [--to язык] [параметры]
   chawo-va history [слова для поиска…] [-n 20|all] [--json] [--raw]
   chawo-va ask <вопрос…> [--in папка|файл.txt]… [--no-history] [--search] [-n 8] [--json]
+  chawo-va mcp [--in папка]… [--no-history]
   chawo-va segments <файлы.txt|.srt|.json…> [--json]
   chawo-va stats <файлы.txt|.srt|.json…> [--track «Название: слово, слов*»] [--hits] [--json]
   chawo-va snippets list [--json] | add <фраза> <текст|-> | remove <фраза>
@@ -392,6 +434,12 @@ Chawo Voice Assistant — расшифровка файлов, «Кратко и
       --search           только найденные отрывки, без Мозга
   -n, --limit <N>        сколько отрывков (по умолчанию 8, до 30)
       --json             {question, answer, cited, excerpts[…]}
+
+Параметры mcp (MCP-сервер только для чтения на stdin/stdout, для Claude Desktop / Cursor):
+      --in <папка|файл>  что открыть вместо папки встреч и папок «Спросить историю» (можно несколько)
+      --no-history       не отдавать фразы диктовки
+                         Включается на странице «Сеть» («MCP-сервер»), там же готовый конфиг.
+                         Порт не открывает, ничего не пишет, Мозг не вызывает.
 
 Чего нет в параметрах, берётся из настроек приложения (settings.json, только чтение).
 Модели не скачиваются (речь, VAD, спикеры): сначала скачайте их в приложении.

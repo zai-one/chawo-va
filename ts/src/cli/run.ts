@@ -52,6 +52,8 @@ export interface CliDefaults {
   checklist?: string;
   /** settings CallTrackers: «Название: термин, …» per line; '' = built-in trackers. */
   callTrackers?: string;
+  /** settings McpEnabled: `chawo-va mcp` is opt-in (default false). */
+  mcpEnabled?: boolean;
 }
 
 export interface EngineConfig {
@@ -178,6 +180,8 @@ export interface CliDeps {
   log(line: string): void;
   now(): number;
   signal: AbortSignal;
+  /** `mcp`: the protocol streams. `write` is the only path to the real stdout (everything else is moved to stderr). */
+  mcpIo?: () => { input: NodeJS.ReadableStream; write: (s: string) => void };
 }
 
 export async function runCli(argv: readonly string[], d: CliDeps): Promise<number> {
@@ -210,6 +214,7 @@ export async function runCli(argv: readonly string[], d: CliDeps): Promise<numbe
   if (o.command === 'translate') return translate(o, d);
   if (o.command === 'history') return history(o, defaults, d);
   if (o.command === 'ask') return askCommand(o, defaults, d);
+  if (o.command === 'mcp') return mcpCommand(o, defaults, d);
   if (o.command === 'segments') return segmentsCommand(o, d);
   if (o.command === 'stats') return statsCommand(o, defaults, d);
   if (o.command === 'snippets') return snippetsCommand(o, d);
@@ -809,6 +814,40 @@ async function history(o: CliOptions, defaults: CliDefaults, d: CliDeps): Promis
  * dictation phrases (within «Хранить») and transcripts (meetings folder + AskFolders, or --in);
  * the Brain gets only the question and the found excerpts. --search, or no Brain: excerpts only.
  */
+/** `chawo-va mcp`: read-only MCP server on stdio, only when switched on in the app (McpEnabled). */
+async function mcpCommand(o: CliOptions, defaults: CliDefaults, d: CliDeps): Promise<number> {
+  const t = d.t;
+  if (!defaults.mcpEnabled) {
+    d.err(t('chawo-va mcp выключен. Включите «MCP-сервер» на странице «Сеть» в приложении (это разрешает чтение расшифровок и истории ассистентам).\n',
+      'chawo-va mcp is off. Turn on «MCP server» on the Network page of the app (it lets assistants read your transcripts and history).\n'));
+    return EXIT_NO_MODEL;
+  }
+  const io = d.mcpIo?.();
+  if (!io) return EXIT_FAILED;
+  const M = await import('../main/mcp/mcpServer');
+  const keep = defaults.historyKeep ?? 'Week';
+  const server = new M.McpServer({
+    version: d.version,
+    roots: () => (o.askIn.length > 0 ? o.askIn : (d.askFolders?.() ?? [])),
+    history: () => {
+      if (o.noHistory || keep === 'Off' || !d.historyPath) return [];
+      const now = (d.clock ?? Date.now)();
+      try {
+        return new HistoryStore(d.historyPath(), () => now).list('').filter((e) => e.ts >= now - keepMs(keep));
+      } catch {
+        return [];
+      }
+    },
+    trackers: () => defaults.callTrackers ?? '',
+    t,
+  });
+  d.err(t('chawo-va mcp: MCP-сервер (только чтение) на stdin/stdout. Ctrl+C — выход.\n', 'chawo-va mcp: read-only MCP server on stdin/stdout. Ctrl+C to quit.\n'));
+  d.log('cli mcp start');
+  await Promise.race([M.serveStdio(server, io.input, io.write), new Promise<void>((r) => d.signal.addEventListener('abort', () => r(), { once: true }))]);
+  d.log('cli mcp end');
+  return EXIT_OK;
+}
+
 async function askCommand(o: CliOptions, defaults: CliDefaults, d: CliDeps): Promise<number> {
   const t = d.t;
   const say = (line: string) => {

@@ -323,7 +323,7 @@ describe('ask command', () => {
     expect(err(['ask', 'x', '--context', 'y'])).toContain('ask prints to stdout');
     expect(err(['ask', 'x', '--checklist', 'sales'])).toContain('--checklist is for score');
     expect(err(['ask', 'x', '--in'])).toContain('--in needs a value');
-    expect(err(['history', '--search'])).toContain('are for ask');
+    expect(err(['history', '--search'])).toContain('--search is for ask');
     expect(err(['transcribe', 'a.wav', '--in', '/a'])).toContain('are for ask');
   });
 });

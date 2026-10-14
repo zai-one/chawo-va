@@ -317,6 +317,30 @@ app.whenReady().then(async () => {
     } catch (e) {
       check('gui: «Кратко и задачи» templates (pick, save, use, delete)', false, e.message);
     }
+    // «MCP-сервер» on «Сеть»: off by default, the switch saves McpEnabled, the snippet runs `cli.js mcp`, copy fills the clipboard.
+    try {
+      const st0 = await call('mcp:state');
+      await js(`document.querySelector('.nav button[data-page="network"]').click(); true`);
+      await sleep(600);
+      const ui0 = await js(`(() => { const c = document.querySelector('[data-mcp="enabled"]'); const box = c && c.closest('fieldset'); return c ? { on: c.checked, boxes: document.querySelectorAll('.mcp-box').length, hidden: !document.querySelector('[data-mcp="snippet"]') } : null; })()`);
+      await js(`document.querySelector('[data-mcp="enabled"]').click(); true`);
+      await sleep(500);
+      const ui1 = await js(`(() => { const p = document.querySelector('[data-mcp="snippet"]'); return p ? { snippet: p.textContent, bg: getComputedStyle(p).backgroundColor, boxes: document.querySelectorAll('.mcp-box').length } : null; })()`);
+      const saved = JSON.parse(require('node:fs').readFileSync(require(require('node:path').join(__dirname, '..', 'dist/main/paths.js')).settingsPath(), 'utf8')).McpEnabled;
+      const keep = clipboard.readText();
+      await js(`document.querySelector('[data-mcp="copy"]').click(); true`);
+      await sleep(400);
+      let snip = null;
+      try { snip = JSON.parse(clipboard.readText()).mcpServers['chawo-va']; } catch { /* checked below */ }
+      clipboard.writeText(keep);
+      if (shots) writeFileSync(join(shots, 'network-mcp.png'), (await w.webContents.capturePage()).toPNG());
+      const st1 = await call('mcp:enable', false);
+      const dark = ui1 && /rgba?\((\d+), (\d+), (\d+)/.exec(ui1.bg);
+      const isDark = dark && Number(dark[1]) + Number(dark[2]) + Number(dark[3]) < 200;
+      check('gui: «MCP-сервер» block (opt-in, snippet, copy, dark)', st0.enabled === false && ui0 && !ui0.on && ui0.boxes === 1 && ui0.hidden && ui1 && ui1.boxes === 1 && ui1.snippet.includes('"chawo-va"') && saved === true && snip && snip.args.at(-1) === 'mcp' && snip.env.ELECTRON_RUN_AS_NODE === '1' && isDark && st1.enabled === false, JSON.stringify({ st0: st0.enabled, ui0, ui1, saved, snip, isDark }));
+    } catch (e) {
+      check('gui: «MCP-сервер» block (opt-in, snippet, copy, dark)', false, e.message);
+    }
     // «Проверка по чек-листу»: built-in, save a custom one, the card shows it, score writes .score.json/.txt, delete.
     try {
       let st = await call('file:scoreChecklist', 'sales');

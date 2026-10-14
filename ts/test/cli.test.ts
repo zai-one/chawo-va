@@ -365,7 +365,7 @@ describe('readDefaults (settings.json read-only)', () => {
     writeFileSync(file, body);
     const before = statSync(file).mtimeMs;
     const { readDefaults } = await import('../src/cli');
-    expect(readDefaults()).toEqual({ model: 'multilingual_large_ctc', device: 'cpu', threads: 2, script: 'english', timestamps: false, language: 'English', postScript: 'python fix.py', historyKeep: 'Week', vad: true, diarize: false, brain: false, brief: false, callTrackers: '', score: false, checklist: '' });
+    expect(readDefaults()).toEqual({ model: 'multilingual_large_ctc', device: 'cpu', threads: 2, script: 'english', timestamps: false, language: 'English', postScript: 'python fix.py', historyKeep: 'Week', vad: true, diarize: false, brain: false, brief: false, callTrackers: '', score: false, checklist: '', mcpEnabled: false });
     expect(readFileSync(file, 'utf8')).toBe(body);
     expect(statSync(file).mtimeMs).toBe(before);
   });
@@ -1409,3 +1409,22 @@ describe('runCli transcribe --context without the Brain', () => {
   });
 });
 
+
+describe('chawo-va mcp', () => {
+  it('off by default → 3 with a hint; on → serves stdio until the input ends', async () => {
+    const off = harness();
+    expect(await run(off, 'mcp')).toBe(EXIT_NO_MODEL);
+    expect(off.err.join('')).toMatch(/Network page/);
+    const { PassThrough } = await import('node:stream');
+    const input = new PassThrough();
+    const wrote: string[] = [];
+    const on = harness({ defaults: { mcpEnabled: true } });
+    on.deps.mcpIo = () => ({ input, write: (s) => wrote.push(s) });
+    on.deps.askFolders = () => [];
+    const p = run(on, 'mcp');
+    input.end('{"jsonrpc":"2.0","id":1,"method":"tools/list"}\n');
+    expect(await p).toBe(EXIT_OK);
+    expect(JSON.parse(wrote[0]!).result.tools).toHaveLength(6);
+    expect(on.out).toEqual([]); // nothing else on stdout
+  });
+});

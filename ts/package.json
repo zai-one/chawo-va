@@ -26,6 +26,7 @@
   },
   "devDependencies": {
     "@apidevtools/swagger-parser": "^13.1.0",
+    "@modelcontextprotocol/sdk": "^1.32.1",
     "@types/node": "^20.17.0",
     "electron": "^38.0.0",
     "electron-builder": "^26.15.3",

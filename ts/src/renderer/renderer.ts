@@ -499,7 +499,7 @@ interface AskApi {
   open(p: string): Promise<AskState>;
   onState(fn: (s: AskState) => void): () => void;
 }
-const bridge = (window as unknown as { chawo: { file: FileApi; meeting: MeetingApi; speech: SpeechApi; dict: DictApi; brain: BrainApi; dictation: DictationApi; network: NetworkApi; sales: SalesApi; history: HistoryApi; ask: AskApi } }).chawo;
+const bridge = (window as unknown as { chawo: { file: FileApi; meeting: MeetingApi; speech: SpeechApi; dict: DictApi; brain: BrainApi; dictation: DictationApi; network: NetworkApi; mcp: McpApi; sales: SalesApi; history: HistoryApi; ask: AskApi } }).chawo;
 
 const titlesEn: Record<string, string> = {
   dictation: 'Dictation',
@@ -531,6 +531,41 @@ let dictState: DictState | null = null;
 let brainState: BrainState | null = null;
 let dictationState: DictationState | null = null;
 let networkState: NetworkState | null = null;
+interface McpState { enabled: boolean; snippet: string; copied: boolean }
+interface McpApi { state(): Promise<McpState>; enable(on: boolean): Promise<McpState>; copy(): Promise<McpState> }
+let mcpState: McpState | null = null;
+let mcpLoading = false;
+
+/** «MCP-сервер» on «Сеть»: opt-in switch + ready config for Claude Desktop / Cursor (read-only, stdio). */
+function appendMcp(): void {
+  if (!mcpState) {
+    if (!mcpLoading) {
+      mcpLoading = true;
+      void bridge.mcp.state().then((st) => { mcpState = st; mcpLoading = false; if (current === 'network') renderNetwork(); });
+    }
+    return;
+  }
+  const st = mcpState;
+  const set = (p: Promise<McpState>) => void p.then((x) => { mcpState = x; renderNetwork(); });
+  const on = el('input', { type: 'checkbox', checked: st.enabled });
+  on.dataset.mcp = 'enabled';
+  on.addEventListener('change', () => set(bridge.mcp.enable(on.checked)));
+  const box = el('fieldset', { className: 'mcp-box' },
+    el('legend', { textContent: L('MCP-сервер для ассистентов', 'MCP server for assistants') }),
+    el('label', { className: 'check' }, on, L(' Разрешить chawo-va mcp', ' Allow chawo-va mcp')),
+    el('p', { className: 'muted hint', textContent: L(
+      'Claude Desktop, Cursor и другие MCP-клиенты смогут искать и читать ваши расшифровки (папка встреч и папки «Спросить историю» на «Истории»), фразы диктовки, «Кратко», чек-лист и статистику. Только чтение; порт не открывается — клиент сам запускает программу. Вставьте конфиг в claude_desktop_config.json или ~/.cursor/mcp.json.',
+      'Claude Desktop, Cursor and other MCP clients can search and read your transcripts (the meetings folder and the «Ask history» folders on History), dictation phrases, briefs, checklist scores and stats. Read-only; no port is opened — the client starts the program itself. Paste the config into claude_desktop_config.json or ~/.cursor/mcp.json.') }),
+  );
+  if (st.enabled) {
+    const pre = el('pre', { className: 'mcp-snippet', textContent: st.snippet });
+    pre.dataset.mcp = 'snippet';
+    const copy = button(st.copied ? L('Скопировано', 'Copied') : L('Копировать конфиг', 'Copy config'), () => set(bridge.mcp.copy()));
+    copy.dataset.mcp = 'copy';
+    box.append(pre, el('div', { className: 'row' }, copy));
+  }
+  page.append(box);
+}
 let historyState: HistoryState | null = null;
 let askState: AskState | null = null;
 /** What is typed in the «Спросить» box, kept across redraws of the History page. */
@@ -678,6 +713,7 @@ function renderNetwork(): void {
     box.append(el('label', { className: 'check' }, awake, ' ' + h.keepAwakeLabel));
     box.append(el('p', { className: 'muted hint indent', textContent: h.keepAwakeHint }));
     page.append(box);
+    appendMcp();
     return;
   }
 
@@ -710,6 +746,7 @@ function renderNetwork(): void {
   const status = el('p', { className: 'muted line', textContent: r.checkStatus });
   status.dataset.net = 'check-status';
   page.append(status);
+  appendMcp();
 }
 
 function renderBrain(): void {
