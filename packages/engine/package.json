@@ -1,0 +1,25 @@
+{
+  "name": "@chawo/engine",
+  "version": "2.1.0",
+  "private": true,
+  "description": "Node services of Chawo VA shared by the app and the CLI: settings, file queue, models, Brain, network, CRM, history, MCP. No Electron.",
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    "./*": "./src/*.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@chawo/core": "workspace:*",
+    "@napi-rs/keyring": "^2.1.1",
+    "onnxruntime-node": "^1.30.0",
+    "sherpa-onnx-node": "^1.13.8"
+  },
+  "devDependencies": {
+    "@apidevtools/swagger-parser": "^13.1.0",
+    "esbuild": "^0.28.0",
+    "yaml": "^2.9.1"
+  }
+}

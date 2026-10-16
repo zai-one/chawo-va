@@ -1,16 +1,17 @@
-# Tests and the end-to-end smoke of the Electron/TypeScript port (ts/) on Linux: unit tests, then
-# scripts/e2e-smoke.cjs — every chawo-va command and the GUI under xvfb, in a temp profile with a fake
-# Brain on 127.0.0.1. No model weights are downloaded here, so the real-transcription cases are skipped
-# (run `npm run e2e` with CHAWO_SMOKE_MODEL_DIR / CHAWO_SMOKE_AUDIO locally for those).
+# Checks of the Electron/TypeScript workspace on Linux: types, unit tests, then
+# apps/desktop/scripts/e2e-smoke.cjs — every chawo-va command and the GUI under xvfb, in a temp profile
+# with a fake Brain on 127.0.0.1. No model weights are downloaded here, so the real-transcription cases
+# are skipped (run `pnpm e2e` with CHAWO_SMOKE_MODEL_DIR / CHAWO_SMOKE_AUDIO locally for those).
+# Then the Playwright scenarios (apps/desktop/e2e) drive the window with real clicks and keys.
 name: TS E2E
 
 on:
   push:
-    branches: ['ts-port', 'ts/**']
-    paths: ['ts/**', 'docs/openapi.yaml', '.github/workflows/ts-e2e.yml']
+    branches: ['main', 'ts-port', 'ts/**']
+    paths: ['apps/**', 'packages/**', 'fixtures/**', 'docs/openapi.yaml', 'package.json', 'pnpm-lock.yaml', 'pnpm-workspace.yaml', 'tsconfig.base.json', 'vitest.config.ts', 'eslint.config.js', 'knip.config.ts', '.github/workflows/ts-e2e.yml']
   pull_request:
     branches: ['main', 'ts-port']
-    paths: ['ts/**', 'docs/openapi.yaml', '.github/workflows/ts-e2e.yml']
+    paths: ['apps/**', 'packages/**', 'fixtures/**', 'docs/openapi.yaml', 'package.json', 'pnpm-lock.yaml', 'pnpm-workspace.yaml', 'tsconfig.base.json', 'vitest.config.ts', 'eslint.config.js', 'knip.config.ts', '.github/workflows/ts-e2e.yml']
   workflow_dispatch:
 
 permissions:
@@ -24,33 +25,56 @@ jobs:
   e2e:
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    defaults:
-      run:
-        working-directory: ts
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v4
+      # pnpm version from "packageManager" in package.json.
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v7
         with:
-          node-version: '20'
-          cache: npm
-          cache-dependency-path: ts/package-lock.json
+          node-version: '24'
+          cache: pnpm
 
       - name: System packages (xvfb for the GUI)
         run: sudo apt-get update -q && sudo apt-get install -y -q xvfb
 
       - name: Install
-        run: npm ci
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Lint (ESLint, type-aware)
+        run: pnpm lint
+
+      - name: Unused files, exports and dependencies (Knip)
+        run: pnpm knip
 
       - name: Unit tests
-        run: npm test
+        run: pnpm test
 
       - name: End-to-end smoke (CLI + GUI under xvfb)
-        run: npm run e2e -- --shots e2e-shots
+        run: pnpm e2e --shots e2e-shots
 
-      - uses: actions/upload-artifact@v4
+      # The app is already built by the step above. Traces and screenshots of failed tests go to the report.
+      - name: End-to-end UI scenarios (Playwright, under xvfb)
+        if: success() || failure()
+        working-directory: apps/desktop
+        run: xvfb-run -a -s '-screen 0 1280x800x24' pnpm exec playwright test
+
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: ts-e2e-screenshots
-          path: ts/e2e-shots
+          path: apps/desktop/e2e-shots
+          if-no-files-found: ignore
+
+      - uses: actions/upload-artifact@v7
+        if: failure()
+        with:
+          name: playwright-report
+          path: |
+            apps/desktop/playwright-report
+            apps/desktop/test-results
           if-no-files-found: ignore

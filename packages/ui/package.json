@@ -1,0 +1,24 @@
+{
+  "name": "@chawo/ui",
+  "version": "2.1.0",
+  "private": true,
+  "description": "Chawo design tokens (CSS custom properties, dark only) and the React components the app is built from.",
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    "./tokens.css": "./src/tokens.css",
+    "./base.css": "./src/base.css",
+    "./cx": "./src/cx.ts",
+    "./*": "./src/*.tsx"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "peerDependencies": {
+    "react": "^19.2.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.3.0",
+    "react": "^19.3.1"
+  }
+}

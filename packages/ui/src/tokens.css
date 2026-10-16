@@ -1,0 +1,42 @@
+/* Chawo design tokens. Dark only (product rule): the palette follows the WPF app — near-black
+   surfaces, coral accent. Components and pages use these names, never raw colours. */
+:root {
+  color-scheme: dark;
+
+  /* surfaces and text */
+  --bg: #14161a;
+  --panel: #1c1f24;
+  --line: #2a2e35;
+  --text: #e6e8eb;
+  --fg: var(--text);
+  --muted: #8b929c;
+
+  /* accent and states */
+  --accent: #ff6b5a;
+  --on-accent: #14161a;
+  --ok: #7fd18b;
+  --danger: #ff8a7a;
+  --verdict-yes: #4caf7a;
+  --verdict-partial: #d9a441;
+  --verdict-no: #e0645c;
+  --row-active: #243044;
+
+  /* type */
+  --font: 14px/1.45 "Segoe UI", system-ui, sans-serif;
+  --font-mono: 12px/1.4 ui-monospace, Consolas, monospace;
+  --text-sm: 12px;
+  --text-h1: 20px;
+
+  /* shape and space */
+  --radius-sm: 4px;
+  --radius: 6px;
+  --radius-lg: 8px;
+  --radius-xl: 10px;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --nav-width: 200px;
+}

@@ -1,0 +1,49 @@
+/* Element defaults and the shared component classes (@chawo/ui). Page layouts live with the pages. */
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text); font: var(--font); }
+h1 { font-size: var(--text-h1); font-weight: 600; margin: 0 0 var(--space-3); }
+.muted { color: var(--muted); }
+.row { display: flex; gap: var(--space-2); flex-wrap: wrap; margin: 0 0 var(--space-3); align-items: center; }
+
+button { background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: var(--radius); padding: 6px 12px; font: inherit; cursor: pointer; }
+button:hover { border-color: var(--muted); }
+button.primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); font-weight: 600; }
+button.link { background: none; border: none; color: var(--muted); padding: 2px 6px; }
+button.link:hover { color: var(--text); }
+button:disabled { opacity: .45; cursor: default; }
+button.inline-link { color: var(--accent); padding: 0 2px; }
+button.inline-link:hover { color: var(--text); text-decoration: underline; }
+
+fieldset { border: 1px solid var(--line); border-radius: var(--radius-lg); margin: 0 0 var(--space-3); padding: var(--space-2) var(--space-4) var(--space-3); display: flex; flex-direction: column; gap: 6px; }
+legend { color: var(--muted); padding: 0 var(--space-1); }
+select { background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: var(--radius); padding: 4px 8px; font: inherit; }
+select.wide { min-width: 360px; max-width: 100%; }
+input[type=checkbox], input[type=radio] { accent-color: var(--accent); }
+input[type=text], input[type=password] { background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: var(--radius); padding: 5px 7px; font: inherit; min-width: 0; width: 100%; }
+textarea { background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: var(--radius); padding: 7px; font: inherit; width: 100%; resize: vertical; }
+input[type=text]:focus, input[type=password]:focus, textarea:focus { outline: none; border-color: var(--accent); }
+
+label.block { display: block; font-weight: 600; margin: 14px 0 var(--space-1); }
+label.check { display: block; margin: 14px 0 0; }
+label.stack { display: flex; flex-direction: column; gap: 3px; font-size: var(--text-sm); }
+.hint { font-size: var(--text-sm); margin: var(--space-1) 0 0; }
+.hint.indent { margin-left: 22px; }
+.hint.warn { color: var(--accent); }
+.line { overflow-wrap: anywhere; }
+.status { min-height: 1.45em; word-break: break-all; }
+.status.line { word-break: normal; }
+.status.line.warn { color: var(--accent); }
+
+.card { border: 1px solid var(--line); border-radius: var(--radius-lg); background: var(--panel); padding: 10px 14px; margin: 10px 0; }
+.card.failed { border-color: var(--danger); }
+.card-head { display: flex; justify-content: space-between; align-items: center; gap: var(--space-2); }
+.card.result .last-text { white-space: pre-wrap; overflow-wrap: anywhere; margin-top: var(--space-1); user-select: text; }
+
+.progress { height: 6px; background: var(--line); border-radius: 3px; overflow: hidden; margin: var(--space-2) 0 var(--space-1); }
+.progress > div { height: 100%; background: var(--accent); width: 0; transition: width .2s; }
+.progress.indeterminate > div { width: 30%; animation: chawo-slide 1.2s linear infinite; }
+@keyframes chawo-slide { from { margin-left: -30%; } to { margin-left: 100%; } }
+
+.form { display: grid; grid-template-columns: 110px minmax(0, 1fr); gap: 10px var(--space-2); align-items: center; max-width: 620px; margin: 10px 0 0; }
+.form .inline { display: flex; gap: var(--space-2); }
+.form.wide { grid-template-columns: 160px minmax(0, 1fr); }

@@ -3,7 +3,7 @@
 Local voice assistant for Windows: dictation, file and meeting transcription, an optional Brain (summaries, checklist scoring, questions across past meetings), and a sales trial card.
 Speech stays on this computer by default. Executable `ChawoVoiceAssistant.exe`; releases ship an installer and a portable zip. The short form **Chawo VA** is used only where space is tight (tray tooltip with a status).
 
-**Current shipping app is 2.0** (Electron + TypeScript in `ts/`). Legacy WPF sources remain in `src/` for reference; they are not the product you install.
+**Current shipping app is 2.0** (Electron + TypeScript, a pnpm monorepo under `apps/` and `packages/`).
 
 This repository is a standalone public copy of work that began as a fork of
 [moznoazachem/giga-pisar-win](https://github.com/moznoazachem/giga-pisar-win)
@@ -19,10 +19,10 @@ Closing the window hides it; the app stays in the tray until **Quit**.
 
 ## Установка (2.0)
 
-С [релизов GitHub](https://github.com/zai-one/chawo-va/releases/tag/v2.0.0):
+С [релизов GitHub](https://github.com/zai-one/chawo-va/releases/tag/v2.1.0):
 
-- **Установщик** — `ChawoVoiceAssistant-2.0.0-Setup.exe` (на пользователя, папку можно сменить; удаление не трогает настройки и модели).
-- **Портативный zip** — `ChawoVoiceAssistant-2.0.0-win-x64.zip` (распаковать и запустить `ChawoVoiceAssistant.exe`).
+- **Установщик** — `ChawoVoiceAssistant-2.1.0-Setup.exe` (на пользователя, папку можно сменить; удаление не трогает настройки и модели).
+- **Портативный zip** — `ChawoVoiceAssistant-2.1.0-win-x64.zip` (распаковать и запустить `ChawoVoiceAssistant.exe`).
 
 В обоих пакетах рядом с программой лежит **`chawo-va.cmd`** — тот же CLI без отдельного Node. Веса речи и Мозга в архив не входят: приложение скачивает их при первом использовании.
 
@@ -102,30 +102,38 @@ Local GGUF via `llama-server`, or a cloud provider (DeepSeek, OpenRouter, OpenAI
 ## Layout
 
 ```
-ts/                 Electron + TypeScript app (shipping 2.0)
-src/                Legacy WPF/.NET sources (1.x; not the installer)
-docs/               User / CLI / server / developer guides (RU), OpenAPI spec, design notes
-tools/              Helpers (Telegram bot, icons, …)
-.github/workflows/  CI: Windows package, e2e smoke, legacy WPF builds
+apps/desktop/       Electron app (main, preload, renderer, packaging, ChawoNative, e2e)
+apps/cli/           chawo-va command line (ships inside the app package)
+packages/core/      @chawo/core — platform-neutral logic (no Electron)
+packages/engine/    @chawo/engine — Node services shared by the app and the CLI
+fixtures/           Test fixtures shared by the packages
+docs/               User / CLI / server / developer guides (RU), OpenAPI spec, modernization plan
+tools/              Telegram bot for Hermes
+.github/workflows/  CI: checks + e2e (smoke and Playwright), Windows package
 ```
 
 
 ## Build
 
+Node.js 24+ and pnpm (`corepack enable`):
+
 ```
-cd ts
-npm ci
-npm test
-npm start          # build + run Electron
-npm run dist:win   # Setup.exe + portable zip (Windows CI / Windows host)
+pnpm install
+pnpm typecheck
+pnpm test
+pnpm dev           # Electron with hot reload of the UI
+pnpm start         # build + run Electron
+pnpm dist:win      # Setup.exe + portable zip (Windows CI / Windows host)
 ```
 
-GitHub Actions: `.github/workflows/ts-windows.yml` builds on `main`, `ts-port`, `ts/**` and on `v*` tags; tag builds attach Setup.exe and the portable zip to the GitHub Release. No model weights in the artifacts. Unsigned.
+Details: [docs/developer-guide.md](docs/developer-guide.md).
+
+GitHub Actions: `.github/workflows/ts-windows.yml` builds on `main`, `ts-port`, `ts/**` and on `v*` tags; tag builds attach Setup.exe and the portable zip to the GitHub Release. No model weights in the artifacts. The package is hardened with Electron fuses (checked in CI); it is signed once the repository has signing secrets (see the developer guide).
 
 
 ## Code signing policy
 
-Builds are unsigned. Windows SmartScreen may warn on first run; that is expected until a certificate is configured.
+Builds are unsigned until a certificate (or Azure Trusted Signing) is configured in the CI secrets. Until then Windows SmartScreen may warn on first run; that is expected.
 
 
 ## Privacy

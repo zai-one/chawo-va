@@ -1,0 +1,54 @@
+// Dev-only smoke for «Прогнать через мозг» on the «Расшифровка файла» page after the CLI-parity
+// refactor (FileBrain.runAsync → shared runWithAsk, also used by `chawo-va brain` / `transcribe --brain`).
+// Boots the built app with a settings.json that has FileUseBrain on and a Brain server, queues the
+// WAVs and prints queue notes and the .txt / .brain.txt next to each copy.
+// Usage: CHAWO_LOCALAPPDATA=<dir with models> CHAWO_APPDATA=<tmp with settings.json> \
+//   electron --no-sandbox scripts/smoke-brain-gui.cjs <a.wav> [b.wav…]
+const { appEvent } = require('./lib/appEvent.cjs');
+const { app, BrowserWindow } = require('electron');
+const { copyFileSync, existsSync, readFileSync } = require('node:fs');
+const { basename, join } = require('node:path');
+const args = process.argv.slice(process.argv.findIndex((a) => a.endsWith('smoke-brain-gui.cjs')) + 1);
+require('../out/main/main.js');
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const log = (...a) => console.log('[smoke]', ...a);
+
+app.whenReady().then(async () => {
+  await sleep(1500);
+  let code = 0;
+  try {
+    const w = BrowserWindow.getAllWindows().find((x) => x.getTitle() !== 'decoder') ?? BrowserWindow.getAllWindows()[0];
+    const js = (c) => w.webContents.executeJavaScript(c);
+    const h = require('electron').ipcMain._invokeHandlers;
+    await js(`document.querySelector('.nav button[data-page="file"]').click(); true`);
+    await sleep(600);
+    const copies = args.map((wav) => {
+      const c = join(app.getPath('temp'), 'chawo-smoke-brain-' + basename(wav));
+      copyFileSync(wav, c);
+      return c;
+    });
+    await h.get('file:add')(appEvent(), copies, false);
+    const t0 = Date.now();
+    await h.get('file:run')(appEvent());
+    for (let i = 0; i < 2400 && (await h.get('file:state')(appEvent())).busy; i++) await sleep(250);
+    const st = await h.get('file:state')(appEvent());
+    for (const it of st.items) log('row', JSON.stringify({ name: it.name ?? it.path, state: it.state, note: it.note }));
+    log(`${Date.now() - t0} ms`);
+    log('page text:', (await js(`(document.querySelector('[data-page-body="file"]') || document.body).innerText.slice(0, 400)`)).replace(/\n+/g, ' | '));
+    for (const c of copies) {
+      for (const ext of ['txt', 'brain.txt']) {
+        const p = c.replace(/\.wav$/, '.' + ext);
+        if (!existsSync(p)) {
+          log(ext, 'MISSING');
+          code = 1;
+          continue;
+        }
+        log(`--- ${basename(p)}\n` + readFileSync(p, 'utf8').slice(0, 700));
+      }
+    }
+  } catch (e) {
+    console.error('[smoke] FAIL', e);
+    code = 1;
+  }
+  app.exit(code);
+});

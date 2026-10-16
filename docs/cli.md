@@ -1,7 +1,7 @@
 # Справочник CLI — `chawo-va`
 
 Командная строка того же приложения: на Windows — `chawo-va.cmd` рядом с `ChawoVoiceAssistant.exe`
-(свой Node не нужен), из исходников — `node ts/dist/cli.js` после `npm run build`. Настройки читаются
+(свой Node не нужен), из исходников — `pnpm cli …` (или `node apps/desktop/out/main/cli.js`) после `pnpm build`. Настройки читаются
 из `settings.json` приложения (только чтение); всё, что не задано флагом, берётся оттуда.
 Модели CLI **не скачивает** — сначала скачайте их в приложении (или укажите `--model-dir`).
 
@@ -22,9 +22,10 @@
 | `stats <.txt/.srt/.json…>` | «Статистика разговора»: доля речи, монологи, вопросы, темп, трекеры слов | stdout |
 | `snippets list\|add\|remove` | Сниппеты для «вставь …» при диктовке (тот же `snippets.json`, что на «Словаре») | stdout / `snippets.json` |
 | `dictionary list\|suggest\|accept\|dismiss\|learn\|auto` | Словарь замен и «Из исправлений» (тот же `learned-words.json`, что на «Словаре») | stdout / `learned-words.json` |
+| `cleanup [--yes [--all]] [--days 30] [--json]` | «Место на диске»: список лишнего с размерами; `--yes` удаляет отмеченное `[x]` (старые версии, недокачанное, старые движки, копии, временное), `--all` — ещё невыбранные модели и расшифрованные записи старше `--days` | stdout |
 | `meeting detect` | Автоопределение встречи (приложения Windows/Linux / локальный `.ics`, в т.ч. RRULE) без запуска записи | stdout |
 | `serve` | Headless CPU-сервер расшифровки ([linux-server.md](linux-server.md)) | — |
-| `--help`, `--version` | Справка / версия (`chawo-va 2.0.0`) | stdout |
+| `--help`, `--version` | Справка / версия (`chawo-va 2.1.0`) | stdout |
 
 ## Флаги
 
@@ -285,7 +286,7 @@ chawo-va crm send meet.brief.txt --to amocrm --id 123 --dry-run   # показа
 chawo-va crm send meet.brief.txt --to amocrm --id 123 --yes
 ```
 
-Без `--yes` в терминале спрашивается y/N, без терминала — код 2. Повтор того же итога в ту же запись отклоняется без `--force`. Токены хранятся только локально в `crm.json` (права 0600), не в истории и не в логах; адреса — только https, без приватных/локальных хостов (проверяется и DNS), редиректы не выполняются. 429/503 повторяются; при 502/504/таймауте для CRM повтора нет — пишется «возможно, уже отправлено».
+Без `--yes` в терминале спрашивается y/N, без терминала — код 2. Повтор того же итога в ту же запись отклоняется без `--force`. Токены хранятся только на этом компьютере — в системном хранилище ключей (Windows Credential Manager, macOS Keychain, Secret Service в Linux), общем для CLI и приложения; где его нет (сервер без D-Bus, или `CHAWO_SECRETS=file`) — в `secrets.json` рядом с настройками (права 0600). Не в `crm.json`, не в истории и не в логах; адреса — только https, без приватных/локальных хостов (проверяется и DNS), редиректы не выполняются. 429/503 повторяются; при 502/504/таймауте для CRM повтора нет — пишется «возможно, уже отправлено».
 
 ## Коды выхода
 
@@ -323,7 +324,7 @@ chawo-va ask скидка Ромашка --in ~/Calls --search -n 3
 chawo-va mcp --in ~/Calls --no-history   # для MCP-клиента; включается на «Сети»
 ```
 
-## Полный вывод `chawo-va --lang ru --help` (v2.0.0)
+## Полный вывод `chawo-va --lang ru --help` (v2.1.0)
 
 ```
 Chawo Voice Assistant — расшифровка файлов, «Кратко и задачи», чек-лист, статистика, вопросы к истории, словарь, сниппеты и выгрузка в CRM из командной строки. Всё локально, ничего не отправляется (по ссылке — только скачивание).
@@ -345,6 +346,7 @@ Chawo Voice Assistant — расшифровка файлов, «Кратко и
   chawo-va meeting detect [--json]
   chawo-va crm send <файл.brief.txt> --to amocrm|bitrix|hubspot|webhook [--id N] [--score] [--dry-run] [--yes]
   chawo-va crm config [--to … параметры]
+  chawo-va cleanup [--yes [--all]] [--days 30] [--json]   лишнее на диске: старые версии, недокачанное, …
   chawo-va serve [--host 127.0.0.1|0.0.0.0] [--port 17831] [--token …] [--data-dir …]
 
 Параметры:

@@ -1,11 +1,23 @@
-.vs/
-*.log
-*.user
-*.wav
-bin/
-build.local
+# JavaScript workspace
+node_modules/
+out/
 dist/
+release/
+e2e-shots/
+test-results/
+playwright-report/
+*.tsbuildinfo
+.env
+.env.*
+
+# .NET build of ChawoNative (apps/desktop/native/win)
+.vs/
+bin/
 obj/
+*.user
+
+*.log
+*.wav
 
 # Telegram bot token, not the example
 tools/hermes-telegram-bot/bot-config.json
