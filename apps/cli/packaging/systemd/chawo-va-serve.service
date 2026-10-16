@@ -1,0 +1,32 @@
+[Unit]
+Description=Chawo Voice Assistant transcription server (CPU)
+Documentation=https://github.com/zai-one/chawo-va/blob/main/docs/linux-server.md
+After=network.target
+
+[Service]
+Type=simple
+User=chawo
+Group=chawo
+# Install the app somewhere stable and point ExecStart at the CLI entry.
+# Example after `pnpm install --frozen-lockfile && pnpm build` in the repository root:
+WorkingDirectory=/opt/chawo-va/ts
+ExecStart=/usr/bin/node /opt/chawo-va/apps/desktop/out/main/cli.js serve --host 0.0.0.0 --port 17831 --model-dir /var/lib/chawo-va/models/v3_e2e_rnnt
+Restart=on-failure
+RestartSec=5
+
+# Required to bind non-loopback. Put the real secret in an EnvironmentFile (mode 0600), not here.
+Environment=CHAWO_SERVE_TOKEN=change-me
+Environment=CHAWO_SERVE_DATA_DIR=/var/lib/chawo-va/serve
+Environment=CHAWO_MODEL_DIR=/var/lib/chawo-va/models
+# Optional: EnvironmentFile=-/etc/chawo-va/serve.env
+
+# Hardening (adjust if your layout needs more)
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/chawo-va
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+
+[Install]
+WantedBy=multi-user.target

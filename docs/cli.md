@@ -1,7 +1,7 @@
 # Справочник CLI — `chawo-va`
 
 Командная строка того же приложения: на Windows — `chawo-va.cmd` рядом с `ChawoVoiceAssistant.exe`
-(свой Node не нужен), из исходников — `node ts/dist/cli.js` после `npm run build`. Настройки читаются
+(свой Node не нужен), из исходников — `pnpm cli …` (или `node apps/desktop/out/main/cli.js`) после `pnpm build`. Настройки читаются
 из `settings.json` приложения (только чтение); всё, что не задано флагом, берётся оттуда.
 Модели CLI **не скачивает** — сначала скачайте их в приложении (или укажите `--model-dir`).
 

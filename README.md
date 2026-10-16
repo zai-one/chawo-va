@@ -3,7 +3,7 @@
 Local voice assistant for Windows: dictation, file and meeting transcription, an optional Brain (summaries, checklist scoring, questions across past meetings), and a sales trial card.
 Speech stays on this computer by default. Executable `ChawoVoiceAssistant.exe`; releases ship an installer and a portable zip. The short form **Chawo VA** is used only where space is tight (tray tooltip with a status).
 
-**Current shipping app is 2.0** (Electron + TypeScript in `ts/`). Legacy WPF sources remain in `src/` for reference; they are not the product you install.
+**Current shipping app is 2.0** (Electron + TypeScript, a pnpm monorepo under `apps/` and `packages/`). Legacy WPF sources remain in `legacy/wpf/` for reference; they are not the product you install.
 
 This repository is a standalone public copy of work that began as a fork of
 [moznoazachem/giga-pisar-win](https://github.com/moznoazachem/giga-pisar-win)
@@ -102,23 +102,32 @@ Local GGUF via `llama-server`, or a cloud provider (DeepSeek, OpenRouter, OpenAI
 ## Layout
 
 ```
-ts/                 Electron + TypeScript app (shipping 2.0)
-src/                Legacy WPF/.NET sources (1.x; not the installer)
-docs/               User / CLI / server / developer guides (RU), OpenAPI spec, design notes
-tools/              Helpers (Telegram bot, icons, …)
-.github/workflows/  CI: Windows package, e2e smoke, legacy WPF builds
+apps/desktop/       Electron app (main, preload, renderer, packaging, ChawoNative, e2e)
+apps/cli/           chawo-va command line (ships inside the app package)
+packages/core/      @chawo/core — platform-neutral logic (no Electron)
+packages/engine/    @chawo/engine — Node services shared by the app and the CLI
+fixtures/           Test fixtures shared by the packages
+docs/               User / CLI / server / developer guides (RU), OpenAPI spec, modernization plan
+legacy/wpf/         Legacy WPF/.NET sources (1.x; not the installer)
+tools/              Telegram bot for Hermes
+.github/workflows/  CI: checks + e2e smoke, Windows package, legacy WPF builds (manual)
 ```
 
 
 ## Build
 
+Node.js 24+ and pnpm (`corepack enable`):
+
 ```
-cd ts
-npm ci
-npm test
-npm start          # build + run Electron
-npm run dist:win   # Setup.exe + portable zip (Windows CI / Windows host)
+pnpm install
+pnpm typecheck
+pnpm test
+pnpm dev           # Electron with hot reload of the UI
+pnpm start         # build + run Electron
+pnpm dist:win      # Setup.exe + portable zip (Windows CI / Windows host)
 ```
+
+Details: [docs/developer-guide.md](docs/developer-guide.md).
 
 GitHub Actions: `.github/workflows/ts-windows.yml` builds on `main`, `ts-port`, `ts/**` and on `v*` tags; tag builds attach Setup.exe and the portable zip to the GitHub Release. No model weights in the artifacts. Unsigned.
 

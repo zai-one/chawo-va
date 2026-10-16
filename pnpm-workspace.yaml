@@ -1,0 +1,17 @@
+packages:
+  - apps/*
+  - packages/*
+
+# electron-builder packs node_modules of apps/desktop: a flat (hoisted) layout is what it expects.
+nodeLinker: hoisted
+
+# Install scripts run only for these (pnpm blocks the rest). Electron 44 fetches its binary on first run.
+# onnxruntime-node: its CPU/DirectML binaries are in the npm package; the script would only download the
+# CUDA provider on Linux, which the app never uses.
+allowBuilds:
+  electron-winstaller: true
+  esbuild: true
+  onnxruntime-node: false
+
+# Supply chain: a release must be at least a day old before it is installed (pnpm's default, kept explicit).
+minimumReleaseAge: 1440

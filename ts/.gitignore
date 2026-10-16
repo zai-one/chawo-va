@@ -1,8 +1,0 @@
-node_modules
-dist/
-out/
-*.log
-.env
-.env.*
-release/
-e2e-shots/

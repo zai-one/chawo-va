@@ -1,4 +1,4 @@
-# Windows build of the Electron/TypeScript app (ts/): an installer (NSIS, per-user, folder can be changed)
+# Windows build of the Electron app (apps/desktop): an installer (NSIS, per-user, folder can be changed)
 # and a portable zip. Both carry the chawo-va CLI (chawo-va.cmd next to the exe). No speech or Brain
 # weights inside: the app downloads them on first use. Unsigned. Built only from this repository's source.
 # On a v* tag the same artifacts are attached to the GitHub Release for that tag.
@@ -10,7 +10,7 @@ on:
     tags: ['v*']
   pull_request:
     branches: ['main', 'ts-port']
-    paths: ['ts/**', '.github/workflows/ts-windows.yml']
+    paths: ['apps/**', 'packages/**', 'package.json', 'pnpm-lock.yaml', 'pnpm-workspace.yaml', '.github/workflows/ts-windows.yml']
   workflow_dispatch:
 
 permissions:
@@ -28,27 +28,29 @@ jobs:
       contents: write
     defaults:
       run:
-        working-directory: ts
+        working-directory: apps/desktop
     env:
       CSC_IDENTITY_AUTO_DISCOVERY: 'false'
     steps:
       - uses: actions/checkout@v7
 
+      # pnpm version from "packageManager" in package.json.
+      - uses: pnpm/action-setup@v6
+
       - uses: actions/setup-node@v7
         with:
           node-version: '24'
-          cache: npm
-          cache-dependency-path: ts/package-lock.json
+          cache: pnpm
 
       # Global hold key / text insertion helper (.NET Framework 4.8, ships with Windows 10/11).
       - name: Build the native helper
-        run: npm run build:native
+        run: pnpm build:native
 
       - name: Install
-        run: npm ci
+        run: pnpm install --frozen-lockfile
 
       - name: Build and package
-        run: npm run dist:win
+        run: pnpm dist:win
 
       - name: Smoke-test the packaged app
         shell: pwsh
@@ -68,7 +70,7 @@ jobs:
           $v = & "$app/chawo-va.cmd" --version
           if ($LASTEXITCODE -ne 0 -or "$v" -notmatch '^chawo-va \d') { Fail "chawo-va --version: $v" }
           Write-Host $v
-          $seg = & "$app/chawo-va.cmd" segments "$env:GITHUB_WORKSPACE/ts/test/fixtures/transcript-editor/sample.srt"
+          $seg = & "$app/chawo-va.cmd" segments "$env:GITHUB_WORKSPACE/fixtures/transcript-editor/sample.srt"
           if ($LASTEXITCODE -ne 0 -or @($seg).Count -ne 3 -or "$seg" -notmatch 'Speaker 2: Second phrase') { Fail "chawo-va segments: $seg" }
           $seg | Write-Host
 
@@ -98,13 +100,13 @@ jobs:
       - uses: actions/upload-artifact@v7
         with:
           name: ChawoVoiceAssistant-win-x64-setup
-          path: ts/release/*-Setup.exe
+          path: apps/desktop/release/*-Setup.exe
           if-no-files-found: error
 
       - uses: actions/upload-artifact@v7
         with:
           name: ChawoVoiceAssistant-win-x64-portable
-          path: ts/release/*-win-x64.zip
+          path: apps/desktop/release/*-win-x64.zip
           if-no-files-found: error
 
       # Attach Setup.exe + portable zip to the GitHub Release for this tag (no model weights).
@@ -113,8 +115,8 @@ jobs:
         uses: softprops/action-gh-release@v3
         with:
           files: |
-            ts/release/*-Setup.exe
-            ts/release/*-win-x64.zip
+            apps/desktop/release/*-Setup.exe
+            apps/desktop/release/*-win-x64.zip
           fail_on_unmatched_files: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

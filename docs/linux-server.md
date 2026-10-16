@@ -21,15 +21,16 @@ Headless CPU-сервер транскрипции на том же Node/TS + ON
 
 ## Установка
 
-Нужны Linux x64, **Node.js 20+**, `git`; для MP3/M4A/… в заданиях — `ffmpeg` (WAV/Ogg читаются без него).
+Нужны Linux x64, **Node.js 24+**, `git`; для MP3/M4A/… в заданиях — `ffmpeg` (WAV/Ogg читаются без него).
 
 ```bash
-sudo apt-get install -y nodejs npm ffmpeg   # или Node 20 из nodesource / nvm
+sudo apt-get install -y ffmpeg               # Node 24 — из nodesource / nvm
 git clone https://github.com/zai-one/chawo-va.git /opt/chawo-va
-cd /opt/chawo-va/ts
-ELECTRON_SKIP_BINARY_DOWNLOAD=1 npm ci     # Electron серверу не нужен
-npm run build
-node dist/cli.js --version                  # chawo-va 2.0.0
+cd /opt/chawo-va
+corepack enable                              # pnpm нужной версии
+pnpm install --frozen-lockfile               # бинарник Electron серверу не нужен и не скачивается
+pnpm build
+node apps/desktop/out/main/cli.js --version  # chawo-va 2.0.0
 ```
 
 ### Модель
@@ -43,7 +44,7 @@ node dist/cli.js --version                  # chawo-va 2.0.0
 ### Только localhost (без токена)
 
 ```bash
-node dist/cli.js serve --port 17831 --model-dir /var/lib/chawo-va/models/v3-e2e-rnnt
+node apps/desktop/out/main/cli.js serve --port 17831 --model-dir /var/lib/chawo-va/models/v3-e2e-rnnt
 # Слушаю 127.0.0.1:17831 · модель v3_e2e_rnnt · CPU · воркеров N · данные … · только localhost (без токена)
 ```
 
@@ -51,7 +52,7 @@ node dist/cli.js serve --port 17831 --model-dir /var/lib/chawo-va/models/v3-e2e-
 
 ```bash
 export CHAWO_SERVE_TOKEN="$(openssl rand -hex 32)"
-node dist/cli.js serve --host 0.0.0.0 --port 17831 --model-dir /var/lib/chawo-va/models/v3-e2e-rnnt
+node apps/desktop/out/main/cli.js serve --host 0.0.0.0 --port 17831 --model-dir /var/lib/chawo-va/models/v3-e2e-rnnt
 ```
 
 С токеном `--host` по умолчанию `0.0.0.0`. Без токена процесс **откажется** слушать не-loopback
@@ -107,7 +108,7 @@ journalctl -u chawo-va-serve -f
 ## HTTP API
 
 Полная спецификация: **[`openapi.yaml`](openapi.yaml)** (OpenAPI 3.1, проверяется тестом
-`ts/test/openapi.test.ts`: валидность и совпадение со списком маршрутов в коде).
+`packages/engine/test/openapi.test.ts`: валидность и совпадение со списком маршрутов в коде).
 Каждый путь `/v1/…` доступен и без префикса (`/health`, `/transcribe`, `/jobs`, `/jobs/{id}`).
 Все ответы — JSON. Неизвестный маршрут — `404 {"error":"not_found"}`.
 

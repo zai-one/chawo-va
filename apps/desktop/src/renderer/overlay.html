@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'" />
+    <link rel="stylesheet" href="overlay.css" />
+  </head>
+  <body>
+    <div id="pill" class="pill">
+      <div class="row">
+        <span id="caption" class="caption" hidden></span>
+        <span id="bars" class="bars"></span>
+        <span id="label" class="label" hidden></span>
+      </div>
+      <div id="live" class="live" hidden></div>
+    </div>
+    <script type="module" src="./overlay.ts"></script>
+  </body>
+</html>

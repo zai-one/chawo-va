@@ -1,0 +1,51 @@
+# Legacy WPF app (legacy/wpf, 1.x): the Inno Setup installer, built on GitHub's Windows runners from
+# this repository only. Started by hand: releases ship the Electron app (ts-windows.yml) since 2.0.
+name: Legacy WPF installer
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: legacy/wpf
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Publish the app
+        run: dotnet publish src/ChawoVoiceAssistant.csproj -c Release -r win-x64 --self-contained true -o dist/app -nologo
+
+      # onnxruntime.dll needs the Visual C++ runtime, which a clean Windows 10 lacks.
+      # Microsoft allows shipping these files next to an application.
+      - name: Bundle the Visual C++ runtime
+        shell: pwsh
+        run: |
+          foreach ($dll in 'msvcp140.dll', 'msvcp140_1.dll', 'vcruntime140.dll', 'vcruntime140_1.dll') {
+            Copy-Item "$env:WINDIR\System32\$dll" dist/app/
+          }
+
+      - name: Install Inno Setup
+        run: choco install innosetup --no-progress -y
+
+      - name: Build the installer
+        shell: pwsh
+        run: '& "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" /Q installer\setup.iss'
+
+      - name: Checksum
+        shell: pwsh
+        run: (Get-FileHash dist/ChawoVoiceAssistant-Setup.exe -Algorithm SHA256).Hash
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: ChawoVoiceAssistant-Setup
+          path: legacy/wpf/dist/ChawoVoiceAssistant-Setup.exe
+          if-no-files-found: error

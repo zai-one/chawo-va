@@ -1,11 +1,24 @@
-.vs/
-*.log
-*.user
-*.wav
-bin/
-build.local
+# JavaScript workspace
+node_modules/
+out/
 dist/
+release/
+e2e-shots/
+test-results/
+playwright-report/
+*.tsbuildinfo
+.env
+.env.*
+
+# Legacy WPF build (legacy/wpf)
+.vs/
+bin/
 obj/
+*.user
+build.local
+
+*.log
+*.wav
 
 # Telegram bot token, not the example
 tools/hermes-telegram-bot/bot-config.json
