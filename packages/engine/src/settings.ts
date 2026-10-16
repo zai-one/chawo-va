@@ -10,7 +10,8 @@ import { HERMES_PORT } from '@chawo/core/speechModels';
 import { DEFAULT_IDLE_UNLOAD_MINUTES, normalizeIdleMinutes } from '@chawo/core/idleTimer';
 import { write as logWrite } from './log';
 import { appDataDir, settingsPath } from './paths';
-import { providerIdFromUrl } from './brain/brainProviders';
+import { All as BRAIN_PROVIDERS, providerIdFromUrl } from './brain/brainProviders';
+import { readSecret, SECRET, writeSecret } from './secrets';
 import { HISTORY_KEEPS, type HistoryKeep } from './history/historyStore';
 
 export type InsertMode = 'Type' | 'Paste';
@@ -471,7 +472,7 @@ export function fromJsonObject(raw: Record<string, unknown>): { settings: Settin
   return { settings: d, plainKeyOnDisk };
 }
 
-/** Disk shape: omit memory-only fields; write protected secrets when encryption works. */
+/** Disk shape: memory-only fields and secrets are left out (secrets go to the vault, see save). */
 export function toJsonObject(s: SettingsData): Record<string, unknown> {
   const o: Record<string, unknown> = {
     HotkeyVk: s.HotkeyVk,
@@ -546,21 +547,43 @@ export function toJsonObject(s: SettingsData): Record<string, unknown> {
     OverlayY: s.OverlayY,
   };
 
-  if (s.CleanupApiKey.length > 0) {
-    const enc = protect(s.CleanupApiKey);
-    if (enc) o.CleanupApiKeyProtected = enc;
-    // else omit: never write plaintext
-  }
-
-  const pk: Record<string, string> = {};
-  for (const [k, v] of Object.entries(s.ProviderKeys)) {
-    if (!v) continue;
-    const enc = protect(v);
-    if (enc) pk[k] = enc;
-  }
-  if (Object.keys(pk).length > 0) o.ProviderKeysProtected = pk;
-
   return o;
+}
+
+/** Provider ids whose keys may be stored (the known services and «Свой сервер»). */
+const providerIds = (s: SettingsData): string[] => [...new Set([...BRAIN_PROVIDERS.map((p) => p.id), ...Object.keys(s.ProviderKeys)])];
+
+/**
+ * Fills the API keys from the vault (OS credential store or secrets.json). A key found there wins over
+ * a sealed copy in settings.json from an older version. Used by the app and, read-only, by the CLI.
+ */
+export function withSecrets(s: SettingsData): SettingsData {
+  const cleanup = readSecret(SECRET.cleanupKey);
+  if (cleanup) s.CleanupApiKey = cleanup;
+  for (const id of providerIds(s)) {
+    const v = readSecret(SECRET.providerKey(id));
+    if (v) s.ProviderKeys[id] = v;
+  }
+  return s;
+}
+
+/**
+ * Keys into the vault; settings.json gets none. Only where the vault refuses a write does a key stay
+ * in settings.json, sealed with the OS (safeStorage) as before — never in plain text.
+ */
+function storeSecrets(s: SettingsData, o: Record<string, unknown>): void {
+  if (!writeSecret(SECRET.cleanupKey, s.CleanupApiKey)) {
+    const enc = s.CleanupApiKey ? protect(s.CleanupApiKey) : '';
+    if (enc) o.CleanupApiKeyProtected = enc;
+  }
+  const sealed: Record<string, string> = {};
+  for (const id of providerIds(s)) {
+    const v = s.ProviderKeys[id] ?? '';
+    if (writeSecret(SECRET.providerKey(id), v)) continue;
+    const enc = v ? protect(v) : '';
+    if (enc) sealed[id] = enc;
+  }
+  if (Object.keys(sealed).length > 0) o.ProviderKeysProtected = sealed;
 }
 
 export function load(): SettingsData {
@@ -568,14 +591,17 @@ export function load(): SettingsData {
     const path = settingsPath();
     if (existsSync(path)) {
       const raw = JSON.parse(readFileSync(path, 'utf8')) as Record<string, unknown>;
-      const { settings: s, plainKeyOnDisk } = fromJsonObject(raw);
+      const { settings: parsed, plainKeyOnDisk } = fromJsonObject(raw);
+      const s = withSecrets(parsed);
+      // Keys of an older version sit sealed in settings.json: move them into the vault once.
+      const sealedOnDisk = typeof raw.CleanupApiKeyProtected === 'string' || (raw.ProviderKeysProtected !== null && typeof raw.ProviderKeysProtected === 'object');
 
       if (Object.keys(s.ProviderKeys).length === 0 && s.CleanupApiKey.length > 0) {
         const id = providerIdFromUrl(s.CleanupEndpointUrl);
         s.ProviderKeys[id] = s.CleanupApiKey;
         if (s.CleanupModel.length > 0) s.ProviderModels[id] = s.CleanupModel;
         save(s);
-      } else if (plainKeyOnDisk) {
+      } else if (plainKeyOnDisk || sealedOnDisk) {
         save(s);
       }
 
@@ -594,8 +620,10 @@ export function load(): SettingsData {
 
 export function save(s: SettingsData): void {
   try {
+    const o = toJsonObject(s);
+    storeSecrets(s, o);
     mkdirSync(appDataDir(), { recursive: true });
-    writeFileSync(settingsPath(), JSON.stringify(toJsonObject(s), null, 2) + '\n', 'utf8');
+    writeFileSync(settingsPath(), JSON.stringify(o, null, 2) + '\n', 'utf8');
   } catch (e) {
     logWrite(`settings save failed: ${e instanceof Error ? e.message : String(e)}`);
   }

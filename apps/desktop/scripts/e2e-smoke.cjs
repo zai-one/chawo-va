@@ -53,6 +53,8 @@ for (const d of Object.values(prof)) mkdirSync(d, { recursive: true });
 const baseEnv = {
   ...process.env,
   CHAWO_APPDATA: prof.roaming,
+  // Secrets in the temp profile (secrets.json), never in the user's OS credential store.
+  CHAWO_SECRETS: 'file',
   CHAWO_LOCALAPPDATA: prof.local,
   HOME: prof.home,
   USERPROFILE: prof.home,
@@ -166,7 +168,7 @@ function writeSettings(port) {
 
 function seedHistory() {
   const { HistoryStore } = require(join(root, 'out/main/packages/engine/src/history/historyStore.js'));
-  const store = new HistoryStore(Paths.historyFilePath());
+  const store = new HistoryStore(Paths.databasePath());
   const now = Date.now();
   // Two older takes for «Исправить» → «Словарь из исправлений» in the GUI pass (same fix twice).
   store.add({ raw: 'Лес в тумане', final: 'Лес в тумане.', command: null, brain: false, brainFailed: false, seconds: 1.0, ts: now - 120_000 }, 'Week');
@@ -666,10 +668,15 @@ async function guiCase(haveModel) {
   brain.close();
   crm.close();
   // Secrets: no CRM token in the log, the journal, history or settings.json; crm.json owner-only.
-  const leakIn = [Paths.logPath(), Paths.crmSentPath(), Paths.historyFilePath(), Paths.settingsPath()].filter((p) => Object.values(CRM_TOKENS).some((tk) => read(p).includes(tk)));
+  const leakIn = [Paths.logPath(), Paths.databasePath(), Paths.settingsPath(), Paths.crmConfigPath()].filter((p) => Object.values(CRM_TOKENS).some((tk) => read(p).includes(tk)));
   check('privacy: CRM tokens are not in the log, journal, history or settings', leakIn.length === 0, leakIn.join(', '));
   const crmMode = existsSync(Paths.crmConfigPath()) ? statSync(Paths.crmConfigPath()).mode & 0o077 : -1;
   check('privacy: crm.json is owner-only', process.platform === 'win32' || crmMode === 0, `mode ${crmMode.toString(8)}`);
+  // Tokens are in the vault (CHAWO_SECRETS=file here: secrets.json in the temp profile), owner-only.
+  const vaultFile = join(prof.roaming, 'ChawoVoiceAssistant', 'secrets.json');
+  const vaultMode = existsSync(vaultFile) ? statSync(vaultFile).mode & 0o077 : -1;
+  check('secrets: CRM tokens live in the vault, owner-only', Object.values(CRM_TOKENS).some((tk) => read(vaultFile).includes(tk)) && (process.platform === 'win32' || vaultMode === 0), `mode ${vaultMode.toString(8)}`);
+  check('storage: history and the CRM journal are in chawo.db, no JSONL/JSON beside it', existsSync(Paths.databasePath()) && !existsSync(join(dirname(Paths.databasePath()), 'history.jsonl')) && !existsSync(join(dirname(Paths.databasePath()), 'crm-sent.json')), Paths.databasePath());
   // Privacy: neither the CLI nor the GUI may leave an onnxruntime device id in the (temp) home cache.
   const deviceid = join(prof.cache, 'Microsoft', 'DeveloperTools', '.onnxruntime', 'deviceid');
   const homeDeviceid = join(prof.home, '.cache', 'Microsoft', 'DeveloperTools', '.onnxruntime', 'deviceid');

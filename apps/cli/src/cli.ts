@@ -16,11 +16,11 @@ import { diarizeHook } from '@chawo/engine/diarize/diarizeRuntime';
 import { runCli, EXIT_INTERRUPTED, type CliDefaults, type CliDeps, type Engine, type EngineConfig } from './cli/run';
 import * as Log from '@chawo/engine/log';
 import { findComplete, looksComplete } from '@chawo/engine/models/speechModelStore';
-import { briefTemplatesPath, checklistsPath, crmConfigPath, crmSentPath, env, historyFilePath, learnedWordsPath, settingsPath, snippetsPath } from '@chawo/engine/paths';
+import { briefTemplatesPath, checklistsPath, crmConfigPath, databasePath, env, learnedWordsPath, settingsPath, snippetsPath } from '@chawo/engine/paths';
 import * as AskSources from '@chawo/engine/history/askSources';
 import * as BriefTemplates from '@chawo/engine/brain/briefTemplates';
 import * as CallScore from '@chawo/engine/brain/callScore';
-import { defaults as settingsDefaults, fromJsonObject, toCtcScript, toFileParallelism, toSpeechDeviceKind, toSpeechModelKind } from '@chawo/engine/settings';
+import { defaults as settingsDefaults, fromJsonObject, withSecrets, toCtcScript, toFileParallelism, toSpeechDeviceKind, toSpeechModelKind } from '@chawo/engine/settings';
 import { collectFromFolder, load16k, outputPath } from '@chawo/engine/file/fileTranscript';
 import * as MeetingBrief from '@chawo/engine/brain/meetingBrief';
 import * as Translate from '@chawo/engine/brain/translate';
@@ -40,6 +40,8 @@ function readSettings(): SettingsData {
   try {
     const path = settingsPath();
     if (existsSync(path)) s = fromJsonObject(JSON.parse(readFileSync(path, 'utf8')) as Record<string, unknown>).settings;
+    // API keys come from the same vault the app uses (OS credential store, else secrets.json).
+    withSecrets(s);
   } catch {
     /* defaults */
   }
@@ -143,7 +145,7 @@ export function realDeps(signal: AbortSignal): CliDeps {
     findYtDlp: () => YtDlp.find(),
     fetchAudio: (url, outDir, progress, signal) => YtDlp.fetchAudio(url, outDir, { progress, signal }),
     urlFolder: () => join(downloadsFolder(process.platform, homedir(), userDirs(), join), 'Chawo'),
-    historyPath: historyFilePath,
+    historyPath: databasePath,
     askBrain: () => {
       const s = readSettings();
       const target = FileBrain.target(s);
@@ -168,7 +170,7 @@ export function realDeps(signal: AbortSignal): CliDeps {
     briefTemplates: () => BriefTemplates.loadCustom(briefTemplatesPath()),
     checklists: () => CallScore.loadCustom(checklistsPath()),
     crmConfigPath,
-    crmSentPath,
+    crmSentPath: databasePath,
     stdinIsTTY: Boolean(process.stdin.isTTY),
     ask: async (question) => {
       const rl = (await import('node:readline')).createInterface({ input: process.stdin, output: process.stderr });

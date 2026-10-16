@@ -5,7 +5,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { CRM_TARGETS, type CrmTarget } from '@chawo/core/crm';
 import { CrmController } from '@chawo/engine/crm/crmPage';
 import { nodeFetch } from '@chawo/engine/crm/crmFlow';
-import { crmConfigPath, crmSentPath } from '@chawo/engine/paths';
+import { crmConfigPath, databasePath } from '@chawo/engine/paths';
 import { emit, handle } from './ipc';
 
 export function registerCrmIpc(getWindow: () => BrowserWindow | null): CrmController {
@@ -15,7 +15,7 @@ export function registerCrmIpc(getWindow: () => BrowserWindow | null): CrmContro
   };
   const ctl: CrmController = new CrmController({
     configPath: crmConfigPath,
-    sentPath: crmSentPath,
+    sentPath: databasePath,
     read: (p) => {
       try {
         return existsSync(p) ? readFileSync(p, 'utf8') : null;

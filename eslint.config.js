@@ -1,6 +1,7 @@
 // ESLint for the whole workspace (flat config). Type-aware rules catch what tsc does not: promises
 // nobody awaits (the Electron 44 clipboard is async), misused async callbacks, needless casts.
 import js from '@eslint/js';
+import reactHooks from 'eslint-plugin-react-hooks';
 import globals from 'globals';
 import tseslint from 'typescript-eslint';
 
@@ -12,7 +13,7 @@ export default tseslint.config(
   tseslint.configs.recommendedTypeChecked,
   {
     languageOptions: {
-      parserOptions: { projectService: { allowDefaultProject: ['*.ts', '*.js'] }, tsconfigRootDir: import.meta.dirname },
+      parserOptions: { projectService: { allowDefaultProject: ['*.ts', '*.js', 'fixtures/setup/*.ts'] }, tsconfigRootDir: import.meta.dirname },
       globals: { ...globals.node },
     },
   },
@@ -42,8 +43,13 @@ export default tseslint.config(
     },
   },
   {
+    // React: rules of hooks plus the React Compiler's own checks (purity, refs, effects).
+    files: ['**/*.tsx'],
+    extends: [reactHooks.configs.flat['recommended-latest']],
+  },
+  {
     // The window is sandboxed: it talks to the system only through the preload bridge.
-    files: ['apps/desktop/src/renderer/**/*.ts'],
+    files: ['apps/desktop/src/renderer/**/*.{ts,tsx}', 'packages/ui/src/**/*.{ts,tsx}'],
     languageOptions: { globals: { ...globals.browser } },
     rules: {
       'no-restricted-imports': ['error', {

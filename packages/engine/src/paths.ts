@@ -91,14 +91,13 @@ export function crmConfigPath(): string {
   return join(appDataDir(), 'crm.json');
 }
 
-/** «В CRM» journal of what was sent (keys, ids, times; no text, no tokens). */
-export function crmSentPath(): string {
-  return join(localDataDir(), 'crm-sent.json');
-}
-
-/** Dictation history (one JSON line per take); shared by the «История» page and `chawo-va history`. */
-export function historyFilePath(): string {
-  return join(localDataDir(), 'history.jsonl');
+/**
+ * chawo.db: dictation history (the «История» page and `chawo-va history`) and the «В CRM» journal of
+ * what was sent (keys, ids, times; no text, no tokens). Older history.jsonl / crm-sent.json beside it
+ * are imported on first use.
+ */
+export function databasePath(): string {
+  return join(localDataDir(), 'chawo.db');
 }
 
 export function lastTakePath(): string {

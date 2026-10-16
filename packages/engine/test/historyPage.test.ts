@@ -1,5 +1,5 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { applyLanguage } from '@chawo/core/strings';
@@ -24,7 +24,7 @@ afterEach(() => {
 function make(over: Partial<HistoryHooks> = {}, edit?: (s: Settings.SettingsData) => void) {
   const s = Settings.defaults();
   edit?.(s);
-  const store = new HistoryStore(join(dir, 'history.jsonl'), () => now);
+  const store = new HistoryStore(join(dir, 'chawo.db'), () => now);
   const copied: string[] = [];
   let saves = 0;
   let pushes = 0;
@@ -112,10 +112,10 @@ describe('HistoryController', () => {
     expect(st.status).toBe('История выключена, удалено записей: 2.');
     expect(st.rows).toEqual([]);
     expect(st.empty).toBe('Истории нет: хранение выключено.');
-    expect(existsSync(store.path)).toBe(false);
+    expect(store.count()).toBe(0);
     rec('три');
     expect(ctl.state().rows).toEqual([]);
-    expect(existsSync(store.path)).toBe(false);
+    expect(store.count()).toBe(0);
     ctl.setKeep('Off');
     expect(saves()).toBe(1);
     ctl.setKeep('Bogus' as never);
@@ -162,7 +162,7 @@ describe('HistoryController', () => {
     const st = await ctl.clearAll();
     expect(asked).toEqual(['Удалить всю историю (1)? Это не отменить.']);
     expect(st.status).toBe('История очищена.');
-    expect(existsSync(store.path)).toBe(false);
+    expect(store.count()).toBe(0);
     await ctl.clearAll();
     expect(asked).toHaveLength(1); // nothing to ask about
   });

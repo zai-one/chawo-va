@@ -5,7 +5,7 @@ import { BrowserWindow, clipboard, dialog, shell } from 'electron';
 import { t } from '@chawo/core/strings';
 import * as Settings from '@chawo/engine/settings';
 import type { SettingsData } from '@chawo/engine/settings';
-import { env, historyFilePath } from '@chawo/engine/paths';
+import { databasePath, env } from '@chawo/engine/paths';
 import { HistoryController } from '@chawo/engine/history/historyPage';
 import { HistoryStore, type HistoryKeep } from '@chawo/engine/history/historyStore';
 import { AskController } from '@chawo/engine/history/askPage';
@@ -19,7 +19,7 @@ import type { EventChannel, EventMap } from '@chawo/ipc/contract';
 
 /** @public Also read by scripts/smoke-history.cjs from the built app. */
 export function historyPath(): string {
-  return historyFilePath();
+  return databasePath();
 }
 
 export function registerHistoryIpc(getWindow: () => BrowserWindow | null, settings: { get: () => SettingsData }): HistoryController {

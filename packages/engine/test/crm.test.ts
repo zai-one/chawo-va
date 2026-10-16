@@ -10,6 +10,7 @@ import {
   type CrmConfig, type Fetch,
 } from '@chawo/core/crm';
 import { loadCrmConfig, loadSent, recordSent, saveCrmConfig } from '../src/crm/crmStore';
+import { memoryVault, SECRET, setVault } from '../src/secrets';
 import { pinnedFetch } from '../src/crm/crmFlow';
 import { CrmController } from '../src/crm/crmPage';
 import { applyLanguage } from '@chawo/core/strings';
@@ -217,11 +218,22 @@ describe('crm.json / crm-sent.json', () => {
     const dir = mkdtempSync(join(tmpdir(), 'chawo-crm-'));
     try {
       const p = join(dir, 'crm.json');
+      const v = memoryVault();
+      setVault(v);
       saveCrmConfig(p, cfg());
       if (process.platform !== 'win32') expect(statSync(p).mode & 0o077).toBe(0);
+      // Tokens are in the vault, not in crm.json.
+      expect(readFileSync(p, 'utf8')).not.toContain(TOKEN);
+      expect(v.get(SECRET.crm('amocrm', 'token'))).toBe(TOKEN);
       expect(loadCrmConfig(p).amocrm.token).toBe(TOKEN);
       writeFileSync(p, '{oops');
-      expect(loadCrmConfig(p)).toEqual(emptyCrmConfig());
+      // A broken crm.json resets the settings; the tokens in the vault survive.
+      const kept = emptyCrmConfig();
+      kept.amocrm.token = TOKEN;
+      kept.bitrix.webhook = BX;
+      kept.hubspot.token = HS;
+      kept.webhook.secret = 'whsec-SECRET';
+      expect(loadCrmConfig(p)).toEqual(kept);
       expect(readFileSync(p + '.bad', 'utf8')).toBe('{oops');
       expect(cleanCrmConfig({ amocrm: { entity: 'x', token: 5 }, bitrix: { responsibleId: 'abc' } })).toEqual(emptyCrmConfig());
       const sp = join(dir, 'sent.json');

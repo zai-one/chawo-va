@@ -1,12 +1,12 @@
 import { createServer } from 'node:http';
-import { existsSync, mkdtempSync, readFileSync, utimesSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { buildSync } from 'esbuild';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawn } from 'node:child_process';
 import { describe, expect, it } from 'vitest';
 import { pinnedFetch, pinnedLookup } from '../src/crm/crmFlow';
-import { loadSent, recordSent, withFileLock } from '../src/crm/crmStore';
+import { loadSent, recordSent } from '../src/crm/crmStore';
 import { buildRequest, sendRequest } from '@chawo/core/crm';
 
 const init = { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{"a":1}', redirect: 'manual' as const, signal: new AbortController().signal };
@@ -56,32 +56,24 @@ describe('DNS pinning', () => {
 });
 
 describe('journal under concurrent writers', () => {
-  it('a fresh foreign lock makes the writer wait; a stale one is taken over; own lock is removed', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'crm-lock-'));
-    const p = join(dir, 'crm-sent.json');
-    writeFileSync(p + '.lock', '');
-    let t0 = Date.now();
-    withFileLock(p, () => undefined, 300);
-    expect(Date.now() - t0).toBeGreaterThanOrEqual(250);
-    expect(existsSync(p + '.lock')).toBe(true); // not ours: left alone
-    const old = (Date.now() - 60_000) / 1000;
-    utimesSync(p + '.lock', old, old);
-    t0 = Date.now();
-    recordSent(p, { key: 'k1', target: 'webhook', id: '', ts: 1, createdId: null });
-    expect(Date.now() - t0).toBeLessThan(250);
-    expect(loadSent(p).map((e) => e.key)).toEqual(['k1']);
-    expect(existsSync(p + '.lock')).toBe(false);
-    expect(withFileLock(p, () => existsSync(p + '.lock'))).toBe(true);
-  }, 10_000);
-  it('two processes appending at once lose nothing', async () => {
+  it('a crm-sent.json of an older version is imported once and kept as .bak', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'crm-legacy-'));
+    writeFileSync(join(dir, 'crm-sent.json'), JSON.stringify([{ key: 'old', target: 'webhook', id: '', ts: 1, createdId: null }]));
+    const db = join(dir, 'chawo.db');
+    recordSent(db, { key: 'new', target: 'webhook', id: '', ts: 2, createdId: null });
+    expect(loadSent(db).map((e) => e.key)).toEqual(['old', 'new']);
+    expect(existsSync(join(dir, 'crm-sent.json'))).toBe(false);
+    expect(existsSync(join(dir, 'crm-sent.json.bak'))).toBe(true);
+  });
+  it('three processes appending at once lose nothing (SQLite write transactions)', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'crm-race-'));
-    const p = join(dir, 'crm-sent.json');
+    const p = join(dir, 'chawo.db');
     const store = join(dir, 'store.cjs');
-    buildSync({ entryPoints: [join(__dirname, '../src/crm/crmStore.ts')], bundle: true, platform: 'node', format: 'cjs', outfile: store, logLevel: 'silent' });
+    buildSync({ entryPoints: [join(__dirname, '../src/crm/crmStore.ts')], bundle: true, platform: 'node', format: 'cjs', outfile: store, logLevel: 'silent', external: ['@napi-rs/keyring'] });
     const script = (tag: string) => `const s=require(${JSON.stringify(store)});for(let i=0;i<40;i++)s.recordSent(${JSON.stringify(p)},{key:'${tag}'+i,target:'webhook',id:'',ts:i,createdId:null});`;
     const run = (tag: string) => new Promise<number>((r) => spawn(process.execPath, ['-e', script(tag)], { stdio: 'inherit' }).on('exit', (c) => r(c ?? 1)));
     expect(await Promise.all([run('a'), run('b'), run('c')])).toEqual([0, 0, 0]);
-    const keys = JSON.parse(readFileSync(p, 'utf8')).map((e: { key: string }) => e.key);
+    const keys = loadSent(p).map((e) => e.key);
     expect(keys.length).toBe(120);
     expect(new Set(keys).size).toBe(120);
   }, 60_000);

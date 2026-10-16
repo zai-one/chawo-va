@@ -26,19 +26,29 @@
     "e2e": "electron-vite build && node scripts/e2e-smoke.cjs"
   },
   "dependencies": {
+    "@napi-rs/keyring": "^2.1.1",
     "onnxruntime-node": "^1.30.0",
     "opus-decoder": "^0.7.12",
     "sherpa-onnx-node": "^1.13.8"
   },
   "devDependencies": {
+    "@babel/core": "^8.0.7",
     "@chawo/cli": "workspace:*",
     "@chawo/core": "workspace:*",
     "@chawo/engine": "workspace:*",
     "@chawo/ipc": "workspace:*",
+    "@chawo/ui": "workspace:*",
     "@modelcontextprotocol/sdk": "^1.32.1",
+    "@rolldown/plugin-babel": "^0.2.4",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.1.2",
+    "babel-plugin-react-compiler": "^1.0.0",
     "electron": "44.7.2",
     "electron-builder": "^26.15.3",
     "electron-vite": "6.0.0",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
     "vite": "^8.3.4"
   },
   "build": {
@@ -61,7 +71,8 @@
     ],
     "asarUnpack": [
       "node_modules/onnxruntime-node/**",
-      "node_modules/sherpa-onnx-*/**"
+      "node_modules/sherpa-onnx-*/**",
+      "node_modules/@napi-rs/keyring*/**"
     ],
     "extraResources": [
       {

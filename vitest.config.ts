@@ -6,7 +6,14 @@ const { version } = JSON.parse(readFileSync(new URL('./apps/desktop/package.json
 
 const project = (name: string, root: string) => ({
   extends: true as const,
-  test: { name, root, include: ['test/**/*.test.ts'], environment: 'node' as const },
+  test: {
+    name,
+    root,
+    include: ['test/**/*.test.ts'],
+    environment: 'node' as const,
+    // Secrets go to an in-memory vault: tests never touch the OS credential store.
+    setupFiles: [new URL('./fixtures/setup/vault.ts', import.meta.url).pathname],
+  },
 });
 
 export default defineConfig({

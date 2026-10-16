@@ -25,6 +25,7 @@ import {
 } from '../src/settings';
 import { write as logWrite, flush as logFlush } from '../src/log';
 import { DEFAULT_RULES } from '@chawo/core/wordReplace';
+import { memoryVault, SECRET, setVault, type SecretVault } from '../src/secrets';
 
 const ENV_KEYS = [
   'CHAWO_APPDATA',
@@ -134,26 +135,62 @@ describe('settings', () => {
     expect(obj.ProviderKeysProtected).toBeUndefined();
   });
 
-  it('protects secrets when a hook is injected', () => {
+  it('keys go to the vault, settings.json has none; a removed key leaves the vault too', () => {
+    const v = memoryVault();
+    setVault(v);
+    const s = defaults();
+    s.CleanupApiKey = 'sk-test';
+    s.ProviderKeys = { deepseek: 'sk-deep', openai: 'sk-open' };
+    save(s);
+    const text = readFileSync(settingsPath(), 'utf8');
+    expect(text).not.toContain('sk-');
+    expect(JSON.parse(text)).not.toHaveProperty('CleanupApiKeyProtected');
+    expect(v.get(SECRET.cleanupKey)).toBe('sk-test');
+    expect(v.get(SECRET.providerKey('deepseek'))).toBe('sk-deep');
+
+    const loaded = load();
+    expect(loaded.CleanupApiKey).toBe('sk-test');
+    expect(loaded.ProviderKeys).toMatchObject({ deepseek: 'sk-deep', openai: 'sk-open' });
+    delete loaded.ProviderKeys.openai;
+    save(loaded);
+    expect(v.get(SECRET.providerKey('openai'))).toBeNull();
+  });
+
+  it('keys sealed by an older version move into the vault on the first load', () => {
     setProtectHooks(
       (p) => Buffer.from(p, 'utf8').toString('base64'),
       (s) => Buffer.from(s, 'base64').toString('utf8'),
     );
-    expect(protect('abc')).toBe(Buffer.from('abc').toString('base64'));
     expect(unprotect(protect('hello'))).toBe('hello');
+    const v = memoryVault();
+    setVault(v);
+    mkdirSync(join(root, 'roaming', 'ChawoVoiceAssistant'), { recursive: true });
+    const seal = (x: string) => Buffer.from(x, 'utf8').toString('base64');
+    writeFileSync(settingsPath(), JSON.stringify({ CleanupApiKeyProtected: seal('sk-old'), ProviderKeysProtected: { deepseek: seal('sk-old') } }));
+    const loaded = load();
+    expect(loaded.CleanupApiKey).toBe('sk-old');
+    expect(v.get(SECRET.providerKey('deepseek'))).toBe('sk-old');
+    const disk = JSON.parse(readFileSync(settingsPath(), 'utf8')) as Record<string, unknown>;
+    expect(disk.CleanupApiKeyProtected).toBeUndefined();
+    expect(disk.ProviderKeysProtected).toBeUndefined();
+  });
 
+  it('a vault that refuses writes: the key stays sealed in settings.json (never plaintext)', () => {
+    setProtectHooks(
+      (p) => Buffer.from(p, 'utf8').toString('base64'),
+      (s) => Buffer.from(s, 'base64').toString('utf8'),
+    );
+    const broken: SecretVault = { kind: 'keychain', get: () => null, set: () => { throw new Error('locked'); } };
+    setVault(broken);
     const s = defaults();
     s.CleanupApiKey = 'sk-test';
     s.ProviderKeys = { deepseek: 'sk-test' };
     save(s);
-    const disk = JSON.parse(readFileSync(settingsPath(), 'utf8')) as Record<string, unknown>;
-    expect(disk.CleanupApiKey).toBeUndefined();
+    const text = readFileSync(settingsPath(), 'utf8');
+    expect(text).not.toContain('sk-test');
+    const disk = JSON.parse(text) as Record<string, unknown>;
     expect(typeof disk.CleanupApiKeyProtected).toBe('string');
-    expect(disk.CleanupApiKeyProtected).not.toContain('sk-test');
-
-    const loaded = load();
-    expect(loaded.CleanupApiKey).toBe('sk-test');
-    expect(loaded.ProviderKeys.deepseek).toBe('sk-test');
+    expect(load().ProviderKeys.deepseek).toBe('sk-test');
   });
 
   it('a codec that throws (no OS store right now) drops the secret instead of writing plaintext or crashing', () => {

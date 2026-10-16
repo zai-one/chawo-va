@@ -3,6 +3,8 @@
 // native and runtime modules from "dependencies" stay external and ship in node_modules.
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import babel from '@rolldown/plugin-babel';
+import react, { reactCompilerPreset } from '@vitejs/plugin-react';
 import { defineConfig } from 'electron-vite';
 import type { Plugin } from 'vite';
 
@@ -67,9 +69,12 @@ export default defineConfig({
   },
   renderer: {
     root: resolve(__dirname, 'src/renderer'),
-    plugins: [devCsp()],
+    // React 19 with the React Compiler (automatic memoization).
+    plugins: [react(), babel({ presets: [reactCompilerPreset()] }), devCsp()],
     build: {
       outDir: resolve(__dirname, 'out/renderer'),
+      // electron-vite leaves the renderer unminified; the window loads faster with it minified.
+      minify: true,
       rollupOptions: {
         input: {
           index: resolve(__dirname, 'src/renderer/index.html'),

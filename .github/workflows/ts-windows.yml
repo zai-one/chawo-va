@@ -78,7 +78,8 @@ jobs:
           $env:ELECTRON_RUN_AS_NODE = '1'
           $asar = "$app/resources/app.asar"
           $js = "const o=require(process.argv[1]+'/node_modules/onnxruntime-node');const s=require(process.argv[1]+'/node_modules/sherpa-onnx-node');" +
-                "if(typeof o.InferenceSession.create!=='function'||typeof s.OfflineRecognizer!=='function')process.exit(2);console.log('native modules ok')"
+                "const k=require(process.argv[1]+'/node_modules/@napi-rs/keyring');new k.Entry('Chawo Voice Assistant','ci-probe').getPassword();" +
+                "if(typeof o.InferenceSession.create!=='function'||typeof s.OfflineRecognizer!=='function')process.exit(2);console.log('native modules ok (incl. Credential Manager)')"
           & "$app/ChawoVoiceAssistant.exe" -e $js $asar
           if ($LASTEXITCODE -ne 0) { Fail 'native modules did not load' }
           Remove-Item Env:ELECTRON_RUN_AS_NODE

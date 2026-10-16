@@ -184,7 +184,7 @@ export interface CliDeps {
   askFolders?: () => string[];
   /** Custom call checklists (checklists.json, read-only here). */
   checklists?: () => import('@chawo/engine/brain/callScore').CustomChecklist[];
-  /** history.jsonl of the app (read, never written by the CLI). */
+  /** chawo.db of the app: history is read, never written by the CLI. */
   historyPath?: () => string;
   /** Auto-detect settings for `chawo-va meeting detect` (from settings.json, read-only). */
   meetingDetectSettings?: () => {

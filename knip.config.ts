@@ -15,7 +15,7 @@ const config: KnipConfig = {
       entry: ['src/preload/*.ts', 'src/renderer/*.html', 'src/renderer/public/*.js', 'scripts/*.cjs'],
       // Runtime modules of the bundled @chawo packages: listed here so electron-builder ships them in
       // node_modules. @chawo/cli is an extra build input (electron.vite.config.ts), not an import.
-      ignoreDependencies: ['onnxruntime-node', 'opus-decoder', '@chawo/cli'],
+      ignoreDependencies: ['onnxruntime-node', 'opus-decoder', '@napi-rs/keyring', '@chawo/cli'],
     },
   },
 };

@@ -1,11 +1,14 @@
-// Dictation history: one JSON line per finished take in %LOCALAPPDATA%\ChawoVoiceAssistant\history.jsonl.
+// Dictation history: one row per finished take in chawo.db (table history), in the local data folder.
 // Local only, never sent anywhere; no audio is kept. The user picks how long entries live
-// (Settings.HistoryKeep: Off / a day / a week / a month / forever); "Off" also wipes the file.
+// (Settings.HistoryKeep: Off / a day / a week / a month / forever); "Off" also deletes them all.
+// A history.jsonl of an older version beside the database is imported once and kept as .bak.
 // No Electron imports, so the store is unit-tested on a temp folder with an injected clock.
 
-import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
-import { dirname } from 'node:path';
+import { existsSync, readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import { randomUUID } from 'node:crypto';
+import type { DatabaseSync } from 'node:sqlite';
+import { database, flushDeleted, retireLegacyFile, transaction } from '../storage/database';
 
 export type HistoryKeep = 'Off' | 'Day' | 'Week' | 'Month' | 'Forever';
 export const HISTORY_KEEPS: readonly HistoryKeep[] = ['Off', 'Day', 'Week', 'Month', 'Forever'];
@@ -81,43 +84,59 @@ function parseLine(line: string): HistoryEntry | null {
   }
 }
 
-export class HistoryStore {
-  private entries: HistoryEntry[] | null = null;
+interface Row {
+  id: string;
+  ts: number;
+  raw: string;
+  final: string;
+  command: string | null;
+  brain: number;
+  brain_failed: number;
+  seconds: number;
+}
 
+const toEntry = (r: Row): HistoryEntry => ({
+  id: r.id,
+  ts: r.ts,
+  raw: r.raw,
+  final: r.final,
+  command: r.command,
+  brain: r.brain === 1,
+  brainFailed: r.brain_failed === 1,
+  seconds: r.seconds,
+});
+
+const imported = new Set<string>();
+
+export class HistoryStore {
+  /** @param path chawo.db (the database of the local data folder) */
   constructor(
     readonly path: string,
     private readonly now: () => number = Date.now,
   ) {}
 
-  private load(): HistoryEntry[] {
-    if (this.entries) return this.entries;
-    const list: HistoryEntry[] = [];
-    if (existsSync(this.path)) {
-      for (const line of readFileSync(this.path, 'utf8').split('\n')) {
-        const e = parseLine(line);
-        if (e) list.push(e);
-      }
+  private db(): DatabaseSync {
+    const db = database(this.path);
+    if (!imported.has(this.path)) {
+      imported.add(this.path);
+      importJsonl(db, join(dirname(this.path), 'history.jsonl'));
     }
-    list.sort((a, b) => a.ts - b.ts);
-    this.entries = list;
-    return list;
+    return db;
   }
 
-  private writeAll(list: HistoryEntry[]): void {
-    if (list.length === 0) {
-      rmSync(this.path, { force: true });
-      return;
-    }
-    mkdirSync(dirname(this.path), { recursive: true });
-    const tmp = this.path + '.tmp';
-    writeFileSync(tmp, list.map((e) => JSON.stringify(e)).join('\n') + '\n', { encoding: 'utf8', mode: 0o600 });
-    renameSync(tmp, this.path);
+  private insert(db: DatabaseSync, e: HistoryEntry): void {
+    db.prepare('INSERT OR REPLACE INTO history (id, ts, raw, final, command, brain, brain_failed, seconds) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(e.id, e.ts, e.raw, e.final, e.command, e.brain ? 1 : 0, e.brainFailed ? 1 : 0, e.seconds);
+  }
+
+  /** Oldest first. */
+  private all(): HistoryEntry[] {
+    return (this.db().prepare('SELECT * FROM history ORDER BY ts, rowid').all() as unknown as Row[]).map(toEntry);
   }
 
   /** Appends a take unless history is off. Returns the stored entry or null. */
   add(e: NewEntry, keep: HistoryKeep): HistoryEntry | null {
     if (keep === 'Off') return null;
-    const list = this.load();
     const entry: HistoryEntry = {
       id: randomUUID(),
       ts: e.ts ?? this.now(),
@@ -128,36 +147,32 @@ export class HistoryStore {
       brainFailed: e.brainFailed,
       seconds: Math.round(e.seconds * 10) / 10,
     };
-    list.push(entry);
-    mkdirSync(dirname(this.path), { recursive: true });
-    appendFileSync(this.path, JSON.stringify(entry) + '\n', { encoding: 'utf8', mode: 0o600 });
+    this.insert(this.db(), entry);
     this.prune(keep);
     return entry;
   }
 
-  /** Drops entries older than the period and beyond MAX_ENTRIES; "Off" deletes the file. Returns how many went. */
+  /** Drops entries older than the period and beyond MAX_ENTRIES; "Off" deletes them all. Returns how many went. */
   prune(keep: HistoryKeep): number {
+    const db = this.db();
     if (keep === 'Off') {
-      const n = this.load().length;
-      this.clear();
+      const n = Number(db.prepare('DELETE FROM history').run().changes);
+      flushDeleted(db);
       return n;
     }
-    const list = this.load();
-    const cutoff = this.now() - keepMs(keep);
-    let kept = list.filter((e) => e.ts >= cutoff);
-    if (kept.length > MAX_ENTRIES) kept = kept.slice(kept.length - MAX_ENTRIES);
-    const dropped = list.length - kept.length;
-    if (dropped > 0) {
-      this.entries = kept;
-      this.writeAll(kept);
-    }
-    return dropped;
+    return transaction(db, () => {
+      let n = 0;
+      const ms = keepMs(keep);
+      if (Number.isFinite(ms)) n += Number(db.prepare('DELETE FROM history WHERE ts < ?').run(this.now() - ms).changes);
+      n += Number(db.prepare('DELETE FROM history WHERE id NOT IN (SELECT id FROM history ORDER BY ts DESC, rowid DESC LIMIT ?)').run(MAX_ENTRIES).changes);
+      return n;
+    });
   }
 
   /** Newest first, filtered by the query. */
   list(query = '', limit = Number.POSITIVE_INFINITY): HistoryEntry[] {
     const out: HistoryEntry[] = [];
-    const list = this.load();
+    const list = this.all();
     for (let i = list.length - 1; i >= 0 && out.length < limit; i--) {
       if (matches(list[i], query)) out.push(list[i]);
     }
@@ -165,48 +180,49 @@ export class HistoryStore {
   }
 
   count(query = ''): number {
-    if (!query.trim()) return this.load().length;
-    return this.load().filter((e) => matches(e, query)).length;
+    if (!query.trim()) return Number((this.db().prepare('SELECT COUNT(*) AS n FROM history').get() as { n: number }).n);
+    return this.all().filter((e) => matches(e, query)).length;
   }
 
   get(id: string): HistoryEntry | null {
-    return this.load().find((e) => e.id === id) ?? null;
+    const r = this.db().prepare('SELECT * FROM history WHERE id = ?').get(id) as unknown as Row | undefined;
+    return r ? toEntry(r) : null;
   }
 
   /** New final text after «Мозг заново». */
   setFinal(id: string, final: string, brainFailed: boolean): HistoryEntry | null {
-    const list = this.load();
-    const e = list.find((x) => x.id === id);
-    if (!e) return null;
-    e.final = final.slice(0, MAX_TEXT);
-    e.brain = true;
-    e.brainFailed = brainFailed;
-    this.writeAll(list);
-    return e;
+    const db = this.db();
+    db.prepare('UPDATE history SET final = ?, brain = 1, brain_failed = ? WHERE id = ?').run(final.slice(0, MAX_TEXT), brainFailed ? 1 : 0, id);
+    return this.get(id);
   }
 
   /** «Исправить»: the user's own text replaces `final` (the Brain flags stay as they were). */
   setText(id: string, final: string): HistoryEntry | null {
-    const list = this.load();
-    const e = list.find((x) => x.id === id);
-    if (!e) return null;
-    e.final = final.slice(0, MAX_TEXT);
-    this.writeAll(list);
-    return e;
+    this.db().prepare('UPDATE history SET final = ? WHERE id = ?').run(final.slice(0, MAX_TEXT), id);
+    return this.get(id);
   }
 
   remove(id: string): boolean {
-    const list = this.load();
-    const kept = list.filter((e) => e.id !== id);
-    if (kept.length === list.length) return false;
-    this.entries = kept;
-    this.writeAll(kept);
-    return true;
+    const db = this.db();
+    const gone = Number(db.prepare('DELETE FROM history WHERE id = ?').run(id).changes) > 0;
+    if (gone) flushDeleted(db);
+    return gone;
   }
 
   clear(): void {
-    this.entries = [];
-    rmSync(this.path, { force: true });
-    rmSync(this.path + '.tmp', { force: true });
+    const db = this.db();
+    db.prepare('DELETE FROM history').run();
+    flushDeleted(db);
   }
+}
+
+/** history.jsonl of an older version: its lines go into the table once, the file becomes .bak. */
+function importJsonl(db: DatabaseSync, legacy: string): void {
+  if (!existsSync(legacy) || legacy === db.location()) return;
+  const rows = readFileSync(legacy, 'utf8').split('\n').map(parseLine).filter((e): e is HistoryEntry => e !== null);
+  transaction(db, () => {
+    const ins = db.prepare('INSERT OR IGNORE INTO history (id, ts, raw, final, command, brain, brain_failed, seconds) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
+    for (const e of rows) ins.run(e.id, e.ts, e.raw, e.final, e.command, e.brain ? 1 : 0, e.brainFailed ? 1 : 0, e.seconds);
+  });
+  retireLegacyFile(legacy);
 }

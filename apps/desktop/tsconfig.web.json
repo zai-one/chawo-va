@@ -2,6 +2,7 @@
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "lib": ["ES2024", "DOM", "DOM.Iterable"],
+    "jsx": "react-jsx",
     // Node types only because the IPC contract refers to @chawo/engine models; ESLint keeps
     // Node and Electron imports out of the renderer.
     "types": ["node"]
