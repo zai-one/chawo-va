@@ -1,4 +1,6 @@
 import { execFileSync } from "node:child_process";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 // Guards against box-local artefacts sneaking into commits (a tracked
@@ -24,6 +26,12 @@ describe("repository hygiene", () => {
     const bad = entries!
       .map((l) => l.split("\t")[1])
       .filter((p) => /(^|\/)(node_modules|\.tick-lock)(\/|$)/.test(p) || /^(apps|packages)\/[^/]+\/(out|dist|release)\//.test(p));
+    expect(bad).toEqual([]);
+  });
+
+  it("ChawoNative.csproj comments are valid XML (no '--' inside, MSBuild refuses the file otherwise)", () => {
+    const csproj = readFileSync(join(__dirname, "..", "native", "win", "ChawoNative.csproj"), "utf8");
+    const bad = Array.from(csproj.matchAll(/<!--([\s\S]*?)-->/g), (m) => m[1]).filter((c) => c.includes("--") || c.endsWith("-"));
     expect(bad).toEqual([]);
   });
 });
