@@ -274,73 +274,38 @@ type UnprotectFn = (stored: string) => string;
 let protectImpl: ProtectFn | null = null;
 let unprotectImpl: UnprotectFn | null = null;
 
-/** Tests may inject a reversible hook. Production uses electron.safeStorage when available. */
+/**
+ * How secrets are sealed on disk. This module has no Electron import (the CLI and tests load it in plain
+ * Node): the app installs electron.safeStorage at startup, tests install a reversible stand-in. Without a
+ * codec nothing is sealed, so a secret is not written at all — never plaintext.
+ */
 export function setProtectHooks(protect: ProtectFn | null, unprotect: UnprotectFn | null): void {
   protectImpl = protect;
   unprotectImpl = unprotect;
 }
 
-function trySafeStorageProtect(plain: string): string | null {
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const electron = require('electron') as {
-      safeStorage?: {
-        isEncryptionAvailable: () => boolean;
-        encryptString: (s: string) => Buffer;
-        decryptString: (b: Buffer) => string;
-      };
-    };
-    const ss = electron.safeStorage;
-    if (ss && typeof ss.isEncryptionAvailable === 'function' && ss.isEncryptionAvailable()) {
-      return ss.encryptString(plain).toString('base64');
-    }
-  } catch {
-    /* not in Electron, or safeStorage unavailable */
-  }
-  return null;
-}
-
-function trySafeStorageUnprotect(stored: string): string | null {
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const electron = require('electron') as {
-      safeStorage?: {
-        isEncryptionAvailable: () => boolean;
-        decryptString: (b: Buffer) => string;
-      };
-    };
-    const ss = electron.safeStorage;
-    if (ss && typeof ss.isEncryptionAvailable === 'function' && ss.isEncryptionAvailable()) {
-      return ss.decryptString(Buffer.from(stored, 'base64'));
-    }
-  } catch {
-    /* ignore */
-  }
-  return null;
-}
-
 export function protect(plain: string): string {
-  if (!plain) return '';
-  if (protectImpl) return protectImpl(plain);
-  const via = trySafeStorageProtect(plain);
-  // Never write plaintext secrets to disk.
-  return via ?? '';
+  if (!plain || !protectImpl) return '';
+  try {
+    return protectImpl(plain);
+  } catch {
+    logWrite('api key protect failed');
+    return '';
+  }
 }
 
 export function unprotect(stored: string | null | undefined): string {
   if (!stored) return '';
-  if (unprotectImpl) {
-    try {
-      return unprotectImpl(stored);
-    } catch {
-      logWrite('api key unprotect failed: hook');
-      return '';
-    }
+  if (!unprotectImpl) {
+    logWrite('api key unprotect failed: unavailable');
+    return '';
   }
-  const via = trySafeStorageUnprotect(stored);
-  if (via !== null) return via;
-  logWrite('api key unprotect failed: unavailable');
-  return '';
+  try {
+    return unprotectImpl(stored);
+  } catch {
+    logWrite('api key unprotect failed: hook');
+    return '';
+  }
 }
 
 export type FileExtraFormat = 'vtt' | 'json' | 'md' | 'docx';

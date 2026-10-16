@@ -2,7 +2,7 @@
 // turns on a network feature. This is the shell the WPF features get ported into, piece by piece.
 
 import '../core/ortPrivacy';
-import { app, BrowserWindow, Menu, Tray, nativeImage, nativeTheme, session } from 'electron';
+import { app, BrowserWindow, Menu, Tray, nativeImage, nativeTheme, safeStorage, session } from 'electron';
 import { handleMediaProtocol, registerMediaScheme } from './localMediaProtocol';
 import { join } from 'node:path';
 import { registerFileIpc } from './fileIpc';
@@ -155,6 +155,14 @@ if (!app.requestSingleInstanceLock()) {
       cb({ cancel: !details.url.startsWith('file://') && !details.url.startsWith('devtools://') && !details.url.startsWith('chawo-media://') });
     });
     session.defaultSession.setPermissionRequestHandler((_wc, permission, cb) => cb(permission === 'media'));
+    // Secrets in settings.json are sealed with the OS store (DPAPI / Keychain / libsecret) via safeStorage.
+    Settings.setProtectHooks(
+      (plain) => (safeStorage.isEncryptionAvailable() ? safeStorage.encryptString(plain).toString('base64') : ''),
+      (stored) => {
+        if (!safeStorage.isEncryptionAvailable()) throw new Error('safeStorage unavailable');
+        return safeStorage.decryptString(Buffer.from(stored, 'base64'));
+      },
+    );
     settings = Settings.load();
     applyLanguage(settings.Language, app.getLocale());
     // MP3/M4A/FLAC/… decode in a hidden sandboxed renderer; ffmpeg stays an optional fallback.

@@ -156,6 +156,20 @@ describe('settings', () => {
     expect(loaded.ProviderKeys.deepseek).toBe('sk-test');
   });
 
+  it('a codec that throws (no OS store right now) drops the secret instead of writing plaintext or crashing', () => {
+    setProtectHooks(
+      () => { throw new Error('safeStorage unavailable'); },
+      () => { throw new Error('safeStorage unavailable'); },
+    );
+    expect(protect('sk-test')).toBe('');
+    expect(unprotect('c2stdGVzdA==')).toBe('');
+    const s = defaults();
+    s.CleanupApiKey = 'sk-test';
+    const obj = toJsonObject(s);
+    expect(JSON.stringify(obj)).not.toContain('sk-test');
+    expect(obj.CleanupApiKeyProtected).toBeUndefined();
+  });
+
   it('migrates legacy CleanupEnabled and blank dictionary defaults', () => {
     const { settings } = fromJsonObject({ CleanupEnabled: true, Brain: 'Off' });
     expect(settings.Brain).toBe('Server');
