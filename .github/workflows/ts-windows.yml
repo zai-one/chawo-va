@@ -8,7 +8,8 @@
 #     AZURE_SIGN_ENDPOINT, AZURE_SIGN_ACCOUNT, AZURE_SIGN_PROFILE, AZURE_SIGN_PUBLISHER;
 #   or a .pfx — secrets WIN_CSC_LINK (base64 of the file) and WIN_CSC_KEY_PASSWORD.
 # Without either the build is unsigned, as before.
-# On a v* tag the same artifacts are attached to the GitHub Release for that tag.
+# On a v* tag the same artifacts are attached to the GitHub Release for that tag. The same release can be
+# made from main by hand: Run workflow → release: vX.Y.Z (the tag is created on that commit).
 name: TS Windows
 
 on:
@@ -19,6 +20,11 @@ on:
     branches: ['main', 'ts-port']
     paths: ['apps/**', 'packages/**', 'package.json', 'pnpm-lock.yaml', 'pnpm-workspace.yaml', '.github/workflows/ts-windows.yml']
   workflow_dispatch:
+    inputs:
+      release:
+        description: 'Выпустить релиз с этим тегом (vX.Y.Z = версия в apps/desktop/package.json), только с main. Пусто — только сборка.'
+        required: false
+        default: ''
 
 permissions:
   contents: read
@@ -148,20 +154,29 @@ jobs:
           if-no-files-found: error
 
       # Attach Setup.exe + portable zip to the GitHub Release for this tag (no model weights).
-      # Release notes: docs/releases/<tag>.md when there is one.
+      # The release tag: the pushed v* tag, or the «release» input of a manual run on main. It must match
+      # the version in apps/desktop/package.json (the file names carry it). Notes: docs/releases/<tag>.md.
       - name: Release notes
         id: notes
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.release != '' && github.ref == 'refs/heads/main')
         shell: pwsh
+        env:
+          RELEASE_INPUT: ${{ inputs.release }}
         run: |
-          $notes = "$env:GITHUB_WORKSPACE/docs/releases/$env:GITHUB_REF_NAME.md"
-          "name=Chawo Voice Assistant $($env:GITHUB_REF_NAME.TrimStart('v'))" >> $env:GITHUB_OUTPUT
+          $tag = if ($env:GITHUB_REF -like 'refs/tags/*') { $env:GITHUB_REF_NAME } else { $env:RELEASE_INPUT.Trim() }
+          $version = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          if ($tag -notmatch '^v\d+\.\d+\.\d+$' -or $tag -ne "v$version") { Write-Error "release tag '$tag' must be v$version"; exit 1 }
+          "tag=$tag" >> $env:GITHUB_OUTPUT
+          "name=Chawo Voice Assistant $version" >> $env:GITHUB_OUTPUT
+          $notes = "$env:GITHUB_WORKSPACE/docs/releases/$tag.md"
           if (Test-Path $notes) { "body_path=$notes" >> $env:GITHUB_OUTPUT }
 
       - name: Attach to GitHub Release
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: steps.notes.outputs.tag != ''
         uses: softprops/action-gh-release@v3
         with:
+          tag_name: ${{ steps.notes.outputs.tag }}
+          target_commitish: ${{ github.sha }}
           name: ${{ steps.notes.outputs.name }}
           body_path: ${{ steps.notes.outputs.body_path }}
           files: |
