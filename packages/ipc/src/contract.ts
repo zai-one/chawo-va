@@ -8,6 +8,7 @@
 
 import type { CrmTarget } from '@chawo/core/crm';
 import type { BrainStateDto } from '@chawo/engine/brain/brainPage';
+import type { CleanupStateDto } from '@chawo/engine/cleanup/cleanupPage';
 import type { CrmStateDto } from '@chawo/engine/crm/crmPage';
 import type { DictationStateDto } from '@chawo/engine/dictation/dictationPage';
 import type { DictionaryStateDto } from '@chawo/engine/dictionary/dictionaryPage';
@@ -26,6 +27,7 @@ export type * from './dto';
 export type {
   AskStateDto,
   BrainStateDto,
+  CleanupStateDto,
   CrmStateDto,
   CrmTarget,
   DictationStateDto,
@@ -105,6 +107,10 @@ export interface InvokeMap {
   'speech:delete': (kind: string) => SpeechStateDto;
   'speech:vad': (on: boolean) => SpeechStateDto;
   'speech:vadDownload': () => SpeechStateDto;
+  /** «Место на диске»: the last scan (none until «Найти лишнее»), a new scan, removal of ticked ids. */
+  'cleanup:state': () => CleanupStateDto;
+  'cleanup:scan': () => CleanupStateDto;
+  'cleanup:remove': (ids: string[]) => CleanupStateDto;
 
   'dict:state': () => DictionaryStateDto;
   'dict:setRow': (id: number, from: string, to: string) => DictionaryStateDto;
@@ -283,6 +289,7 @@ export const INVOKE_CHANNELS: readonly InvokeChannel[] = keys<InvokeMap>({
   'speech:state': true, 'speech:select': true, 'speech:device': true, 'speech:threads': true, 'speech:idle': true,
   'speech:download': true, 'speech:cancel': true, 'speech:dismiss': true, 'speech:delete': true, 'speech:vad': true,
   'speech:vadDownload': true,
+  'cleanup:state': true, 'cleanup:scan': true, 'cleanup:remove': true,
   'dict:state': true, 'dict:setRow': true, 'dict:add': true, 'dict:remove': true, 'dict:suggest': true, 'dict:addSuggestion': true,
   'dict:setSpoken': true, 'dict:setScript': true, 'dict:setScriptFiles': true, 'dict:setSnippet': true, 'dict:addSnippet': true,
   'dict:removeSnippet': true, 'dict:testScript': true, 'dict:acceptLearned': true, 'dict:dismissLearned': true,

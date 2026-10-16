@@ -8,6 +8,7 @@ import { handleAppProtocol, registerSchemes } from './appProtocol';
 import * as AppPaths from './appPaths';
 import { registerFileIpc } from './fileIpc';
 import { registerSpeechIpc } from './speechIpc';
+import { registerCleanupIpc } from './cleanupIpc';
 import { registerDictionaryIpc } from './dictionaryIpc';
 import { registerCrmIpc } from './crmIpc';
 import { registerBrainIpc } from './brainIpc';
@@ -239,7 +240,7 @@ if (!app.requestSingleInstanceLock()) {
       changed: () => dictation.session.speechChanged(),
     });
     disposeNetwork = () => network.dispose();
-    registerSpeechIpc(() => win, { get: () => settings }, {
+    const speech = registerSpeechIpc(() => win, { get: () => settings }, {
       busy: () => files.busy() || dictation.session.isBusy || hermesTranscribe.inFlight() > 0,
       changed: () => dictation.session.speechChanged(),
       session: () => dictation.session.sessionLine(),
@@ -248,6 +249,14 @@ if (!app.requestSingleInstanceLock()) {
         dictation.session.touchIdle();
         LocalBrain.idleChanged();
       },
+    });
+    registerCleanupIpc(() => win, { get: () => settings }, {
+      busy: () => files.busy() || dictation.session.isBusy || hermesTranscribe.inFlight() > 0 || speech.state().download?.running === true,
+      beforeRemove: async () => {
+        await dictation.session.release();
+        LocalBrain.stop();
+      },
+      changed: () => dictation.session.speechChanged(),
     });
     registerDictionaryIpc({ get: () => settings });
     registerMcpIpc({ get: () => settings });

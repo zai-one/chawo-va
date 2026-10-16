@@ -101,14 +101,14 @@ describe('HistoryStore', () => {
     expect(matches(h.list()[0], '')).toBe(true);
   });
 
-  it('imports the history.jsonl of an older version once, skipping broken lines, and keeps it as .bak', () => {
+  it('imports the history.jsonl of an older version once, skipping broken lines, and then deletes it (no plain-text copy is left)', () => {
     mkdirSync(join(dir, 'sub'), { recursive: true });
     const legacy = join(dir, 'sub', 'history.jsonl');
     const line = { id: 'a1', ts: now - 1000, raw: 'целая', final: 'Целая.', command: null, brain: true, brainFailed: false, seconds: 1.5 };
     writeFileSync(legacy, JSON.stringify(line) + '\n{"id":"x","ts":1,"raw":"обор\nне json\n{"id":5}\n');
     expect(store().list()).toEqual([line]);
     expect(existsSync(legacy)).toBe(false);
-    expect(readFileSync(legacy + '.bak', 'utf8')).toContain('Целая.');
+    expect(existsSync(legacy + '.bak')).toBe(false);
     expect(store().count()).toBe(1);
   });
 

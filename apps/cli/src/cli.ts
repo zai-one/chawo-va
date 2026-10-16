@@ -145,6 +145,11 @@ export function realDeps(signal: AbortSignal): CliDeps {
     findYtDlp: () => YtDlp.find(),
     fetchAudio: (url, outDir, progress, signal) => YtDlp.fetchAudio(url, outDir, { progress, signal }),
     urlFolder: () => join(downloadsFolder(process.platform, homedir(), userDirs(), join), 'Chawo'),
+    cleanupOptions: () => ({
+      settings: readSettings(),
+      meetings: AskSources.meetingFolders(AskSources.documentsFolder(process.platform, homedir(), userDirs()), env('MEETINGS_DIR')),
+      downloads: join(downloadsFolder(process.platform, homedir(), userDirs(), join), 'Chawo'),
+    }),
     historyPath: databasePath,
     askBrain: () => {
       const s = readSettings();

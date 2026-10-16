@@ -512,6 +512,32 @@ export async function ensureEngine(
     tryRm(temp);
     tryRm(archive);
   }
+  pruneOldEngines();
+}
+
+/**
+ * Engines of older llama.cpp versions (engine-<other tag>[-vulkan]): after a new one is installed they are
+ * not needed, and they are a program, not the user's data — removed without asking. Returns their names.
+ */
+export function pruneOldEngines(): string[] {
+  const gone: string[] = [];
+  let names: string[];
+  try {
+    names = readdirSync(dir());
+  } catch {
+    return gone;
+  }
+  for (const name of names) {
+    if (!name.startsWith('engine-') || name.startsWith(`engine-${EngineTag}`) || name.endsWith('.part')) continue;
+    try {
+      rmSync(join(dir(), name), { recursive: true, force: true });
+      gone.push(name);
+    } catch (e) {
+      Log.write(`brain: old engine ${name} stays: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+  if (gone.length) Log.write(`brain: removed old engines ${gone.join(', ')}`);
+  return gone;
 }
 
 // ── delete ───────────────────────────────────────────────────

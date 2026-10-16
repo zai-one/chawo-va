@@ -22,6 +22,7 @@
 | `stats <.txt/.srt/.json…>` | «Статистика разговора»: доля речи, монологи, вопросы, темп, трекеры слов | stdout |
 | `snippets list\|add\|remove` | Сниппеты для «вставь …» при диктовке (тот же `snippets.json`, что на «Словаре») | stdout / `snippets.json` |
 | `dictionary list\|suggest\|accept\|dismiss\|learn\|auto` | Словарь замен и «Из исправлений» (тот же `learned-words.json`, что на «Словаре») | stdout / `learned-words.json` |
+| `cleanup [--yes [--all]] [--days 30] [--json]` | «Место на диске»: список лишнего с размерами; `--yes` удаляет отмеченное `[x]` (старые версии, недокачанное, старые движки, копии, временное), `--all` — ещё невыбранные модели и расшифрованные записи старше `--days` | stdout |
 | `meeting detect` | Автоопределение встречи (приложения Windows/Linux / локальный `.ics`, в т.ч. RRULE) без запуска записи | stdout |
 | `serve` | Headless CPU-сервер расшифровки ([linux-server.md](linux-server.md)) | — |
 | `--help`, `--version` | Справка / версия (`chawo-va 2.0.0`) | stdout |

@@ -136,6 +136,8 @@ interface Seed {
   settings?: Record<string, unknown>;
   /** Dictation takes in chawo.db, oldest first. */
   history?: string[];
+  /** Files under the profile folder (`local/…`, `roaming/…`): path → content (or a size in bytes). */
+  files?: Record<string, string | number>;
 }
 
 interface Options {
@@ -159,6 +161,11 @@ export const test = base.extend<Options & Fixtures & { started: Awaited<ReturnTy
     const p = makeProfile();
     if (seed.settings) p.settings((s) => Object.assign(s, seed.settings));
     if (seed.history) p.history(seed.history);
+    for (const [rel, body] of Object.entries(seed.files ?? {})) {
+      const path = join(p.dir, rel);
+      mkdirSync(dirname(path), { recursive: true });
+      writeFileSync(path, typeof body === 'number' ? Buffer.alloc(body, 1) : body);
+    }
     await use(p);
     rmSync(p.dir, { recursive: true, force: true });
   },

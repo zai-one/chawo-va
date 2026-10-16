@@ -1,14 +1,15 @@
 // Dictation history: one row per finished take in chawo.db (table history), in the local data folder.
 // Local only, never sent anywhere; no audio is kept. The user picks how long entries live
 // (Settings.HistoryKeep: Off / a day / a week / a month / forever); "Off" also deletes them all.
-// A history.jsonl of an older version beside the database is imported once and kept as .bak.
+// A history.jsonl of an older version beside the database is imported once and then deleted: it is the
+// dictated text in plain form, and «Хранить» / «Удалить» could not reach a copy left beside the database.
 // No Electron imports, so the store is unit-tested on a temp folder with an injected clock.
 
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, rmSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import type { DatabaseSync } from 'node:sqlite';
-import { database, flushDeleted, retireLegacyFile, transaction } from '../storage/database';
+import { database, flushDeleted, transaction } from '../storage/database';
 
 export type HistoryKeep = 'Off' | 'Day' | 'Week' | 'Month' | 'Forever';
 export const HISTORY_KEEPS: readonly HistoryKeep[] = ['Off', 'Day', 'Week', 'Month', 'Forever'];
@@ -216,7 +217,7 @@ export class HistoryStore {
   }
 }
 
-/** history.jsonl of an older version: its lines go into the table once, the file becomes .bak. */
+/** history.jsonl of an older version: its lines go into the table once, then the file is deleted. */
 function importJsonl(db: DatabaseSync, legacy: string): void {
   if (!existsSync(legacy) || legacy === db.location()) return;
   const rows = readFileSync(legacy, 'utf8').split('\n').map(parseLine).filter((e): e is HistoryEntry => e !== null);
@@ -224,5 +225,6 @@ function importJsonl(db: DatabaseSync, legacy: string): void {
     const ins = db.prepare('INSERT OR IGNORE INTO history (id, ts, raw, final, command, brain, brain_failed, seconds) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
     for (const e of rows) ins.run(e.id, e.ts, e.raw, e.final, e.command, e.brain ? 1 : 0, e.brainFailed ? 1 : 0, e.seconds);
   });
-  retireLegacyFile(legacy);
+  // Only after the rows are committed: a failed import throws above and the file stays for the next start.
+  rmSync(legacy, { force: true });
 }

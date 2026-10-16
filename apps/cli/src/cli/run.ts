@@ -3,6 +3,7 @@
 // .txt/.srt writers as the «Расшифровка файла» page. Sessions are opened once per run and reused
 // for every file. Everything is injected so tests run without a model.
 
+import type { CleanupOptions } from '@chawo/engine/cleanup/diskCleanup';
 import { basename, join } from 'node:path';
 import { clip, contextBlock, withContext, CONTEXT_MAX_CHARS } from '@chawo/core/brainContext';
 import { progressLine } from '@chawo/core/fileParallel';
@@ -186,6 +187,8 @@ export interface CliDeps {
   checklists?: () => import('@chawo/engine/brain/callScore').CustomChecklist[];
   /** chawo.db of the app: history is read, never written by the CLI. */
   historyPath?: () => string;
+  /** `chawo-va cleanup`: settings and folders to look in (the same scan as «Место на диске»). */
+  cleanupOptions?: () => CleanupOptions;
   /** Auto-detect settings for `chawo-va meeting detect` (from settings.json, read-only). */
   meetingDetectSettings?: () => {
     MeetingAutoDetectApps: boolean;
@@ -239,6 +242,7 @@ export async function runCli(argv: readonly string[], d: CliDeps): Promise<numbe
   if (o.command === 'snippets') return snippetsCommand(o, d);
   if (o.command === 'dictionary') return dictionaryCommand(o, d);
   if (o.command === 'crm') return (await import('./crmCommand')).crmCommand(o.inputs, d);
+  if (o.command === 'cleanup') return (await import('./cleanupCommand')).cleanupCommand(o.inputs, d);
   if (o.command === 'meeting') return meetingCommand(o, d);
   if (o.command === 'serve') {
     const serveDeps: ServeDeps = {

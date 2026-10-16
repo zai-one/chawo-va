@@ -1,4 +1,5 @@
-// «Распознавание»: speech models (download / select / delete), where speech runs, VAD and idle unload.
+// «Распознавание»: speech models (download / select / delete), where speech runs, VAD, idle unload
+// and «Место на диске» (CleanupBox).
 import { useEffect } from 'react';
 import { Button } from '@chawo/ui/Button';
 import { Check, Radio, Select } from '@chawo/ui/Choice';
@@ -7,6 +8,7 @@ import { invoke } from '../bridge';
 import { useL } from '../app/i18n';
 import { TITLES } from '../app/pages';
 import { applySpeech, speechStore } from '../app/state';
+import { CleanupBox } from './CleanupBox';
 import { useStore } from '../app/store';
 
 export function SpeechPage() {
@@ -119,6 +121,8 @@ export function SpeechPage() {
       <Hint>{s.idleHint}</Hint>
 
       <p className="muted line">{s.status}</p>
+
+      <CleanupBox />
     </>
   );
 }
