@@ -2,7 +2,7 @@
   <!-- Windows helper for the Electron app: global hold key (low-level keyboard hook), inserting text
        into the focused app (SendInput / clipboard + Ctrl+V), copying a selection, the foreground app.
        .NET Framework 4.8 ships with Windows 10/11, so the exe is a few KB and needs no runtime.
-       Builds on any OS with the .NET SDK: npm run build:native (from ts/). -->
+       Builds on any OS with the .NET SDK: pnpm --filter @chawo/desktop build:native. -->
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
     <TargetFramework>net48</TargetFramework>

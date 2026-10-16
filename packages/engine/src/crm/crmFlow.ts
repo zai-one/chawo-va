@@ -17,7 +17,7 @@ export interface Prepared {
   key: string;
   request: CrmRequest;
   preview: string;
-  /** This brief already went to this record (from crm-sent.json). */
+  /** This brief already went to this record (from the crm_sent journal in chawo.db). */
   duplicate: SentEntry | null;
   withScore: boolean;
 }

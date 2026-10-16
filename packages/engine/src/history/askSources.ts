@@ -1,4 +1,4 @@
-// Where «Спросить историю» looks: dictation phrases (history.jsonl, within «Хранить»), the meetings
+// Where «Спросить историю» looks: dictation phrases (chawo.db, within «Хранить»), the meetings
 // folder and any folders the user added (Settings.AskFolders, one per line). Only .txt / .md
 // transcripts are read; nothing is written or sent. No Electron imports: the GUI passes the
 // meetings folder in, the CLI computes it the same way (documents/Chawo VA/Встречи|Meetings).

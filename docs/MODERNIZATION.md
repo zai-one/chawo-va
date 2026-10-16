@@ -28,7 +28,7 @@
 package.json, pnpm-workspace.yaml   общие скрипты: lint, typecheck, test, knip
 apps/
   desktop/        Electron: main, preload, renderer (React), окна, IPC, упаковка, ChawoNative, e2e
-  cli/            chawo-va: команды CLI (собирается в пакет приложения как dist/cli.js)
+  cli/            chawo-va: команды CLI (собирается в пакет приложения как out/main/cli.js)
 packages/
   core/           @chawo/core — логика без Electron и без файловой системы (бывший ts/src/core)
   engine/         @chawo/engine — сервисы на Node без Electron: настройки, хранилище, секреты,

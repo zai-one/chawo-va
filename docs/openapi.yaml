@@ -4,7 +4,7 @@ info:
   version: 2.0.0
   summary: Hermes-compatible speech-to-text over HTTP plus an async job API for long files.
   description: |
-    HTTP API of `chawo-va serve` (ts/src/main/network/serveServer.ts). CPU only, one speech model
+    HTTP API of `chawo-va serve` (packages/engine/src/network/serveServer.ts). CPU only, one speech model
     per process (default `v3_e2e_rnnt`).
 
     **Auth.** Peers on loopback (`127.0.0.1`, `::1`) never need a token. Without a configured token

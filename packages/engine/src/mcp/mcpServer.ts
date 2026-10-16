@@ -370,7 +370,7 @@ export function configSnippet(command: string, args: string[], env: Record<strin
   return JSON.stringify({ mcpServers: { [SERVER_NAME]: { command, args, ...(Object.keys(env).length > 0 ? { env } : {}) } } }, null, 2);
 }
 
-/** command/args for this install: the app executable in Node mode running dist/cli.js mcp. */
+/** command/args for this install: the app executable in Node mode running out/main/cli.js mcp. */
 export function launchFor(execPath: string, appPath: string, extraEnv: Record<string, string | undefined> = {}): { command: string; args: string[]; env: Record<string, string> } {
   const env: Record<string, string> = { ELECTRON_RUN_AS_NODE: '1' };
   for (const [k, v] of Object.entries(extraEnv)) if (v) env[k] = v;

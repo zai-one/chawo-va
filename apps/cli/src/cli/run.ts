@@ -163,7 +163,7 @@ export interface CliDeps {
   learnedPath?: () => string;
   /** settings.json of the app: `chawo-va dictionary` only reads WordReplacementRules in it. */
   settingsFile?: () => string;
-  /** crm.json (settings + tokens) and crm-sent.json for `chawo-va crm`. */
+  /** crm.json (settings; tokens are in the vault) and the send journal in chawo.db for `chawo-va crm`. */
   crmConfigPath?: () => string;
   crmSentPath?: () => string;
   /** HTTP for `crm send`; tests inject a mock. */
