@@ -40,7 +40,7 @@ app.whenReady().then(async () => {
         if (!/Загружаю|Loading/.test(st)) break;
         await sleep(250);
       }
-      clipboard.writeText('(empty)');
+      await clipboard.writeText('(empty)');
       const r = JSON.parse(await js(`JSON.stringify(document.querySelector('[data-d="hold"]').getBoundingClientRect())`));
       const x = Math.round(r.x + r.width / 2), y = Math.round(r.y + r.height / 2);
       main.webContents.sendInputEvent({ type: 'mouseMove', x, y });
@@ -52,7 +52,7 @@ app.whenReady().then(async () => {
         const phase = await js(`document.querySelector('[data-d="phase"]').textContent`);
         if (!/слушаю|распознаю|listening|recognizing/i.test(phase)) break;
       }
-      return clipboard.readText();
+      return await clipboard.readText();
     };
 
     log('take 1 (both off):', JSON.stringify(await take()));

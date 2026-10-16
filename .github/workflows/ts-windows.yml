@@ -32,11 +32,11 @@ jobs:
     env:
       CSC_IDENTITY_AUTO_DISCOVERY: 'false'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
-          node-version: '20'
+          node-version: '24'
           cache: npm
           cache-dependency-path: ts/package-lock.json
 
@@ -95,13 +95,13 @@ jobs:
         shell: pwsh
         run: Get-ChildItem release/*.exe, release/*.zip | Get-FileHash -Algorithm SHA256 | Format-Table Hash, Path -AutoSize
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: ChawoVoiceAssistant-win-x64-setup
           path: ts/release/*-Setup.exe
           if-no-files-found: error
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: ChawoVoiceAssistant-win-x64-portable
           path: ts/release/*-win-x64.zip
@@ -110,7 +110,7 @@ jobs:
       # Attach Setup.exe + portable zip to the GitHub Release for this tag (no model weights).
       - name: Attach to GitHub Release
         if: startsWith(github.ref, 'refs/tags/v')
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: |
             ts/release/*-Setup.exe

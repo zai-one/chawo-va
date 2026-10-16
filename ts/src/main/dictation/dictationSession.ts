@@ -72,7 +72,7 @@ export interface SessionHooks {
   settings: () => SettingsData;
   push?: () => void;
   /** Final text goes here (Electron clipboard in the IPC layer). */
-  copy?: (text: string) => void;
+  copy?: (text: string) => void | Promise<void>;
   /** KeepLastRecording: write the take as WAV. */
   writeWav?: (samples: Float32Array, rate: number) => void;
   /** Name of the microphone in use, for the "silence on input" hint. */
@@ -111,7 +111,7 @@ export interface SessionHooks {
   /** The focused program at key press (per-app modes). Asked only while settings.AppRules is not empty. */
   foreground?: () => Promise<ForegroundApp | null>;
   /** «Контекст для Мозга»: clipboard text at key press (Electron clipboard). Read only while BrainContextClipboard is on. */
-  clipboardText?: () => string;
+  clipboardText?: () => string | Promise<string>;
   /** The program seen for the last take and the index of the rule that fired (the «Мозг» page shows it). */
   onApp?: (app: ForegroundApp | null, ruleIndex: number | null) => void;
   /** VAD trim of a finished take (settings.VadEnabled); defaults to Silero when its model is on disk. */
@@ -205,7 +205,7 @@ export class DictationSession {
   private readonly remote: NonNullable<SessionHooks['remote']>;
   private fgTask: Promise<ForegroundApp | null> | null = null;
   /** «Контекст для Мозга»: clipboard text read at key press (before our own copy/paste replaces it). */
-  private clipAtPress: string | null = null;
+  private clipAtPress: Promise<string | null> | null = null;
   private readonly trim: NonNullable<SessionHooks['trim']>;
   private watch: SilenceWatch | null = null;
   /** Samples of a «Чаво» take heard before any speech (WAKE_NO_SPEECH_MS). */
@@ -352,11 +352,11 @@ export class DictationSession {
   }
 
   /** «Контекст для Мозга»: the clipboard text, only when the user turned it on. Never throws. */
-  private readClipboardContext(): string | null {
+  private readClipboardContext(): Promise<string | null> | null {
     const st = this.h.settings();
     if (!st.BrainContextClipboard || !this.h.clipboardText || !this.brainUsable(st)) return null;
     try {
-      return this.h.clipboardText() || null;
+      return Promise.resolve(this.h.clipboardText()).then((text) => text || null, () => null);
     } catch {
       return null;
     }
@@ -444,8 +444,9 @@ export class DictationSession {
     const peak = this.buf.takePeak;
     const fgTask = this.fgTask;
     this.fgTask = null;
-    const clipText = this.clipAtPress;
+    const clipTask = this.clipAtPress;
     this.clipAtPress = null;
+    const clipText = clipTask ? await clipTask : null;
     let fgApp: ForegroundApp | null = null;
     this.push();
     let result: string | null = null;
@@ -659,7 +660,7 @@ export class DictationSession {
         }
         const inserter = this.source !== 'window' ? this.h.inserter?.() ?? null : null;
         if (inserter) await this.insertInto(inserter, text, brainFailure, editedSelection, scriptFailure);
-        else this.copyOut(text, brainFailure, scriptFailure);
+        else await this.copyOut(text, brainFailure, scriptFailure);
       } else if (samples.length <= MIN_TAKE_SAMPLES) {
         // WPF just hides the pill on an accidental tap; the page says what happened.
         overlay?.hideNow();
@@ -692,10 +693,10 @@ export class DictationSession {
   }
 
   /** In-window take (or no helper): the phrase goes to the clipboard and the page. */
-  private copyOut(text: string, brainFailure: string | null, scriptFailure: string | null = null): void {
+  private async copyOut(text: string, brainFailure: string | null, scriptFailure: string | null = null): Promise<void> {
     let copied = true;
     try {
-      this.h.copy?.(text);
+      await this.h.copy?.(text);
     } catch (e) {
       copied = false;
       Log.write(`clipboard: ${e instanceof Error ? e.message : String(e)}`);
@@ -724,7 +725,7 @@ export class DictationSession {
       Log.write(`insert failed: ${e instanceof Error ? e.message : String(e)}`);
       let copied = true;
       try {
-        this.h.copy?.(text);
+        await this.h.copy?.(text);
       } catch {
         copied = false;
       }
@@ -740,7 +741,7 @@ export class DictationSession {
       // Typing leaves the clipboard alone (Paste already left the phrase there): make the hint true.
       if (s.InsertMode === 'Type') {
         try {
-          this.h.copy?.(text);
+          await this.h.copy?.(text);
         } catch {
           /* the page still shows the phrase */
         }

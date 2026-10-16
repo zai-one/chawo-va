@@ -61,16 +61,20 @@ describe('withContext / fileBrainContext (file page and CLI)', () => {
     expect(withContext(ask, '')).toBe(ask);
     expect(await withContext(ask, '+CTX')('P', 'T', 5)).toBe('P+CTX|T|5');
   });
-  it('file page: clipboard only, only when the switch is on; read errors are no context', () => {
+  it('file page: clipboard only, only when the switch is on; read errors are no context', async () => {
     let reads = 0;
     const read = () => (reads++, 'ООО «Зюйд-Вест»');
-    expect(fileBrainContext({ BrainContextClipboard: false }, read)).toBe('');
+    expect(await fileBrainContext({ BrainContextClipboard: false }, read)).toBe('');
     expect(reads).toBe(0);
-    const on = fileBrainContext({ BrainContextClipboard: true }, read);
+    const on = await fileBrainContext({ BrainContextClipboard: true }, read);
     expect(on).toContain('ООО «Зюйд-Вест»');
     expect(on).not.toContain('Program:');
-    expect(fileBrainContext({ BrainContextClipboard: true }, () => { throw new Error('x'); })).toBe('');
-    expect(fileBrainContext({ BrainContextClipboard: true }, () => '  ')).toBe('');
+    expect(await fileBrainContext({ BrainContextClipboard: true }, () => { throw new Error('x'); })).toBe('');
+    expect(await fileBrainContext({ BrainContextClipboard: true }, () => '  ')).toBe('');
+  });
+  it('file page: the async clipboard of Electron 44 is awaited, a rejection is no context', async () => {
+    expect(await fileBrainContext({ BrainContextClipboard: true }, async () => 'ООО «Зюйд-Вест»')).toContain('ООО «Зюйд-Вест»');
+    expect(await fileBrainContext({ BrainContextClipboard: true }, async () => { throw new Error('x'); })).toBe('');
   });
 });
 

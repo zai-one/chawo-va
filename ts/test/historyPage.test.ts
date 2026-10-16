@@ -133,19 +133,25 @@ describe('HistoryController', () => {
     expect(ctl.state().rows).toHaveLength(0);
   });
 
-  it('copy puts the final or the raw text on the clipboard', () => {
+  it('copy puts the final or the raw text on the clipboard', async () => {
     const { ctl, rec, copied } = make();
     rec('Привет, мир!', 'привет мир', { brain: true });
     const id = ctl.state().rows[0]!.id;
-    expect(ctl.copy(id, 'final').status).toBe('Скопировано в буфер обмена.');
-    ctl.copy(id, 'raw');
+    expect((await ctl.copy(id, 'final')).status).toBe('Скопировано в буфер обмена.');
+    await ctl.copy(id, 'raw');
     expect(copied).toEqual(['Привет, мир!', 'привет мир']);
   });
 
-  it('a clipboard error is a status line, not a crash', () => {
+  it('a clipboard error is a status line, not a crash', async () => {
     const { ctl, rec } = make({ copy: () => { throw new Error('busy'); } });
     rec('x');
-    expect(ctl.copy(ctl.state().rows[0]!.id, 'final').status).toBe('В буфер обмена скопировать не получилось.');
+    expect((await ctl.copy(ctl.state().rows[0]!.id, 'final')).status).toBe('В буфер обмена скопировать не получилось.');
+  });
+
+  it('an async clipboard (Electron 44) that rejects is a status line too', async () => {
+    const { ctl, rec } = make({ copy: async () => { throw new Error('busy'); } });
+    rec('x');
+    expect((await ctl.copy(ctl.state().rows[0]!.id, 'final')).status).toBe('В буфер обмена скопировать не получилось.');
   });
 
   it('remove and clear all (after a yes)', async () => {

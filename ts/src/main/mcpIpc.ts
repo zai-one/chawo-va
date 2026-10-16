@@ -35,8 +35,8 @@ export function registerMcpIpc(settings: { get: () => SettingsData }): void {
     copied = false;
     return state();
   });
-  ipcMain.handle('mcp:copy', () => {
-    clipboard.writeText(snippet());
+  ipcMain.handle('mcp:copy', async () => {
+    await clipboard.writeText(snippet());
     copied = true;
     return state();
   });

@@ -73,7 +73,7 @@ app.whenReady().then(async () => {
         if (!/слушаю|распознаю/i.test(phase)) break;
       }
       log('take status:', await js(`document.querySelector('[data-d="status"]').textContent`));
-      log('take clipboard:', clipboard.readText());
+      log('take clipboard:', await clipboard.readText());
     };
     const clickIn = async (label, nth = 0) => {
       const ok = await js(`(() => { const b = [...document.querySelectorAll('.hist-item button')].filter((x) => x.textContent === ${JSON.stringify(label)})[${nth}]; if (!b || b.disabled) return false; b.click(); return true; })()`);
@@ -87,8 +87,8 @@ app.whenReady().then(async () => {
     log('file lines:', existsSync(historyFile) ? readFileSync(historyFile, 'utf8').trim().split('\n').length : 0);
     if (shot) writeFileSync(shot + '-1.png', (await main.webContents.capturePage()).toPNG());
 
-    clipboard.writeText('-');
-    log('copy:', await clickIn('Копировать'), JSON.stringify(clipboard.readText().slice(0, 80)));
+    await clipboard.writeText('-');
+    log('copy:', await clickIn('Копировать'), JSON.stringify(await clipboard.readText().slice(0, 80)));
 
     // Search: type a word from the entry, then a word that is not there.
     const word = (await js(`document.querySelector('.hist-text')?.textContent ?? ''`)).split(/\s+/).find((w) => w.length > 4) ?? 'язык';
@@ -107,7 +107,7 @@ app.whenReady().then(async () => {
     await sleep(900);
     log('brain got:', JSON.stringify(got.map((g) => g.messages?.[1]?.content?.slice(0, 80))));
     log('after rerun:', await pageText());
-    log('clipboard:', clipboard.readText().slice(0, 100));
+    log('clipboard:', await clipboard.readText().slice(0, 100));
     if (shot) writeFileSync(shot + '-2.png', (await main.webContents.capturePage()).toPNG());
 
     await take();

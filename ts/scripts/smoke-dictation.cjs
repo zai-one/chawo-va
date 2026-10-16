@@ -45,7 +45,7 @@ app.whenReady().then(async () => {
     }
     console.log('[smoke] status:', await js(`document.querySelector('[data-d="status"]').textContent`));
     console.log('[smoke] last:', await js(`document.querySelector('[data-d="last"] .last-text').textContent`));
-    console.log('[smoke] clipboard:', require('electron').clipboard.readText());
+    console.log('[smoke] clipboard:', await require('electron').clipboard.readText());
     if (shot) writeFileSync(shot + '-done.png', (await w.webContents.capturePage()).toPNG());
   } catch (e) {
     console.log('[smoke]', e.stack || e.message);

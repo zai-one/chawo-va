@@ -28,11 +28,11 @@ jobs:
       run:
         working-directory: ts
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
-          node-version: '20'
+          node-version: '24'
           cache: npm
           cache-dependency-path: ts/package-lock.json
 
@@ -48,7 +48,7 @@ jobs:
       - name: End-to-end smoke (CLI + GUI under xvfb)
         run: npm run e2e -- --shots e2e-shots
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: ts-e2e-screenshots

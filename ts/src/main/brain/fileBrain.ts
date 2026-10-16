@@ -338,12 +338,12 @@ function abortError(): Error {
 
 /**
  * «Контекст для Мозга» for «Прогнать через мозг» on the file page: the clipboard only (no window — the
- * focused program is this app), only with BrainContextClipboard on. '' otherwise; never throws.
+ * focused program is this app), only with BrainContextClipboard on. '' otherwise; never rejects.
  */
-export function fileBrainContext(s: Pick<SettingsData, 'BrainContextClipboard'>, readClipboard: () => string): string {
+export async function fileBrainContext(s: Pick<SettingsData, 'BrainContextClipboard'>, readClipboard: () => string | Promise<string>): Promise<string> {
   if (!s.BrainContextClipboard) return '';
   try {
-    return contextBlock({ text: readClipboard() });
+    return contextBlock({ text: await readClipboard() });
   } catch {
     return '';
   }

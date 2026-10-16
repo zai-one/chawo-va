@@ -56,7 +56,7 @@ export interface AskHooks {
   brain: (s: SettingsData) => AskBrainInfo;
   pickFolder?: () => Promise<string | null>;
   confirm?: (message: string) => Promise<boolean>;
-  copy?: (text: string) => void;
+  copy?: (text: string) => void | Promise<void>;
   open?: (path: string) => void;
   push?: () => void;
   now?: () => number;
@@ -144,11 +144,11 @@ export class AskController {
     return this.state();
   }
 
-  copyAnswer(): AskStateDto {
+  async copyAnswer(): Promise<AskStateDto> {
     const a = this.result?.answer;
     if (a) {
       try {
-        this.h.copy?.(a);
+        await this.h.copy?.(a);
         this.status = t('Ответ скопирован.', 'The answer is copied.');
       } catch {
         this.status = t('В буфер обмена скопировать не получилось.', 'Could not copy to the clipboard.');

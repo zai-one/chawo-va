@@ -133,14 +133,14 @@ app.whenReady().then(async () => {
     try {
       const FileBrain = require('../dist/main/brain/fileBrain.js');
       const SettingsM = require('../dist/main/settings.js');
-      const saved = clipboard.readText();
-      clipboard.writeText('E2E Зюйд-Вест');
+      const saved = await clipboard.readText();
+      await clipboard.writeText('E2E Зюйд-Вест');
       await call('brain:context', { clipboard: false });
-      const off = FileBrain.fileBrainContext(SettingsM.load(), () => clipboard.readText());
+      const off = await FileBrain.fileBrainContext(SettingsM.load(), () => clipboard.readText());
       await call('brain:context', { clipboard: true });
-      const on = FileBrain.fileBrainContext(SettingsM.load(), () => clipboard.readText());
+      const on = await FileBrain.fileBrainContext(SettingsM.load(), () => clipboard.readText());
       await call('brain:context', { clipboard: false });
-      clipboard.writeText(saved);
+      await clipboard.writeText(saved);
       check('gui: file-page Brain context = clipboard only when on', off === '' && on.includes('<context>') && on.includes('E2E Зюйд-Вест') && !on.includes('Program:'), JSON.stringify({ off, on: on.slice(-60) }));
     } catch (e) {
       check('gui: file-page Brain context = clipboard only when on', false, e.message);
@@ -382,12 +382,12 @@ app.whenReady().then(async () => {
       await sleep(500);
       const ui1 = await js(`(() => { const p = document.querySelector('[data-mcp="snippet"]'); return p ? { snippet: p.textContent, bg: getComputedStyle(p).backgroundColor, boxes: document.querySelectorAll('.mcp-box').length } : null; })()`);
       const saved = JSON.parse(require('node:fs').readFileSync(require(require('node:path').join(__dirname, '..', 'dist/main/paths.js')).settingsPath(), 'utf8')).McpEnabled;
-      const keep = clipboard.readText();
+      const keep = await clipboard.readText();
       await js(`document.querySelector('[data-mcp="copy"]').click(); true`);
       await sleep(400);
       let snip = null;
-      try { snip = JSON.parse(clipboard.readText()).mcpServers['chawo-va']; } catch { /* checked below */ }
-      clipboard.writeText(keep);
+      try { snip = JSON.parse(await clipboard.readText()).mcpServers['chawo-va']; } catch { /* checked below */ }
+      await clipboard.writeText(keep);
       if (shots) writeFileSync(join(shots, 'network-mcp.png'), (await w.webContents.capturePage()).toPNG());
       const st1 = await call('mcp:enable', false);
       const dark = ui1 && /rgba?\((\d+), (\d+), (\d+)/.exec(ui1.bg);

@@ -50,7 +50,7 @@ export interface HistoryHooks {
   store: HistoryStore;
   settings: () => SettingsData;
   save: (s: SettingsData) => void;
-  copy: (text: string) => void;
+  copy: (text: string) => void | Promise<void>;
   /** Yes/no box before «Очистить всё». */
   confirm?: (message: string) => Promise<boolean>;
   push?: () => void;
@@ -198,12 +198,12 @@ export class HistoryController {
     return this.state();
   }
 
-  copy(id: string, which: 'final' | 'raw'): HistoryStateDto {
+  async copy(id: string, which: 'final' | 'raw'): Promise<HistoryStateDto> {
     const e = this.h.store.get(id);
     if (e) {
       const text = which === 'raw' && e.raw.trim() ? e.raw : e.final;
       try {
-        this.h.copy(text);
+        await this.h.copy(text);
         this.status = t('Скопировано в буфер обмена.', 'Copied to the clipboard.');
       } catch (err) {
         Log.write(`history copy: ${err instanceof Error ? err.message : String(err)}`);
@@ -280,7 +280,7 @@ export class HistoryController {
       } else if (this.h.store.get(id)) {
         this.h.store.setFinal(id, answer, false);
         try {
-          this.h.copy(answer);
+          await this.h.copy(answer);
           this.status = t('Готово. Новый текст в буфере обмена.', 'Done. The new text is on the clipboard.');
         } catch {
           this.status = t('Готово. В буфер обмена скопировать не получилось.', 'Done. Could not copy to the clipboard.');

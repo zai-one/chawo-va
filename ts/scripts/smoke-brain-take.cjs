@@ -87,7 +87,7 @@ app.whenReady().then(async () => {
     }
     console.log('[smoke] server got:', JSON.stringify(got.map((g) => ({ model: g.model, user: g.messages?.[1]?.content }))));
     console.log('[smoke] status:', await js(`document.querySelector('[data-d="status"]').textContent`));
-    console.log('[smoke] clipboard:', clipboard.readText());
+    console.log('[smoke] clipboard:', await clipboard.readText());
     console.log('[smoke] pill after:', await pillText());
     if (shot) writeFileSync(shot + '-done.png', (await main.webContents.capturePage()).toPNG());
   } catch (e) {

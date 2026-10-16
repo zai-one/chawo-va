@@ -100,7 +100,7 @@ app.whenReady().then(async () => {
     }
     log('dictation status', await js(`document.querySelector('[data-d="status"]').textContent`));
     log('dictation last', await js(`document.querySelector('[data-d="last"] .last-text')?.textContent ?? ''`));
-    log('clipboard', require('electron').clipboard.readText());
+    log('clipboard', await require('electron').clipboard.readText());
     if (shot) writeFileSync(shot + '-take.png', (await w.webContents.capturePage()).toPNG());
 
     // 5) Host gone → short error on a take.

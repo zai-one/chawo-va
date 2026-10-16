@@ -386,7 +386,7 @@ export function registerFileIpc(getWindow: () => BrowserWindow | null, settings:
       }
       try {
         // «Контекст для Мозга»: on the file page only the clipboard, and only when that switch is on.
-        const ctx = FileBrain.fileBrainContext(s, () => clipboard.readText());
+        const ctx = await FileBrain.fileBrainContext(s, () => clipboard.readText());
         if (ctx) Log.write(`file brain context: ${ctx.length} chars`);
         const result = await FileBrain.runAsync(s, kind, segments, opts.timestamps, status, signal, ctx ? withContext(FileBrain.createAsk(s, kind), ctx) : undefined);
         const note =

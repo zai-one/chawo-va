@@ -23,7 +23,7 @@ app.whenReady().then(async () => {
       if (!/Загружаю|Loading/.test(st)) break;
       await sleep(250);
     }
-    clipboard.writeText('');
+    await clipboard.writeText('');
     console.log('[smoke] wake before:', await js(`document.documentElement.dataset.wake ?? 'unset'`));
     await js(`document.querySelector('[data-d="wake"]').click(); true`);
     await sleep(800);
@@ -43,7 +43,7 @@ app.whenReady().then(async () => {
         console.log(`[smoke] ${((Date.now() - t0) / 1000).toFixed(1)}s ${line}`);
         last = line;
       }
-      const c = clipboard.readText();
+      const c = await clipboard.readText();
       if (c && clips[clips.length - 1] !== c) {
         clips.push(c);
         console.log(`[smoke] ${((Date.now() - t0) / 1000).toFixed(1)}s clipboard: ${c}`);

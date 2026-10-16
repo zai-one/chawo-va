@@ -408,6 +408,20 @@ describe('«Контекст для Мозга» in a take', () => {
     expect(await take('привет')).toBe('Привет.');
     expect(srv.calls[0].body.messages[0].content).not.toContain('<context>');
   });
+  it('the async clipboard of Electron 44: read at key press, awaited at the end; a rejection is no context', async () => {
+    const srv = server(() => 'Привет.');
+    const { take } = make({ fetch: srv.fetch, clipboardText: async () => 'ООО «Зюйд-Вест»' }, (x) => {
+      serverSettings(x); x.BrainEveryTake = true; x.BrainContextClipboard = true;
+    });
+    await take('привет');
+    expect(srv.calls[0].body.messages[0].content).toContain('ООО «Зюйд-Вест»');
+    const srv2 = server(() => 'Привет.');
+    const second = make({ fetch: srv2.fetch, clipboardText: async () => { throw new Error('busy'); } }, (x) => {
+      serverSettings(x); x.BrainEveryTake = true; x.BrainContextClipboard = true;
+    });
+    expect(await second.take('привет')).toBe('Привет.');
+    expect(srv2.calls[0].body.messages[0].content).not.toContain('<context>');
+  });
 });
 
 describe('«Контекст для Мозга»: privacy of history', () => {

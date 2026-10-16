@@ -90,7 +90,7 @@ app.whenReady().then(async () => {
     await hold(4000);
     log('focused after take 1:', activeName());
     log('server got:', JSON.stringify(got.map((g) => ({ system: g.messages?.[0]?.content, user: g.messages?.[1]?.content }))));
-    log('clipboard 1:', clipboard.readText());
+    log('clipboard 1:', await clipboard.readText());
     log('brain page 1:', await brainLines());
     await js(`document.querySelector('.app-rule')?.scrollIntoView(); true`);
     await sleep(200);
@@ -104,7 +104,7 @@ app.whenReady().then(async () => {
     const before = got.length;
     await hold(4000);
     log('server calls in take 2:', got.length - before);
-    log('clipboard 2:', clipboard.readText());
+    log('clipboard 2:', await clipboard.readText());
     log('brain page 2:', await brainLines());
 
     // 3) The page: add a second rule, show the rewrite choice and the instruction box.
