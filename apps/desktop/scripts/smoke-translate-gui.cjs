@@ -5,6 +5,7 @@
 // request's system prompt and name.translate.txt. Usage:
 //   CHAWO_LOCALAPPDATA=<dir with models> CHAWO_APPDATA=<tmp> \
 //   xvfb-run electron --no-sandbox scripts/smoke-translate-gui.cjs <audio.wav> [shot.png]
+const { appEvent } = require('./lib/appEvent.cjs');
 const http = require('node:http');
 const { mkdirSync, writeFileSync, readFileSync, existsSync } = require('node:fs');
 const { dirname } = require('node:path');
@@ -59,10 +60,10 @@ server.listen(0, '127.0.0.1', () => {
       const w = BrowserWindow.getAllWindows().find((x) => x.getTitle() !== 'decoder') ?? BrowserWindow.getAllWindows()[0];
       const js = (code) => w.webContents.executeJavaScript(code);
       const h = ipcMain._invokeHandlers;
-      await h.get('file:add')({}, [audio], false);
-      await h.get('file:run')({});
-      for (let i = 0; i < 360 && (await h.get('file:state')({})).busy; i++) await sleep(500);
-      const st = await h.get('file:state')({});
+      await h.get('file:add')(appEvent(), [audio], false);
+      await h.get('file:run')(appEvent());
+      for (let i = 0; i < 360 && (await h.get('file:state')(appEvent())).busy; i++) await sleep(500);
+      const st = await h.get('file:state')(appEvent());
       console.log('[smoke] transcript:', st.lastOutput, JSON.stringify(st.items.map((x) => x.state)));
       await js(`document.querySelector('.nav button[data-page="file"]').click(); true`);
       await sleep(600);
@@ -74,10 +75,10 @@ server.listen(0, '127.0.0.1', () => {
       console.log('[smoke] clicked:', clicked);
       for (let i = 0; i < 60; i++) {
         await sleep(250);
-        if (!(await h.get('file:state')({})).translate.busy && seen.length > 0) break;
+        if (!(await h.get('file:state')(appEvent())).translate.busy && seen.length > 0) break;
       }
       await sleep(500);
-      const after = await h.get('file:state')({});
+      const after = await h.get('file:state')(appEvent());
       console.log('[smoke] status:', after.status);
       console.log('[smoke] confirm asked:', JSON.stringify(questions));
       console.log('[smoke] saved TranslateTarget:', JSON.parse(readFileSync(settingsPath(), 'utf8')).TranslateTarget);

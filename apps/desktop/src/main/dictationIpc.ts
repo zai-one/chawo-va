@@ -3,7 +3,7 @@
 // owns the take buffer, the recognizer, the settings writes and the clipboard. Chunks use
 // ipcRenderer.send on one channel, so they arrive before the stop that follows them.
 
-import { BrowserWindow, app, clipboard, dialog, ipcMain, shell } from 'electron';
+import { BrowserWindow, app, clipboard, dialog, shell } from 'electron';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { wavBytes } from '@chawo/core/audio';
@@ -24,6 +24,8 @@ import * as Log from '@chawo/engine/log';
 import { WakeListener, finishWakeTake } from '@chawo/engine/dictation/wakeListener';
 import { checkLatest, RELEASES_PAGE } from '@chawo/engine/system/updater';
 import { t } from '@chawo/core/strings';
+import { emit, handle, onSend } from './ipc';
+import type { EventChannel, EventMap } from '@chawo/ipc/contract';
 
 /** The part of NativeHelper the dictation IPC uses (tests: a fake). */
 export interface GlobalKeys extends TextInserterLike, SelectionReaderLike {
@@ -59,10 +61,7 @@ export function registerDictationIpc(
   settings: { get: () => SettingsData },
   opts: { changed?: () => void; overlay?: OverlayWindow; sales?: (transcript: string) => void; keys?: () => GlobalKeys | null; record?: (take: TakeRecord) => void; phase?: (phase: CuePhase) => void; onApp?: (app: ForegroundApp | null, ruleIndex: number | null) => void; idleBusy?: () => boolean } = {},
 ): DictationIpc {
-  const send = (channel: string, payload: unknown) => {
-    const w = getWindow();
-    if (w && !w.isDestroyed()) w.webContents.send(channel, payload);
-  };
+  const send = <C extends EventChannel>(channel: C, payload: EventMap[C]) => emit(getWindow(), channel, payload);
   // Sound cues go to the main window's page (Web Audio there); the tray follows the same phase.
   const cues = new CueTracker(() => settings.get().SoundCues, (kind) => send('dictation:cue', { kind, tones: cueTones(kind) }));
   let lastPhase: CuePhase | null = null;
@@ -169,88 +168,88 @@ export function registerDictationIpc(
   const state = () => ctl.state();
   const str = (v: unknown) => (typeof v === 'string' ? v : '');
 
-  ipcMain.handle('dictation:state', () => {
+  handle('dictation:state', () => {
     // Page shown: open the recognizer in the background so the first take is quick.
     void session.ensureLoaded();
     return state();
   });
-  ipcMain.handle('dictation:mode', (_e, v: unknown) => {
+  handle('dictation:mode', (_e, v: unknown) => {
     if (v === 'Dictation' || v === 'Sales') ctl.setMode(v);
     return state();
   });
-  ipcMain.handle('dictation:hotkey', (_e, v: unknown) => {
+  handle('dictation:hotkey', (_e, v: unknown) => {
     if (typeof v === 'number' && HOTKEY_CHOICES.some((c) => c.vk === v)) ctl.setHotkey(v);
     opts.keys?.()?.setHotkey(settings.get().HotkeyVk);
     return state();
   });
-  ipcMain.handle('dictation:insert', (_e, v: unknown) => {
+  handle('dictation:insert', (_e, v: unknown) => {
     if (v === 'Type' || v === 'Paste') ctl.setInsertMode(v);
     return state();
   });
-  ipcMain.handle('dictation:overlay', (_e, v: unknown) => {
+  handle('dictation:overlay', (_e, v: unknown) => {
     if (typeof v === 'boolean') ctl.setShowOverlay(v);
     if (!settings.get().ShowOverlay) opts.overlay?.hideNow();
     return state();
   });
-  ipcMain.handle('dictation:cues', (_e, v: unknown) => {
+  handle('dictation:cues', (_e, v: unknown) => {
     if (typeof v === 'boolean') ctl.setSoundCues(v);
     return state();
   });
-  ipcMain.handle('dictation:wake', (_e, v: unknown) => {
+  handle('dictation:wake', (_e, v: unknown) => {
     if (typeof v === 'boolean') ctl.setWakeWord(v);
     // The word needs the model at hand: open it now so the first «Чаво» is answered quickly.
     if (wake.wanted()) void session.ensureLoaded();
     push();
     return state();
   });
-  ipcMain.handle('wake:want', () => {
+  handle('wake:want', () => {
     wakeSent = JSON.stringify(wakeWant());
     if (wake.wanted()) void session.ensureLoaded();
     return wakeWant();
   });
-  ipcMain.on('wake:pcm', (_e, chunk: unknown) => wake.push(chunk));
-  ipcMain.handle('wake:micFailed', (_e, name: unknown, message: unknown) => {
+  onSend('wake:pcm', (_e, chunk: unknown) => wake.push(chunk));
+  handle('wake:micFailed', (_e, name: unknown, message: unknown) => {
     Log.write(`wake mic failed: ${str(name).slice(0, 64)}: ${str(message).slice(0, 300)}`);
     return state();
   });
-  ipcMain.handle('dictation:mic', (_e, v: unknown) => {
+  handle('dictation:mic', (_e, v: unknown) => {
     ctl.setMicrophone(str(v));
     return state();
   });
-  ipcMain.handle('dictation:devices', (_e, list: unknown, defaultName: unknown) => {
+  handle('dictation:devices', (_e, list: unknown, defaultName: unknown) => {
     const devices: MicDevice[] = Array.isArray(list)
       ? list.slice(0, 64).map((d) => ({ id: str((d as MicDevice)?.id).slice(0, 512), label: str((d as MicDevice)?.label).slice(0, 256) }))
       : [];
     ctl.setDevices(devices, str(defaultName).slice(0, 256));
     return state();
   });
-  ipcMain.handle('dictation:dismissStart', () => {
+  handle('dictation:dismissStart', () => {
     ctl.dismissStartCard();
     return state();
   });
-  ipcMain.handle('dictation:start', () => {
+  handle('dictation:start', () => {
     const r = session.startTake();
     return { ok: r.ok, micId: ctl.micDeviceId(), state: state() };
   });
-  ipcMain.on('dictation:pcm', (_e, chunk: unknown) => {
+  onSend('dictation:pcm', (_e, chunk: unknown) => {
     if (chunk instanceof Float32Array && chunk.length <= MAX_CHUNK) session.appendPcm(chunk);
   });
-  ipcMain.handle('dictation:stop', async () => {
+  handle('dictation:stop', async () => {
     await session.stopTake();
     return state();
   });
-  ipcMain.handle('dictation:cancel', () => {
+  handle('dictation:cancel', () => {
     session.cancelTake();
     return state();
   });
-  ipcMain.handle('dictation:micFailed', (_e, name: unknown, message: unknown) => {
+  handle('dictation:micFailed', (_e, name: unknown, message: unknown) => {
     session.micFailed(str(name).slice(0, 64), str(message).slice(0, 300));
     return state();
   });
 
   // Manual «Проверить обновления» (WPF CheckUpdates_Click → CheckForUpdatesAsync). Check only; no download.
   let updatesBusy = false;
-  ipcMain.handle('dictation:checkUpdates', async () => {
+  handle('dictation:checkUpdates', async () => {
     if (updatesBusy) return state();
     updatesBusy = true;
     const w = getWindow();

@@ -30,6 +30,7 @@ import { helperExePath, NativeHelper } from '@chawo/engine/native/nativeHelper';
 import { applyLanguage } from '@chawo/core/strings';
 import { trayStateFor, trayTooltip, type CuePhase, type TrayState } from '@chawo/core/cues';
 import { DOT_RECOGNIZING, DOT_RECORDING, paintDot } from '@chawo/core/trayDot';
+import { emit } from './ipc';
 
 // Entry of the build (out/main/main.js): the only module that knows where the app root is.
 AppPaths.init(__dirname);
@@ -191,7 +192,7 @@ if (!app.requestSingleInstanceLock()) {
       overlay,
       onApp: (app, ruleIndex) => {
         lastApp = { app, ruleIndex };
-        if (win && !win.isDestroyed()) win.webContents.send('brain:state', brain.state());
+        emit(win, 'brain:state', brain.state());
       },
       phase: showTrayPhase,
       record: (take) => history.record(take),

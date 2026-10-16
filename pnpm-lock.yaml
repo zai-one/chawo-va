@@ -221,6 +221,9 @@ importers:
       '@chawo/engine':
         specifier: workspace:*
         version: link:../../packages/engine
+      '@chawo/ipc':
+        specifier: workspace:*
+        version: link:../../packages/ipc
       '@modelcontextprotocol/sdk':
         specifier: ^1.32.1
         version: 1.32.1(supports-color@7.2.0)(zod@4.6.7)
@@ -267,6 +270,15 @@ importers:
       yaml:
         specifier: ^2.9.1
         version: 2.9.1
+
+  packages/ipc:
+    dependencies:
+      '@chawo/core':
+        specifier: workspace:*
+        version: link:../core
+      '@chawo/engine':
+        specifier: workspace:*
+        version: link:../engine
 
 packages:
 

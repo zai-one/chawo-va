@@ -16,6 +16,7 @@ apps/cli/         chawo-va: разбор флагов, команды, serve и 
 packages/core/    @chawo/core — логика без Electron (распознавание, VAD, форматы, строки)
 packages/engine/  @chawo/engine — сервисы на Node без Electron, общие для приложения и CLI: настройки,
                   очередь файлов, модели, Мозг, сеть (Hermes, serve), CRM, история, MCP, встречи
+packages/ipc/     @chawo/ipc — контракт IPC окна и главного процесса (каналы, аргументы, ответы, события)
 fixtures/         общие тестовые файлы (транскрипты, фейковые сервер Мозга и помощник ChawoNative)
 docs/             документация, openapi.yaml, план модернизации
 legacy/wpf/       старое приложение WPF/.NET (1.x), только для справки
@@ -53,6 +54,23 @@ sandbox-preload — по одному файлу; страницы интерф�
 
 pnpm ставит релиз пакета, только когда ему исполнилось сутки (`minimumReleaseAge`), а install-скрипты
 разрешены явно (`allowBuilds` в `pnpm-workspace.yaml`).
+
+## IPC
+
+Все каналы между окном и главным процессом описаны один раз — в `packages/ipc/src/contract.ts`:
+`InvokeMap` (запрос → ответ), `SendMap` (поток звука из окна), `EventMap` (что main присылает окну).
+
+- Окно вызывает `invoke('file:run')`, `send('dictation:pcm', chunk)`, `on('file:state', fn)` из
+  `apps/desktop/src/renderer/bridge.ts` — с проверкой типов аргументов и ответа.
+- preload пропускает только каналы из контракта (списки `INVOKE_CHANNELS` и др.).
+- main регистрирует обработчики через `handle` / `onSend` / `emit` из `apps/desktop/src/main/ipc.ts`:
+  тип ответа сверяется с контрактом, а вызов принимается только от страницы самого приложения
+  (`out/renderer/index.html` или dev-сервер). Аргументы в main — `unknown`: каждый обработчик сам
+  проверяет то, что пришло из окна.
+- `packages/ipc/test/contract.test.ts` следит, чтобы каждому каналу контракта соответствовал ровно один
+  обработчик в main и наоборот.
+
+Новый канал: строка в `InvokeMap` и в `INVOKE_CHANNELS`, обработчик через `handle(...)`, вызов через `invoke(...)`.
 
 ## Тесты
 

@@ -4,6 +4,7 @@
 // optionally fetches a public video link too. Prints what it sees.
 // Usage: CHAWO_LOCALAPPDATA=<dir with models> CHAWO_APPDATA=<tmp> \
 //   electron --no-sandbox scripts/smoke-url.cjs <speech.mp3> <downloads dir> [public url] [shot.png]
+const { appEvent } = require('./lib/appEvent.cjs');
 const { app, BrowserWindow } = require('electron');
 const { createReadStream, existsSync, readFileSync, statSync, writeFileSync } = require('node:fs');
 const http = require('node:http');
@@ -30,26 +31,26 @@ app.whenReady().then(async () => {
     const h = require('electron').ipcMain._invokeHandlers;
     await js(`document.querySelector('.nav button[data-page="file"]').click(); true`);
     await sleep(600);
-    let st = await h.get('file:state')({});
+    let st = await h.get('file:state')(appEvent());
     log('before', JSON.stringify(st.url));
 
     const t0 = Date.now();
-    await h.get('file:ytdlpDownload')({});
-    for (let i = 0; i < 600 && (await h.get('file:state')({})).url.busy; i++) await sleep(250);
-    st = await h.get('file:state')({});
+    await h.get('file:ytdlpDownload')(appEvent());
+    for (let i = 0; i < 600 && (await h.get('file:state')(appEvent())).url.busy; i++) await sleep(250);
+    st = await h.get('file:state')(appEvent());
     log('yt-dlp', st.status, `${Date.now() - t0} ms`, JSON.stringify(st.url));
 
-    await h.get('file:url')({}, 'file:///etc/passwd');
+    await h.get('file:url')(appEvent(), 'file:///etc/passwd');
     await sleep(100);
-    log('file:// →', (await h.get('file:state')({})).status);
+    log('file:// →', (await h.get('file:state')(appEvent())).status);
 
     const waitQueue = async () => {
       await sleep(300);
-      for (let i = 0; i < 1200 && (await h.get('file:state')({})).busy; i++) await sleep(250);
-      return h.get('file:state')({});
+      for (let i = 0; i < 1200 && (await h.get('file:state')(appEvent())).busy; i++) await sleep(250);
+      return h.get('file:state')(appEvent());
     };
     const t1 = Date.now();
-    await h.get('file:url')({}, `http://127.0.0.1:${port}/lecture.mp3`);
+    await h.get('file:url')(appEvent(), `http://127.0.0.1:${port}/lecture.mp3`);
     st = await waitQueue();
     const item = st.items.at(-1);
     log('local link', `${Date.now() - t1} ms`, item?.state, item?.path, item?.note, '|', st.status);

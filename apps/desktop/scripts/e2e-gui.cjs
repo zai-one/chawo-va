@@ -83,7 +83,7 @@ app.whenReady().then(async () => {
       let timer;
       const late = new Promise((_, rej) => (timer = setTimeout(() => rej(new Error(`${ch}: no answer in 90 s (a dialog?)`)), 90_000)));
       try {
-        return await Promise.race([fn({ sender: w.webContents }, ...a), late]);
+        return await Promise.race([fn({ sender: w.webContents, senderFrame: w.webContents.mainFrame }, ...a), late]);
       } finally {
         clearTimeout(timer);
       }

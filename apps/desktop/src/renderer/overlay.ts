@@ -1,17 +1,10 @@
 // The floating pill's drawing (OverlayWindow.Tick / ShowListening / ShowRecognizing / ShowText): thin bars
 // that jump with the voice while listening, a calm ripple while recognizing, a short text for hints, and
 // the live draft under the bars. Plain DOM; text goes in via textContent only. Reports its size to main.
-// Script, not a module: everything stays inside one function so names never clash with renderer.ts.
-
-interface OverlayPillState { visible: boolean; mode: 'listening' | 'recognizing' | 'text'; label: string; caption: string; live: string }
-interface OverlayPillApi {
-  onState(fn: (s: OverlayPillState) => void): void;
-  onLevel(fn: (v: number) => void): void;
-  size(w: number, h: number): void;
-}
+import type { OverlayApi, OverlayState } from '@chawo/ipc/contract';
 
 (() => {
-  const api = (window as unknown as { chawoOverlay: OverlayPillApi }).chawoOverlay;
+  const api = (window as unknown as { chawoOverlay: OverlayApi }).chawoOverlay;
   const BAR_COUNT = 13;
   const BAR_WIDTH = 3;
   const BAR_MAX = 22;
@@ -39,7 +32,7 @@ interface OverlayPillApi {
   const heights = new Float32Array(BAR_COUNT);
   let level = 0;
   let smoothed = 0;
-  let mode: OverlayPillState['mode'] = 'text';
+  let mode: OverlayState['mode'] = 'text';
   let ripple = 0;
   let timer: number | null = null;
 

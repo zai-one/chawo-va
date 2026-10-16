@@ -7,14 +7,17 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
 const handlers = new Map<string, (...a: unknown[]) => unknown>();
-vi.mock('electron', () => ({
-  ipcMain: {
-    handle: (ch: string, fn: (...a: unknown[]) => unknown) => handlers.set(ch, fn),
-    on: (ch: string, fn: (...a: unknown[]) => unknown) => handlers.set(ch, fn),
-  },
-  clipboard: { writeText: () => undefined },
-  BrowserWindow: class {},
-}));
+vi.mock('electron', async () => {
+  const { appEvent } = await import('./appWindow');
+  return {
+    ipcMain: {
+      handle: (ch: string, fn: (...a: unknown[]) => unknown) => handlers.set(ch, (_e: unknown, ...a: unknown[]) => fn(appEvent(), ...a)),
+      on: (ch: string, fn: (...a: unknown[]) => unknown) => handlers.set(ch, (_e: unknown, ...a: unknown[]) => fn(appEvent(), ...a)),
+    },
+    clipboard: { writeText: () => undefined },
+    BrowserWindow: class {},
+  };
+});
 
 import { applyLanguage } from '@chawo/core/strings';
 import * as Settings from '@chawo/engine/settings';

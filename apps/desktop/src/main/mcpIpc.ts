@@ -2,17 +2,14 @@
 // snippet for Claude Desktop / Cursor with a copy button. The server itself is `chawo-va mcp`
 // (stdio, read-only), started by the assistant; the app never listens for it.
 
-import { clipboard, ipcMain } from 'electron';
+import { clipboard } from 'electron';
 import * as AppPaths from './appPaths';
 import * as Settings from '@chawo/engine/settings';
 import type { SettingsData } from '@chawo/engine/settings';
 import { configSnippet, launchFor } from '@chawo/engine/mcp/mcpServer';
+import type { McpStateDto } from '@chawo/ipc/contract';
+import { handle } from './ipc';
 
-interface McpStateDto {
-  enabled: boolean;
-  snippet: string;
-  copied: boolean;
-}
 
 export function registerMcpIpc(settings: { get: () => SettingsData }): void {
   let copied = false;
@@ -26,8 +23,8 @@ export function registerMcpIpc(settings: { get: () => SettingsData }): void {
     return configSnippet(l.command, l.args, l.env);
   };
   const state = (): McpStateDto => ({ enabled: settings.get().McpEnabled, snippet: snippet(), copied });
-  ipcMain.handle('mcp:state', () => state());
-  ipcMain.handle('mcp:enable', (_e, on: unknown) => {
+  handle('mcp:state', () => state());
+  handle('mcp:enable', (_e, on: unknown) => {
     if (typeof on === 'boolean') {
       const s = settings.get();
       s.McpEnabled = on;
@@ -36,7 +33,7 @@ export function registerMcpIpc(settings: { get: () => SettingsData }): void {
     copied = false;
     return state();
   });
-  ipcMain.handle('mcp:copy', async () => {
+  handle('mcp:copy', async () => {
     await clipboard.writeText(snippet());
     copied = true;
     return state();

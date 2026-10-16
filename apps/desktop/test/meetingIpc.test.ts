@@ -10,17 +10,20 @@ const h = vi.hoisted(() => ({
   sources: [{ id: 'screen:0', name: 'Screen' }] as unknown[],
 }));
 
-vi.mock('electron', () => ({
-  app: { getPath: () => '/nonexistent-docs' },
-  ipcMain: {
-    handle: (ch: string, fn: (...a: unknown[]) => unknown) => h.handlers.set(ch, fn),
-    on: (ch: string, fn: (...a: unknown[]) => unknown) => h.listeners.set(ch, fn),
-  },
-  session: { defaultSession: { setDisplayMediaRequestHandler: (fn: typeof h.display) => (h.display = fn) } },
-  desktopCapturer: { getSources: async () => h.sources },
-  dialog: { showOpenDialog: async () => ({ canceled: true, filePaths: [] }) },
-  BrowserWindow: class {},
-}));
+vi.mock('electron', async () => {
+  const { appEvent } = await import('./appWindow');
+  return {
+    app: { getPath: () => '/nonexistent-docs' },
+    ipcMain: {
+      handle: (ch: string, fn: (...a: unknown[]) => unknown) => h.handlers.set(ch, (_e: unknown, ...a: unknown[]) => fn(appEvent(), ...a)),
+      on: (ch: string, fn: (...a: unknown[]) => unknown) => h.listeners.set(ch, (_e: unknown, ...a: unknown[]) => fn(appEvent(), ...a)),
+    },
+    session: { defaultSession: { setDisplayMediaRequestHandler: (fn: typeof h.display) => (h.display = fn) } },
+    desktopCapturer: { getSources: async () => h.sources },
+    dialog: { showOpenDialog: async () => ({ canceled: true, filePaths: [] }) },
+    BrowserWindow: class {},
+  };
+});
 
 import { registerMeetingIpc } from '../src/main/meetingIpc';
 import * as Settings from '@chawo/engine/settings';
@@ -53,7 +56,7 @@ describe('meetingIpc', () => {
     const s = Settings.defaults();
     const sent: string[] = [];
     const enqueued: string[] = [];
-    registerMeetingIpc(() => ({ webContents: { send: (ch: string) => sent.push(ch) } }) as never, { get: () => s }, { enqueue: (p) => enqueued.push(p) });
+    registerMeetingIpc(() => ({ isDestroyed: () => false, webContents: { send: (ch: string) => sent.push(ch) } }) as never, { get: () => s }, { enqueue: (p) => enqueued.push(p) });
     expect(h.display).not.toBeNull();
     expect(await ask()).toEqual({}); // not armed: refused
     const r = (await h.handlers.get('meeting:start')!({})) as { ok: boolean; system: unknown };

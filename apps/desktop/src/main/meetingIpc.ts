@@ -9,7 +9,7 @@
 // a local .ics path; when something looks active and we are not recording, the page gets a compact
 // «Похоже, идёт встреча — записать?» offer. Recording never starts without the user clicking.
 
-import { BrowserWindow, app, desktopCapturer, dialog, ipcMain, session } from 'electron';
+import { BrowserWindow, app, desktopCapturer, dialog, session } from 'electron';
 import { execFile } from 'node:child_process';
 import { join } from 'node:path';
 import * as Settings from '@chawo/engine/settings';
@@ -21,6 +21,7 @@ import { MeetingController } from '@chawo/engine/meeting/meetingController';
 import { systemAudioMode } from '@chawo/engine/meeting/systemAudio';
 import { detectMeeting, MeetingDetectPoller, SNOOZE_MS } from '@chawo/engine/meeting/meetingDetect';
 import type { ExecLike } from '@chawo/engine/meeting/meetingApps';
+import { emit, handle, onSend } from './ipc';
 
 /** The worklet posts 4000 stereo frames; anything far bigger is not ours. */
 const MAX_CHUNK = 64000;
@@ -45,7 +46,7 @@ export function registerMeetingIpc(
   opts?: { showWindow?: () => void; exec?: ExecLike },
 ): { dispose: () => void; controller: MeetingController; poller: MeetingDetectPoller } {
   let loopbackArmed = false;
-  const push = () => getWindow()?.webContents.send('meeting:state', controller.state());
+  const push = () => emit(getWindow(), 'meeting:state', controller.state());
   const show = opts?.showWindow;
   const exec = opts?.exec ?? realExec;
 
@@ -120,29 +121,29 @@ export function registerMeetingIpc(
     });
   }
 
-  ipcMain.handle('meeting:state', () => controller.state());
-  ipcMain.handle('meeting:start', () => {
+  handle('meeting:state', () => controller.state());
+  handle('meeting:start', () => {
     const fp = controller.state().offer?.fingerprint ?? '';
     if (fp) poller.acknowledge(fp);
     controller.setOffer(null);
     return controller.start();
   });
-  ipcMain.handle('meeting:systemOpened', (_e, ok: unknown, reason: unknown) =>
+  handle('meeting:systemOpened', (_e, ok: unknown, reason: unknown) =>
     controller.systemOpened(ok === true, typeof reason === 'string' ? reason : ''),
   );
-  ipcMain.on('meeting:pcm', (_e, chunk: unknown) => {
+  onSend('meeting:pcm', (_e, chunk: unknown) => {
     if (chunk instanceof Float32Array && chunk.length <= MAX_CHUNK) controller.pcm(chunk);
   });
-  ipcMain.handle('meeting:stop', () => controller.stop());
-  ipcMain.handle('meeting:cancel', () => controller.cancel());
-  ipcMain.handle('meeting:failed', (_e, reason: unknown) => controller.failed(typeof reason === 'string' ? reason : 'Error'));
-  ipcMain.handle('meeting:system', (_e, on: unknown) => controller.setSystem(on === true));
-  ipcMain.handle('meeting:autoDetect', (_e, on: unknown) => controller.setAutoDetect(on === true));
-  ipcMain.handle('meeting:autoDetectApps', (_e, on: unknown) => controller.setAutoDetectApps(on === true));
-  ipcMain.handle('meeting:autoDetectCalendar', (_e, path: unknown) =>
+  handle('meeting:stop', () => controller.stop());
+  handle('meeting:cancel', () => controller.cancel());
+  handle('meeting:failed', (_e, reason: unknown) => controller.failed(typeof reason === 'string' ? reason : 'Error'));
+  handle('meeting:system', (_e, on: unknown) => controller.setSystem(on === true));
+  handle('meeting:autoDetect', (_e, on: unknown) => controller.setAutoDetect(on === true));
+  handle('meeting:autoDetectApps', (_e, on: unknown) => controller.setAutoDetectApps(on === true));
+  handle('meeting:autoDetectCalendar', (_e, path: unknown) =>
     controller.setAutoDetectCalendar(typeof path === 'string' ? path : ''),
   );
-  ipcMain.handle('meeting:pickCalendar', async () => {
+  handle('meeting:pickCalendar', async () => {
     const win = getWindow();
     const opts = {
       title: t('Календарь (.ics)', 'Calendar (.ics)'),
@@ -156,19 +157,19 @@ export function registerMeetingIpc(
     if (r.canceled || !r.filePaths[0]) return controller.state();
     return controller.setAutoDetectCalendar(r.filePaths[0]);
   });
-  ipcMain.handle('meeting:offerSnooze', () => {
+  handle('meeting:offerSnooze', () => {
     const fp = controller.state().offer?.fingerprint ?? '';
     poller.snooze(SNOOZE_MS);
     if (fp) poller.acknowledge(fp);
     controller.setOffer(null);
     return controller.state();
   });
-  ipcMain.handle('meeting:offerNever', () => {
+  handle('meeting:offerNever', () => {
     poller.clearOffer();
     return controller.setAutoDetect(false);
   });
   /** One-shot detect for tests / smoke (does not require the master switch). */
-  ipcMain.handle('meeting:detectNow', async () => {
+  handle('meeting:detectNow', async () => {
     const s = settings.get();
     return detectMeeting(
       {

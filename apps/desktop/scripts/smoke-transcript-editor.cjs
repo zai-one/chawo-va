@@ -3,6 +3,7 @@
 // file:openEditor (fixture .wav + .srt), asserts phrase rows, seeks via click / currentTime,
 // and checks the active highlight. No speech model required.
 // Usage: CHAWO_APPDATA=<tmp> electron --no-sandbox scripts/smoke-transcript-editor.cjs [shot.png]
+const { appEvent } = require('./lib/appEvent.cjs');
 const { app, BrowserWindow } = require('electron');
 const { copyFileSync, mkdirSync, writeFileSync } = require('node:fs');
 const { join } = require('node:path');
@@ -29,11 +30,11 @@ app.whenReady().then(async () => {
     const wav = join(dir, 'sample.wav');
     const txt = join(dir, 'sample.txt');
 
-    await h.get('file:add')({}, [wav], false);
+    await h.get('file:add')(appEvent(), [wav], false);
     await js(`document.querySelector('.nav button[data-page="file"]').click(); true`);
     await sleep(500);
 
-    const st = await h.get('file:openEditor')({}, txt);
+    const st = await h.get('file:openEditor')(appEvent(), txt);
     log('editor available', st.editor?.available, 'segments', st.editor?.segments?.length, 'media', st.editor?.mediaUrl?.slice?.(0, 40), 'hint', st.editor?.sourceHint, 'audioPath', st.editor?.audioPath);
     if (!st.editor?.available || !st.editor?.mediaUrl || !(st.editor.segments?.length >= 3)) {
       throw new Error('editor state incomplete: ' + JSON.stringify(st.editor));

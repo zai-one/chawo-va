@@ -1,7 +1,7 @@
 // IPC for the «История» page. The main process owns the history file, the clipboard and the
 // confirm box; the renderer only asks and redraws.
 
-import { BrowserWindow, clipboard, dialog, ipcMain, shell } from 'electron';
+import { BrowserWindow, clipboard, dialog, shell } from 'electron';
 import { t } from '@chawo/core/strings';
 import * as Settings from '@chawo/engine/settings';
 import type { SettingsData } from '@chawo/engine/settings';
@@ -14,6 +14,8 @@ import { meetingsDir } from './meetingIpc';
 import { existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { learnFromEdit } from '@chawo/engine/dictionary/learnedWords';
+import { emit, handle } from './ipc';
+import type { EventChannel, EventMap } from '@chawo/ipc/contract';
 
 /** @public Also read by scripts/smoke-history.cjs from the built app. */
 export function historyPath(): string {
@@ -21,10 +23,7 @@ export function historyPath(): string {
 }
 
 export function registerHistoryIpc(getWindow: () => BrowserWindow | null, settings: { get: () => SettingsData }): HistoryController {
-  const send = (channel: string, payload: unknown) => {
-    const w = getWindow();
-    if (w && !w.isDestroyed()) w.webContents.send(channel, payload);
-  };
+  const send = <C extends EventChannel>(channel: C, payload: EventMap[C]) => emit(getWindow(), channel, payload);
   let pushTimer: NodeJS.Timeout | null = null;
   const push = () => {
     if (pushTimer) return;
@@ -57,14 +56,14 @@ export function registerHistoryIpc(getWindow: () => BrowserWindow | null, settin
   });
   const str = (v: unknown) => (typeof v === 'string' ? v : '');
 
-  ipcMain.handle('history:state', () => ctl.state());
-  ipcMain.handle('history:query', (_e, q: unknown) => ctl.setQuery(str(q)));
-  ipcMain.handle('history:keep', (_e, k: unknown) => ctl.setKeep(str(k) as HistoryKeep));
-  ipcMain.handle('history:copy', (_e, id: unknown, which: unknown) => ctl.copy(str(id), which === 'raw' ? 'raw' : 'final'));
-  ipcMain.handle('history:remove', (_e, id: unknown) => ctl.remove(str(id)));
-  ipcMain.handle('history:clear', () => ctl.clearAll());
-  ipcMain.handle('history:edit', (_e, id: unknown, text: unknown) => ctl.edit(str(id), str(text)));
-  ipcMain.handle('history:rerun', (_e, id: unknown) => ctl.rerun(str(id)));
+  handle('history:state', () => ctl.state());
+  handle('history:query', (_e, q: unknown) => ctl.setQuery(str(q)));
+  handle('history:keep', (_e, k: unknown) => ctl.setKeep(str(k) as HistoryKeep));
+  handle('history:copy', (_e, id: unknown, which: unknown) => ctl.copy(str(id), which === 'raw' ? 'raw' : 'final'));
+  handle('history:remove', (_e, id: unknown) => ctl.remove(str(id)));
+  handle('history:clear', () => ctl.clearAll());
+  handle('history:edit', (_e, id: unknown, text: unknown) => ctl.edit(str(id), str(text)));
+  handle('history:rerun', (_e, id: unknown) => ctl.rerun(str(id)));
 
   // «Спросить историю»
   let askTimer: NodeJS.Timeout | null = null;
@@ -107,13 +106,13 @@ export function registerHistoryIpc(getWindow: () => BrowserWindow | null, settin
     open: (p) => void shell.openPath(p),
     push: askPush,
   });
-  ipcMain.handle('ask:state', () => ask.state());
-  ipcMain.handle('ask:run', (_e, q: unknown) => ask.ask(str(q)));
-  ipcMain.handle('ask:cancel', () => ask.cancel());
-  ipcMain.handle('ask:history', (_e, on: unknown) => ask.setHistory(on === true));
-  ipcMain.handle('ask:addFolder', () => ask.addFolder());
-  ipcMain.handle('ask:removeFolder', (_e, p: unknown) => ask.removeFolder(str(p)));
-  ipcMain.handle('ask:copy', () => ask.copyAnswer());
-  ipcMain.handle('ask:open', (_e, p: unknown) => ask.openSource(str(p)));
+  handle('ask:state', () => ask.state());
+  handle('ask:run', (_e, q: unknown) => ask.ask(str(q)));
+  handle('ask:cancel', () => ask.cancel());
+  handle('ask:history', (_e, on: unknown) => ask.setHistory(on === true));
+  handle('ask:addFolder', () => ask.addFolder());
+  handle('ask:removeFolder', (_e, p: unknown) => ask.removeFolder(str(p)));
+  handle('ask:copy', () => ask.copyAnswer());
+  handle('ask:open', (_e, p: unknown) => ask.openSource(str(p)));
   return ctl;
 }

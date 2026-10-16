@@ -2,520 +2,57 @@
 // real content as the WPF SettingsWindow is ported. Plain DOM, no framework; paths are set via textContent only.
 // «Диктовка» also owns the microphone: getUserMedia → AudioWorklet (mic-processor.js, 16 kHz mono) → main.
 
-interface FileItem { id: number; path: string; state: 'Queued' | 'Running' | 'Done' | 'Failed' | 'Stopped'; note: string; outputPath?: string }
-const EXTRA_FORMATS: readonly [string, [string, string]][] = [
+import { chawo, invoke, on, send } from './bridge';
+import type {
+  AskStateDto,
+  BrainStateDto,
+  CrmStateDto,
+  CrmTarget,
+  CueEventDto,
+  DictationStateDto,
+  DictionaryStateDto,
+  FileStateDto,
+  HistoryStateDto,
+  McpStateDto,
+  MeetingStartResult,
+  MeetingStateDto,
+  NetworkStateDto,
+  SalesStateDto,
+  SpeechStateDto,
+  WakeWantDto,
+} from '@chawo/ipc/contract';
+
+// Page models come from the IPC contract; short local names keep the page code readable.
+type FileState = FileStateDto;
+type FileItem = FileStateDto['items'][number];
+type FileExtraFormat = FileStateDto['options']['extra'][number];
+type MeetingState = MeetingStateDto;
+type SystemPlan = MeetingStartResult['system'];
+type SpeechState = SpeechStateDto;
+type DictState = DictionaryStateDto;
+type SalesState = SalesStateDto;
+type BrainState = BrainStateDto;
+type DictationState = DictationStateDto;
+type TextPart = NonNullable<DictationStateDto['noModel']>[number];
+type WakeWant = WakeWantDto;
+type CueToneSpec = CueEventDto['tones'][number];
+type NetworkState = NetworkStateDto;
+type HistoryState = HistoryStateDto;
+type AskState = AskStateDto;
+type McpState = McpStateDto;
+type CrmState = CrmStateDto;
+
+/** Drag-and-drop: File objects → absolute paths (File.path is gone in modern Electron). */
+const addDropped = (files: File[]) => invoke('file:add', files.map((f) => chawo.pathForFile(f)).filter(Boolean), true);
+
+const EXTRA_FORMATS: readonly [FileExtraFormat, [string, string]][] = [
   ['vtt', ['Субтитры WebVTT для сайтов и плееров', 'WebVTT subtitles for web players']],
   ['json', ['Фразы со временем для скриптов', 'Timed phrases for scripts']],
   ['md', ['Markdown для заметок', 'Markdown for notes']],
   ['docx', ['Документ Word', 'Word document']],
 ];
-interface FileState {
-  items: FileItem[];
-  status: string;
-  busy: boolean;
-  options: { timestamps: boolean; srt: boolean; extra: string[]; parallelism: string; diarize: boolean; brief: boolean; score?: boolean };
-  ffmpeg: { line: string; canDownload: boolean; installed: boolean };
-  url: { line: string; canDownload: boolean; installed: boolean; managed: boolean; busy: boolean; folder: string };
-  diarization: { onDisk: boolean; ready: boolean; downloading: boolean; line: string; canDownload: boolean };
-  lastOutput: string | null;
-  brief: {
-    enabled: boolean;
-    instruction: string;
-    defaultInstruction: string;
-    template: string;
-    templates: { id: string; name: string; builtin: boolean; instruction: string }[];
-    templateNote: string;
-    where: string;
-    available: boolean;
-    text: string;
-    path: string | null;
-    busy: boolean;
-  };
-  score?: {
-    enabled: boolean;
-    checklist: string;
-    checklists: { id: string; name: string; builtin: boolean; items: string[] }[];
-    note: string;
-    where: string;
-    available: boolean;
-    result: { checklist: { id: string; name: string }; items: { item: string; verdict: 'yes' | 'partial' | 'no'; quote: string; note: string }[]; score: number; max: number; percent: number } | null;
-    path: string | null;
-    busy: boolean;
-  };
-  translate: {
-    target: string;
-    languages: { code: string; label: string }[];
-    where: string;
-    available: boolean;
-    text: string;
-    path: string | null;
-    busy: boolean;
-  };
-  ru: boolean;
-  editor: {
-    available: boolean;
-    reason?: string;
-    audioPath: string | null;
-    txtPath: string | null;
-    segments: { start: number; end: number; text: string; speaker?: number }[];
-    mediaUrl: string | null;
-    sourceHint?: string;
-    note?: string;
-  };
-  callStats?: {
-    stats: CallStatsView | null;
-    trackers: string;
-    defaultTrackers: string;
-  };
-}
-interface CallStatsView {
-  durationSeconds: number;
-  talkSeconds: number;
-  words: number;
-  phrases: number;
-  diarized: boolean;
-  speakers: { speaker: number; talkSeconds: number; share: number; words: number; phrases: number; questions: number; wpm: number; longestMonologueSeconds: number }[];
-  turns: number;
-  turnsPerMinute: number;
-  longestMonologue: { speaker: number; start: number; end: number; seconds: number } | null;
-  longMonologues: number;
-  trackers: { name: string; terms: string[]; count: number; hits: { start: number; speaker?: number; term: string; text: string }[] }[];
-}
-interface FileApi {
-  state(): Promise<FileState>;
-  pick(kind: 'files' | 'folder'): Promise<FileState>;
-  addDropped(files: File[]): Promise<FileState>;
-  remove(id: number): Promise<FileState>;
-  clearFinished(): Promise<FileState>;
-  run(): Promise<FileState>;
-  stop(): Promise<FileState>;
-  reveal(path?: string): Promise<boolean>;
-  setOptions(o: Partial<FileState['options']>): Promise<FileState>;
-  downloadFfmpeg(): Promise<FileState>;
-  fromUrl(url: string): Promise<FileState>;
-  downloadYtDlp(): Promise<FileState>;
-  downloadDiarize(): Promise<FileState>;
-  setBriefInstruction(text: string): Promise<FileState>;
-  setBriefTemplate(id: string): Promise<FileState>;
-  saveBriefTemplate(name: string, instruction: string): Promise<FileState>;
-  deleteBriefTemplate(name: string): Promise<FileState>;
-  runBrief(path?: string): Promise<FileState>;
-  setScoreChecklist(id: string): Promise<FileState>;
-  saveChecklist(name: string, items: string): Promise<FileState>;
-  deleteChecklist(name: string): Promise<FileState>;
-  runScore(path?: string): Promise<FileState>;
-  setCallTrackers(text: string): Promise<FileState>;
-  setTranslateTarget(text: string): Promise<FileState>;
-  runTranslate(to?: string, path?: string): Promise<FileState>;
-  openEditor(path?: string): Promise<FileState>;
-  editPhrase(index: number, text: string): Promise<FileState>;
-  mediaUrl(audioPath: string): Promise<string | null>;
-  onState(fn: (s: FileState) => void): () => void;
-  onToast(fn: (s: string) => void): () => void;
-}
-interface MeetingOffer {
-  reasons: string[];
-  fingerprint: string;
-  appsSupported: boolean;
-}
-interface MeetingState {
-  recording: boolean;
-  startedAt: number;
-  seconds: number;
-  systemOn: boolean;
-  systemSupported: boolean;
-  capturing: 'mic+system' | 'mic' | null;
-  folder: string;
-  note: string;
-  ru: boolean;
-  autoDetect: boolean;
-  autoDetectApps: boolean;
-  autoDetectCalendar: string;
-  offer: MeetingOffer | null;
-}
-type SystemPlan = { kind: 'loopback' } | { kind: 'none' };
-interface MeetingApi {
-  state(): Promise<MeetingState>;
-  start(): Promise<{ ok: boolean; micId: string; system: SystemPlan; state: MeetingState }>;
-  systemOpened(ok: boolean, reason?: string): Promise<MeetingState>;
-  pcm(chunk: Float32Array): void;
-  stop(): Promise<MeetingState>;
-  cancel(): Promise<MeetingState>;
-  failed(reason: string): Promise<MeetingState>;
-  setSystem(on: boolean): Promise<MeetingState>;
-  setAutoDetect(on: boolean): Promise<MeetingState>;
-  setAutoDetectApps(on: boolean): Promise<MeetingState>;
-  setAutoDetectCalendar(path: string): Promise<MeetingState>;
-  pickCalendar(): Promise<MeetingState>;
-  offerSnooze(): Promise<MeetingState>;
-  offerNever(): Promise<MeetingState>;
-  detectNow(): Promise<unknown>;
-  onState(fn: (s: MeetingState) => void): () => void;
-}
-interface SpeechModelRow { kind: string; label: string; selected: boolean; onDisk: boolean; path: string | null; canDelete: boolean; deleteTip: string }
-interface SpeechState {
-  ru: boolean;
-  client: boolean;
-  intro: string;
-  models: SpeechModelRow[];
-  note: string;
-  device: 'Gpu' | 'Cpu';
-  deviceChoices: { value: 'Gpu' | 'Cpu'; label: string }[];
-  cpuThreads: number;
-  cores: number;
-  threadsHint: string;
-  idleMinutes: number;
-  idleChoices: { value: number; label: string }[];
-  idleHint: string;
-  status: string;
-  download: { kind: string; percent: number | null; text: string; running: boolean; failed: boolean } | null;
-  vad: { enabled: boolean; onDisk: boolean; downloading: boolean; canDownload: boolean; note: string } | null;
-}
-interface SpeechApi {
-  state(): Promise<SpeechState>;
-  select(kind: string): Promise<SpeechState>;
-  setDevice(d: 'Gpu' | 'Cpu'): Promise<SpeechState>;
-  setThreads(n: number): Promise<SpeechState>;
-  setIdle(minutes: number): Promise<SpeechState>;
-  download(kind: string): Promise<SpeechState>;
-  cancel(): Promise<SpeechState>;
-  dismiss(): Promise<SpeechState>;
-  remove(kind: string): Promise<SpeechState>;
-  setVad(on: boolean): Promise<SpeechState>;
-  downloadVad(): Promise<SpeechState>;
-  onState(fn: (s: SpeechState) => void): () => void;
-}
-interface DictRow { id: number; from: string; to: string }
-interface DictSuggestionRow { id: number; heard: string; written: string; source: string }
-interface DictState {
-  ru: boolean;
-  intro: string;
-  heardHeader: string;
-  writtenHeader: string;
-  addLabel: string;
-  deleteLabel: string;
-  suggestLabel: string;
-  addSuggestionLabel: string;
-  suggestHint: string;
-  hintKind: 'idle' | 'noFolder' | 'none' | 'found';
-  rows: DictRow[];
-  suggestions: DictSuggestionRow[];
-  spoken: { punctuation: boolean; numbers: boolean; punctuationLabel: string; punctuationHint: string; numbersLabel: string; numbersHint: string };
-  script: { heading: string; command: string; placeholder: string; hint: string; files: boolean; filesLabel: string; testLabel: string; testLine: string; testOk: boolean | null; busy: boolean };
-  learned: { heading: string; hint: string; autoAdd: boolean; autoLabel: string; acceptLabel: string; dismissLabel: string; empty: string; rows: { from: string; to: string; count: number; times: string }[] };
-  snippets: { heading: string; hint: string; triggerHeader: string; textHeader: string; triggerPlaceholder: string; textPlaceholder: string; addLabel: string; rows: { id: number; trigger: string; text: string }[] };
-}
-interface DictApi {
-  setScript(command: string): Promise<DictState>;
-  setScriptFiles(on: boolean): Promise<DictState>;
-  testScript(): Promise<DictState>;
-  setSnippet(id: number, trigger: string, text: string): Promise<DictState>;
-  addSnippet(): Promise<{ id: number; state: DictState }>;
-  removeSnippet(id: number): Promise<DictState>;
-  acceptLearned(from: string, to: string): Promise<DictState>;
-  dismissLearned(from: string, to: string): Promise<DictState>;
-  setLearnAuto(on: boolean): Promise<DictState>;
-  setSpoken(kind: 'punctuation' | 'numbers', on: boolean): Promise<DictState>;
-  state(): Promise<DictState>;
-  setRow(id: number, from: string, to: string): Promise<DictState>;
-  add(): Promise<{ id: number; state: DictState }>;
-  remove(id: number): Promise<DictState>;
-  suggest(): Promise<DictState>;
-  addSuggestion(heard: string, written: string): Promise<DictState>;
-}
-interface SalesRowDto { id: number; Code: string; Name: string; Line: string; SimilarCode: string }
-interface SalesState {
-  ru: boolean;
-  intro: string;
-  callHeading: string;
-  callIntro: string;
-  extensionHeader: string;
-  numberHeader: string;
-  managerHeader: string;
-  showCallLabel: string;
-  call: { extension: string; number: string; manager: string; status: string };
-  codeHeader: string;
-  nameHeader: string;
-  lineHeader: string;
-  similarHeader: string;
-  addLabel: string;
-  deleteLabel: string;
-  rows: SalesRowDto[];
-  ragHeading: string;
-  ragIntro: string;
-  ragFolder: string;
-  ragFolderText: string;
-  pickLabel: string;
-  clearLabel: string;
-  canClear: boolean;
-  ragStatus: string;
-  modeNote: string;
-  salesMode: boolean;
-}
-interface SalesApi {
-  state(): Promise<SalesState>;
-  setRow(id: number, code: string, name: string, line: string, similar: string): Promise<SalesState>;
-  add(): Promise<{ id: number; state: SalesState }>;
-  remove(id: number): Promise<SalesState>;
-  pickFolder(): Promise<SalesState>;
-  clearFolder(): Promise<SalesState>;
-  showCall(extension: string, number: string, manager: string): Promise<SalesState>;
-}
-interface BrainRow { kind: string | null; label: string; selected: boolean; onDisk: boolean; path: string | null; canDownload: boolean; downloadLabel: string }
-interface BrainDownload { kind: string; title: string; intro: string; percent: number | null; text: string; running: boolean; failed: boolean }
-interface BrainState {
-  ru: boolean;
-  heading: string;
-  hint: string;
-  source: string;
-  sourceChoices: { value: string; label: string }[];
-  status: string;
-  server: {
-    visible: boolean;
-    providers: { id: string; label: string }[];
-    providerId: string;
-    custom: boolean;
-    url: string;
-    keySaved: boolean;
-    keyPlaceholder: string;
-    keysLink: string;
-    keysLinkEnabled: boolean;
-    model: string;
-    models: string[];
-    loading: boolean;
-    status: string;
-  };
-  local: {
-    visible: boolean;
-    rows: BrainRow[];
-    device: string;
-    deviceChoices: { value: string; label: string }[];
-    deviceHint: string;
-    customUrlVisible: boolean;
-    customUrl: string;
-    fileStatus: string;
-  };
-  everyTake: { visible: boolean; on: boolean; hint: string };
-  instruction: { visible: boolean; text: string; hint: string };
-  selection: { visible: boolean; on: boolean; hint: string };
-  context: { visible: boolean; clipboard: boolean; app: boolean; hint: string; warning: string };
-  download: BrainDownload | null;
-  appRules: {
-    heading: string;
-    hint: string;
-    rules: { match: string; edit: string; instruction: string; instructionVisible: boolean; simple: string; active: boolean; hit: boolean }[];
-    editVisible: boolean;
-    editChoices: { value: string; label: string }[];
-    simpleChoices: { value: string; label: string }[];
-    matchPlaceholder: string;
-    instructionPlaceholder: string;
-    last: string;
-    lastMatch: string;
-    canAdd: boolean;
-  };
-}
-interface BrainApi {
-  state(rebind?: boolean): Promise<BrainState>;
-  setSource(v: string): Promise<BrainState>;
-  setEveryTake(v: boolean): Promise<BrainState>;
-  setInstruction(v: string): Promise<BrainState>;
-  setSelection(v: boolean): Promise<BrainState>;
-  setContext(v: { clipboard?: boolean; app?: boolean }): Promise<BrainState>;
-  setDevice(v: string): Promise<BrainState>;
-  setLocalModel(v: string): Promise<BrainState>;
-  setCustomUrl(v: string): Promise<BrainState>;
-  setProvider(id: string): Promise<BrainState>;
-  setKey(key: string): Promise<BrainState>;
-  setUrl(url: string): Promise<BrainState>;
-  setModel(model: string): Promise<BrainState>;
-  refresh(): Promise<BrainState>;
-  openKeysLink(): Promise<boolean>;
-  deleteGguf(path: string): Promise<BrainState>;
-  download(kind: string): Promise<BrainState>;
-  cancelDownload(): Promise<BrainState>;
-  dismissDownload(): Promise<BrainState>;
-  close(): Promise<boolean>;
-  onState(fn: (s: BrainState) => void): () => void;
-  addRule(match?: string): Promise<BrainState>;
-  updateRule(i: number, patch: Record<string, string>): Promise<BrainState>;
-  removeRule(i: number): Promise<BrainState>;
-  raiseRule(i: number): Promise<BrainState>;
-}
-type TextPart = string | { link: string; page: string };
-type Phase = 'NoModel' | 'Idle' | 'Listening' | 'Recognizing';
-interface DictationState {
-  ru: boolean;
-  intro: string;
-  startCard: null | { title: string; close: string; steps: TextPart[][] };
-  mode: string;
-  modeChoices: { value: string; label: string }[];
-  modeHint: string;
-  hotkey: number;
-  hotkeyChoices: { value: number; label: string }[];
-  hotkeyTitle: string;
-  insertMode: string;
-  insertChoices: { value: string; label: string }[];
-  keyNote: string;
-  showOverlay: boolean;
-  overlayLabel: string;
-  overlayTip: string;
-  soundCues: boolean;
-  soundCuesLabel: string;
-  soundCuesTip: string;
-  wakeWord: boolean;
-  wakeLabel: string;
-  wakeTip: string;
-  wakeNote: string;
-  micId: string;
-  micChoices: { value: string; label: string }[];
-  micHint: string;
-  phase: Phase;
-  phaseLine: string;
-  stopEnabled: boolean;
-  stopLabel: string;
-  stopTip: string;
-  holdLabel: string;
-  holdEnabled: boolean;
-  holdHint: string;
-  status: string;
-  noModel: TextPart[] | null;
-  lastText: string;
-  lastTextLabel: string;
-  client: boolean;
-  version: string;
-  versionLabel: string;
-  checkUpdatesLabel: string;
-  checkUpdatesTip: string;
-}
-interface DictationApi {
-  state(): Promise<DictationState>;
-  setMode(v: string): Promise<DictationState>;
-  setHotkey(vk: number): Promise<DictationState>;
-  setInsertMode(v: string): Promise<DictationState>;
-  setOverlay(v: boolean): Promise<DictationState>;
-  setSoundCues(v: boolean): Promise<DictationState>;
-  setMic(id: string): Promise<DictationState>;
-  setDevices(list: { id: string; label: string }[], defaultName: string): Promise<DictationState>;
-  dismissStartCard(): Promise<DictationState>;
-  startTake(): Promise<{ ok: boolean; micId: string; state: DictationState }>;
-  appendPcm(chunk: Float32Array): void;
-  stopTake(): Promise<DictationState>;
-  cancelTake(): Promise<DictationState>;
-  micFailed(name: string, message: string): Promise<DictationState>;
-  onState(fn: (s: DictationState) => void): () => void;
-  onLevel(fn: (v: number) => void): () => void;
-  onCue(fn: (cue: { kind: string; tones: CueToneSpec[] }) => void): () => void;
-  onHot(fn: (ev: HotEvent) => void): () => void;
-  setWakeWord(v: boolean): Promise<DictationState>;
-  wakeWant(): Promise<WakeWant>;
-  onWake(fn: (want: WakeWant) => void): () => void;
-  wakePcm(chunk: Float32Array): void;
-  wakeMicFailed(name: string, message: string): Promise<DictationState>;
-  checkUpdates(): Promise<DictationState>;
-}
 /** «Чаво»: keep a microphone open for the word (main decides), on this device ('' = default). */
-interface WakeWant { on: boolean; micId: string }
 /** The global hold key: the main side already started the take; this side only runs the mic. */
-type HotEvent = { kind: 'start'; micId: string } | { kind: 'stop' } | { kind: 'end' };
-interface CueToneSpec { freq: number; at: number; ms: number; gain: number }
-interface NetworkState {
-  ru: boolean;
-  heading: string;
-  intro: string;
-  roleLabel: string;
-  role: 'Host' | 'Client';
-  roleChoices: { value: string; label: string }[];
-  client: boolean;
-  host: {
-    note: string;
-    heading: string;
-    status: string;
-    lanOn: boolean;
-    lanButton: string;
-    lanBusy: boolean;
-    firewallNote: string;
-    keepAwake: boolean;
-    keepAwakeLabel: string;
-    keepAwakeHint: string;
-  };
-  remote: {
-    note: string;
-    hostLabel: string;
-    portLabel: string;
-    host: string;
-    port: number;
-    checkLabel: string;
-    checking: boolean;
-    checkStatus: string;
-  };
-}
-interface NetworkApi {
-  state(): Promise<NetworkState>;
-  setRole(v: string): Promise<NetworkState>;
-  setRemote(host: string, port: string): Promise<NetworkState>;
-  checkHost(): Promise<NetworkState>;
-  toggleLan(): Promise<NetworkState>;
-  setKeepAwake(v: boolean): Promise<NetworkState>;
-  onState(fn: (s: NetworkState) => void): () => void;
-}
-interface HistoryRow { id: string; when: string; seconds: string; final: string; raw: string | null; command: string | null; tag: string; failed: boolean }
-interface HistoryState {
-  ru: boolean;
-  intro: string;
-  keepLabel: string;
-  keep: string;
-  keepChoices: { value: string; label: string }[];
-  keepHint: string;
-  query: string;
-  searchPlaceholder: string;
-  rows: HistoryRow[];
-  countLine: string;
-  empty: string;
-  status: string;
-  canRerun: boolean;
-  rerunTip: string;
-  rerunningId: string | null;
-  labels: { copy: string; copyRaw: string; rerun: string; remove: string; clearAll: string; rawHeader: string; edit: string; save: string; cancel: string };
-}
-interface HistoryApi {
-  state(): Promise<HistoryState>;
-  setQuery(q: string): Promise<HistoryState>;
-  setKeep(k: string): Promise<HistoryState>;
-  copy(id: string, which: 'final' | 'raw'): Promise<HistoryState>;
-  remove(id: string): Promise<HistoryState>;
-  clearAll(): Promise<HistoryState>;
-  rerun(id: string): Promise<HistoryState>;
-  edit(id: string, text: string): Promise<HistoryState>;
-  onState(fn: (s: HistoryState) => void): () => void;
-}
-interface AskExcerpt { n: number; title: string; when: string; path: string | null; text: string; cited: boolean }
-interface AskState {
-  ru: boolean;
-  title: string;
-  placeholder: string;
-  question: string;
-  busy: boolean;
-  status: string;
-  answer: string | null;
-  excerpts: AskExcerpt[];
-  useHistory: boolean;
-  meetingFolders: string[];
-  folders: string[];
-  brainLine: string;
-  labels: { ask: string; cancel: string; history: string; meetings: string; addFolder: string; remove: string; copy: string; open: string; sources: string; where: string };
-}
-interface AskApi {
-  state(): Promise<AskState>;
-  run(q: string): Promise<AskState>;
-  cancel(): Promise<AskState>;
-  setHistory(on: boolean): Promise<AskState>;
-  addFolder(): Promise<AskState>;
-  removeFolder(p: string): Promise<AskState>;
-  copy(): Promise<AskState>;
-  open(p: string): Promise<AskState>;
-  onState(fn: (s: AskState) => void): () => void;
-}
-const bridge = (window as unknown as { chawo: { file: FileApi; meeting: MeetingApi; speech: SpeechApi; dict: DictApi; brain: BrainApi; dictation: DictationApi; network: NetworkApi; mcp: McpApi; sales: SalesApi; history: HistoryApi; ask: AskApi; crm: CrmApi } }).chawo;
 
 const titlesEn: Record<string, string> = {
   dictation: 'Dictation',
@@ -547,8 +84,6 @@ let dictState: DictState | null = null;
 let brainState: BrainState | null = null;
 let dictationState: DictationState | null = null;
 let networkState: NetworkState | null = null;
-interface McpState { enabled: boolean; snippet: string; copied: boolean }
-interface McpApi { state(): Promise<McpState>; enable(on: boolean): Promise<McpState>; copy(): Promise<McpState> }
 let mcpState: McpState | null = null;
 let mcpLoading = false;
 
@@ -557,7 +92,7 @@ function appendMcp(): void {
   if (!mcpState) {
     if (!mcpLoading) {
       mcpLoading = true;
-      void bridge.mcp.state().then((st) => { mcpState = st; mcpLoading = false; if (current === 'network') renderNetwork(); });
+      void invoke('mcp:state').then((st) => { mcpState = st; mcpLoading = false; if (current === 'network') renderNetwork(); });
     }
     return;
   }
@@ -565,7 +100,7 @@ function appendMcp(): void {
   const set = (p: Promise<McpState>) => void p.then((x) => { mcpState = x; renderNetwork(); });
   const on = el('input', { type: 'checkbox', checked: st.enabled });
   on.dataset.mcp = 'enabled';
-  on.addEventListener('change', () => set(bridge.mcp.enable(on.checked)));
+  on.addEventListener('change', () => set(invoke('mcp:enable', on.checked)));
   const box = el('fieldset', { className: 'mcp-box' },
     el('legend', { textContent: L('MCP-сервер для ассистентов', 'MCP server for assistants') }),
     el('label', { className: 'check' }, on, L(' Разрешить chawo-va mcp', ' Allow chawo-va mcp')),
@@ -576,7 +111,7 @@ function appendMcp(): void {
   if (st.enabled) {
     const pre = el('pre', { className: 'mcp-snippet', textContent: st.snippet });
     pre.dataset.mcp = 'snippet';
-    const copy = button(st.copied ? L('Скопировано', 'Copied') : L('Копировать конфиг', 'Copy config'), () => set(bridge.mcp.copy()));
+    const copy = button(st.copied ? L('Скопировано', 'Copied') : L('Копировать конфиг', 'Copy config'), () => set(invoke('mcp:copy')));
     copy.dataset.mcp = 'copy';
     box.append(pre, el('div', { className: 'row' }, copy));
   }
@@ -677,24 +212,6 @@ function selectOf(choices: { value: string; label: string }[], value: string, on
 }
 
 // ---------- «В CRM» (brief card button + settings block) ----------
-type CrmTarget = 'amocrm' | 'bitrix' | 'hubspot' | 'webhook';
-interface CrmState {
-  targets: { id: CrmTarget; name: string; ready: boolean }[];
-  config: Record<CrmTarget, Record<string, string | boolean>>;
-  preview: string;
-  previewFor: { target: CrmTarget; id: string; score: boolean; path: string } | null;
-  duplicate: string;
-  status: string;
-  ok: boolean | null;
-  busy: boolean;
-}
-interface CrmApi {
-  state(): Promise<CrmState>;
-  setConfig(target: CrmTarget, fields: Record<string, unknown>): Promise<CrmState>;
-  preview(path: string, target: CrmTarget, id: string, score: boolean): Promise<CrmState>;
-  clearPreview(): Promise<CrmState>;
-  send(force: boolean): Promise<CrmState>;
-}
 let crmState: CrmState | null = null;
 const crmUi = { open: false, target: '' as CrmTarget | '', id: '', score: false };
 
@@ -703,24 +220,24 @@ function crmPanel(briefPath: string, host: HTMLElement): void {
   const redraw = (st: CrmState) => { crmState = st; crmPanel(briefPath, host); };
   host.replaceChildren();
   const s = crmState;
-  if (!s) { void bridge.crm.state().then(redraw); return; }
+  if (!s) { void invoke('crm:state').then(redraw); return; }
   const ready = s.targets.filter((x) => x.ready);
   if (ready.length === 0) {
     host.append(el('p', { className: 'muted hint', textContent: L('CRM не настроена — заполните «Настройки CRM» ниже.', 'No CRM set up — fill in «CRM settings» below.') }));
     return;
   }
   if (!ready.some((x) => x.id === crmUi.target)) crmUi.target = ready[0].id;
-  const tgt = selectOf(ready.map((x) => ({ value: x.id, label: x.name })), crmUi.target, (v) => { crmUi.target = v as CrmTarget; void bridge.crm.clearPreview().then(redraw); });
+  const tgt = selectOf(ready.map((x) => ({ value: x.id, label: x.name })), crmUi.target, (v) => { crmUi.target = v as CrmTarget; void invoke('crm:clearPreview').then(redraw); });
   tgt.dataset.crm = 'target';
   tgt.setAttribute('aria-label', L('Куда', 'Where'));
   const id = el('input', { type: 'text', value: crmUi.id, spellcheck: false, placeholder: crmUi.target === 'webhook' ? L('id (необязательно)', 'id (optional)') : L('id сделки / контакта', 'deal / contact id') });
   id.dataset.crm = 'id';
   id.className = 'crm-id';
-  id.addEventListener('input', () => { crmUi.id = id.value; if (s.preview) void bridge.crm.clearPreview().then(redraw); });
+  id.addEventListener('input', () => { crmUi.id = id.value; if (s.preview) void invoke('crm:clearPreview').then(redraw); });
   const sc = el('input', { type: 'checkbox', checked: crmUi.score });
   sc.dataset.crm = 'score';
-  sc.addEventListener('change', () => { crmUi.score = sc.checked; void bridge.crm.clearPreview().then(redraw); });
-  const show = button(L('Показать, что уйдёт', 'Show what goes out'), () => void bridge.crm.preview(briefPath, crmUi.target as CrmTarget, crmUi.id, crmUi.score).then(redraw));
+  sc.addEventListener('change', () => { crmUi.score = sc.checked; void invoke('crm:clearPreview').then(redraw); });
+  const show = button(L('Показать, что уйдёт', 'Show what goes out'), () => void invoke('crm:preview', briefPath, crmUi.target as CrmTarget, crmUi.id, crmUi.score).then(redraw));
   show.dataset.crm = 'preview';
   host.append(el('div', { className: 'row inline crm-row' }, tgt, id, el('label', {}, sc, L(' + оценка', ' + score')), show));
   const fresh = s.previewFor && s.previewFor.path === briefPath && s.previewFor.target === crmUi.target && s.previewFor.id === crmUi.id.trim() && s.previewFor.score === crmUi.score;
@@ -729,10 +246,10 @@ function crmPanel(briefPath: string, host: HTMLElement): void {
     pre.dataset.crm = 'previewText';
     host.append(pre);
     if (s.duplicate) host.append(el('p', { className: 'hint warn', textContent: s.duplicate }));
-    const send = button(s.busy ? L('Отправляю…', 'Sending…') : s.duplicate ? L('Отправить ещё раз', 'Send again') : L('Отправить', 'Send'), () => void bridge.crm.send(Boolean(s.duplicate)).then(redraw), 'primary');
+    const send = button(s.busy ? L('Отправляю…', 'Sending…') : s.duplicate ? L('Отправить ещё раз', 'Send again') : L('Отправить', 'Send'), () => void invoke('crm:send', Boolean(s.duplicate)).then(redraw), 'primary');
     send.dataset.crm = 'send';
     send.disabled = s.busy;
-    host.append(el('div', { className: 'row' }, send, button(L('Отмена', 'Cancel'), () => { crmUi.open = false; void bridge.crm.clearPreview().then((st) => { crmState = st; host.replaceChildren(); }); }, 'link')));
+    host.append(el('div', { className: 'row' }, send, button(L('Отмена', 'Cancel'), () => { crmUi.open = false; void invoke('crm:clearPreview').then((st) => { crmState = st; host.replaceChildren(); }); }, 'link')));
   }
   if (s.status) {
     const st = el('p', { className: `status line${s.ok === false ? ' warn' : ''}`, textContent: s.status });
@@ -746,7 +263,7 @@ function crmSettings(): HTMLElement {
   const box = el('details', { className: 'crm-settings' }, el('summary', { textContent: L('Настройки CRM', 'CRM settings') }));
   box.dataset.crm = 'settings';
   const s = crmState;
-  if (!s) { void bridge.crm.state().then((st) => { crmState = st; box.replaceWith(crmSettings()); }); return box; }
+  if (!s) { void invoke('crm:state').then((st) => { crmState = st; box.replaceWith(crmSettings()); }); return box; }
   box.open = crmSettingsOpen;
   box.addEventListener('toggle', () => { crmSettingsOpen = box.open; });
   box.append(el('p', { className: 'muted hint', textContent: L('Уходит только карточка «Кратко и задачи» (и оценка, если отметить) и только по кнопке «Отправить» после просмотра. Токены хранятся только на этом компьютере (crm.json) и сюда не возвращаются.', 'Only the brief (and the score if ticked) goes out, and only by «Send» after the preview. Tokens stay on this computer (crm.json) and are never shown again.') }));
@@ -772,10 +289,10 @@ function crmSettings(): HTMLElement {
     const save = button(L('Сохранить', 'Save'), () => {
       const fields: Record<string, unknown> = {};
       for (const i of inputs) fields[(i.dataset.crm ?? '').split('.')[1]] = (i as HTMLInputElement).value;
-      void bridge.crm.setConfig(target, fields).then((st) => { crmState = st; box.replaceWith(crmSettings()); });
+      void invoke('crm:setConfig', target, fields).then((st) => { crmState = st; box.replaceWith(crmSettings()); });
     });
     save.dataset.crm = `${target}.save`;
-    const clr = button(L('Очистить', 'Clear'), () => void bridge.crm.setConfig(target, { clear: true }).then((st) => { crmState = st; box.replaceWith(crmSettings()); }), 'link');
+    const clr = button(L('Очистить', 'Clear'), () => void invoke('crm:setConfig', target, { clear: true }).then((st) => { crmState = st; box.replaceWith(crmSettings()); }), 'link');
     const ready = s.targets.find((x) => x.id === target)?.ready;
     box.append(el('div', { className: 'crm-target' }, el('strong', { textContent: name + (ready ? ' ✓' : '') }), ...inputs, save, clr));
   }
@@ -814,7 +331,7 @@ function renderNetwork(): void {
   if (!s) return;
   page.append(el('p', { className: 'muted', textContent: s.intro }));
   page.append(el('label', { className: 'block', textContent: s.roleLabel }));
-  const role = selectOf(s.roleChoices, s.role, (v) => void bridge.network.setRole(v).then(applyNetwork));
+  const role = selectOf(s.roleChoices, s.role, (v) => void invoke('network:role', v).then(applyNetwork));
   role.className = 'wide';
   page.append(role);
 
@@ -827,13 +344,13 @@ function renderNetwork(): void {
     box.append(status);
     const lan = button(h.lanButton, () => {
       lan.disabled = true;
-      void bridge.network.toggleLan().then(applyNetwork);
+      void invoke('network:lan').then(applyNetwork);
     });
     lan.disabled = h.lanBusy;
     box.append(el('div', { className: 'row' }, lan));
     if (h.firewallNote) box.append(el('p', { className: 'muted hint', textContent: h.firewallNote }));
     const awake = el('input', { type: 'checkbox', checked: h.keepAwake });
-    awake.addEventListener('change', () => void bridge.network.setKeepAwake(awake.checked).then(applyNetwork));
+    awake.addEventListener('change', () => void invoke('network:keepAwake', awake.checked).then(applyNetwork));
     box.append(el('label', { className: 'check' }, awake, ' ' + h.keepAwakeLabel));
     box.append(el('p', { className: 'muted hint indent', textContent: h.keepAwakeHint }));
     page.append(box);
@@ -846,7 +363,7 @@ function renderNetwork(): void {
   const host = el('input', { type: 'text', value: r.host, spellcheck: false, autocomplete: 'off', placeholder: '192.168.1.20' });
   const port = el('input', { type: 'text', value: String(r.port), spellcheck: false, autocomplete: 'off', inputMode: 'numeric' });
   port.style.width = '120px';
-  const commit = () => bridge.network.setRemote(host.value, port.value);
+  const commit = () => invoke('network:remote', host.value, port.value);
   // Saved when the field loses focus (WPF LostFocus); Enter does the same.
   for (const input of [host, port]) {
     input.addEventListener('change', () => void commit().then(applyNetwork));
@@ -860,7 +377,7 @@ function renderNetwork(): void {
   ));
   const check = button(r.checkLabel, () => {
     check.disabled = true;
-    void commit().then(() => bridge.network.checkHost()).then(applyNetwork);
+    void commit().then(() => invoke('network:check')).then(applyNetwork);
   });
   check.dataset.net = 'check';
   check.disabled = r.checking;
@@ -881,7 +398,7 @@ function renderBrain(): void {
 
   page.append(el('div', { className: 'row' },
     el('span', { textContent: L('Где думает', 'Runs on') }),
-    selectOf(s.sourceChoices, s.source, (v) => void bridge.brain.setSource(v).then(applyBrain)),
+    selectOf(s.sourceChoices, s.source, (v) => void invoke('brain:source', v).then(applyBrain)),
   ));
   if (s.status) page.append(el('p', { className: 'muted hint', textContent: s.status }));
 
@@ -889,21 +406,21 @@ function renderBrain(): void {
     const v = s.server;
     const grid = el('div', { className: 'form' });
     grid.append(el('span', { textContent: L('Сервис', 'Service') }),
-      selectOf(v.providers.map((p) => ({ value: p.id, label: p.label })), v.providerId, (id) => void bridge.brain.setProvider(id).then(applyBrain)));
+      selectOf(v.providers.map((p) => ({ value: p.id, label: p.label })), v.providerId, (id) => void invoke('brain:provider', id).then(applyBrain)));
     const key = el('input', { type: 'password', placeholder: v.keyPlaceholder, spellcheck: false, autocomplete: 'off' });
-    key.addEventListener('input', () => void bridge.brain.setKey(key.value).then((st) => {
+    key.addEventListener('input', () => void invoke('brain:key', key.value).then((st) => {
       // A pasted key may switch the service; redraw only then, so the caret stays put.
       if (brainState && st.server.providerId !== brainState.server.providerId) { key.blur(); applyBrain(st); }
       else applyBrainPush(st);
     }));
-    const link = button(v.keysLink, () => void bridge.brain.openKeysLink(), 'link');
+    const link = button(v.keysLink, () => void invoke('brain:keysLink'), 'link');
     link.disabled = !v.keysLinkEnabled;
     grid.append(el('span', { textContent: L('Ключ API', 'API key') }), el('div', {}, key, link));
     if (v.custom) {
       const url = el('input', { type: 'text', value: v.url, spellcheck: false, placeholder: 'http://localhost:11434/v1' });
       url.title = L('OpenAI-совместимый API, например http://localhost:1234/v1 (LM Studio) или http://localhost:11434/v1 (Ollama)',
         'An OpenAI-compatible API, e.g. http://localhost:1234/v1 (LM Studio) or http://localhost:11434/v1 (Ollama)');
-      url.addEventListener('change', () => void bridge.brain.setUrl(url.value).then(applyBrainPush));
+      url.addEventListener('change', () => void invoke('brain:url', url.value).then(applyBrainPush));
       grid.append(el('span', { textContent: L('Адрес', 'Address') }), url);
     }
     const model = el('input', { type: 'text', value: v.model, spellcheck: false });
@@ -912,8 +429,8 @@ function renderBrain(): void {
     model.dataset.brain = 'model';
     const list = el('datalist', { id: listId });
     for (const m of v.models) list.append(el('option', { value: m }));
-    model.addEventListener('change', () => void bridge.brain.setModel(model.value).then(applyBrainPush));
-    const refresh = button(L('Обновить', 'Reload'), () => void bridge.brain.refresh().then(applyBrain));
+    model.addEventListener('change', () => void invoke('brain:model', model.value).then(applyBrainPush));
+    const refresh = button(L('Обновить', 'Reload'), () => void invoke('brain:refresh').then(applyBrain));
     refresh.disabled = v.loading;
     refresh.dataset.brain = 'reload';
     grid.append(el('span', { textContent: L('Модель', 'Model') }), el('div', { className: 'inline' }, model, list, refresh));
@@ -932,7 +449,7 @@ function renderBrain(): void {
       if (r.kind) {
         const radio = el('input', { type: 'radio', name: 'brain-model', checked: r.selected, disabled: busy });
         const kind = r.kind;
-        radio.addEventListener('change', () => void bridge.brain.setLocalModel(kind).then(applyBrain));
+        radio.addEventListener('change', () => void invoke('brain:localModel', kind).then(applyBrain));
         row.append(el('label', {}, radio, ' ', r.label));
       } else {
         row.append(el('label', { textContent: r.label }));
@@ -940,13 +457,13 @@ function renderBrain(): void {
       if (r.onDisk) row.append(el('span', { className: 'disk', textContent: L('на диске', 'on disk') }));
       if (r.kind && r.canDownload) {
         const kind = r.kind;
-        const dl = button(r.downloadLabel, () => void bridge.brain.download(kind).then(applyBrain));
+        const dl = button(r.downloadLabel, () => void invoke('brain:download', kind).then(applyBrain));
         dl.disabled = busy;
         row.append(dl);
       }
       if (r.path) {
         const path = r.path;
-        const del = button(L('Удалить', 'Delete'), () => void bridge.brain.deleteGguf(path).then(applyBrain));
+        const del = button(L('Удалить', 'Delete'), () => void invoke('brain:deleteGguf', path).then(applyBrain));
         del.disabled = busy && r.selected;
         row.append(del);
       }
@@ -957,7 +474,7 @@ function renderBrain(): void {
       page.append(el('label', { className: 'block', textContent: L('Ссылка Hugging Face', 'Hugging Face link') }));
       const url = el('input', { type: 'text', value: v.customUrl, spellcheck: false });
       url.title = L('Страница файла .gguf или прямая ссылка resolve. Скачивается только по кнопке ниже.', 'A .gguf file page or a resolve link. Downloaded only by the button below.');
-      url.addEventListener('change', () => void bridge.brain.setCustomUrl(url.value).then(applyBrain));
+      url.addEventListener('change', () => void invoke('brain:customUrl', url.value).then(applyBrain));
       page.append(url);
     }
     if (v.fileStatus) page.append(el('p', { className: 'muted hint line', textContent: v.fileStatus }));
@@ -972,10 +489,10 @@ function renderBrain(): void {
       }
       card.append(el('p', { className: 'status muted', textContent: d.text }));
       const act = el('div', { className: 'row' });
-      if (d.running) act.append(button(L('Отмена', 'Cancel'), () => void bridge.brain.cancelDownload().then(applyBrain)));
+      if (d.running) act.append(button(L('Отмена', 'Cancel'), () => void invoke('brain:cancelDownload').then(applyBrain)));
       else {
-        if (d.failed) act.append(button(L('Повторить', 'Retry'), () => void bridge.brain.download(d.kind).then(applyBrain), 'primary'));
-        act.append(button(L('Скрыть', 'Hide'), () => void bridge.brain.dismissDownload().then(applyBrain), 'link'));
+        if (d.failed) act.append(button(L('Повторить', 'Retry'), () => void invoke('brain:download', d.kind).then(applyBrain), 'primary'));
+        act.append(button(L('Скрыть', 'Hide'), () => void invoke('brain:dismissDownload').then(applyBrain), 'link'));
       }
       card.append(act);
       page.append(card);
@@ -983,35 +500,35 @@ function renderBrain(): void {
       page.append(el('p', { className: 'muted hint', textContent: L('Пока кнопка «Скачать» не нажата, в сеть ничего не уходит.', 'Nothing goes out on the network until you press Download.') }));
     }
     page.append(el('label', { className: 'block', textContent: L('Где считает', 'Where it runs') }),
-      selectOf(v.deviceChoices, v.device, (d) => void bridge.brain.setDevice(d).then(applyBrain)),
+      selectOf(v.deviceChoices, v.device, (d) => void invoke('brain:device', d).then(applyBrain)),
       el('p', { className: 'muted hint', textContent: v.deviceHint }));
   }
 
   if (s.everyTake.visible) {
     page.append(el('label', { className: 'block', textContent: L('Переписывать фразу', 'Rewrite the phrase') }),
       selectOf([{ value: 'off', label: L('Выключено', 'Off') }, { value: 'on', label: L('Переписывать каждую фразу', 'Rewrite each phrase') }],
-        s.everyTake.on ? 'on' : 'off', (v) => void bridge.brain.setEveryTake(v === 'on').then(applyBrain)),
+        s.everyTake.on ? 'on' : 'off', (v) => void invoke('brain:everyTake', v === 'on').then(applyBrain)),
       el('p', { className: 'muted hint', textContent: s.everyTake.hint }));
   }
   if (s.instruction.visible) {
     const box = el('textarea', { value: s.instruction.text, spellcheck: false, rows: 4 });
-    box.addEventListener('change', () => void bridge.brain.setInstruction(box.value).then((st) => { brainState = st; }));
+    box.addEventListener('change', () => void invoke('brain:instruction', box.value).then((st) => { brainState = st; }));
     page.append(el('label', { className: 'block', textContent: L('Как переписывать', 'How to rewrite') }), box,
       el('p', { className: 'muted hint', textContent: s.instruction.hint }));
   }
   if (s.selection.visible) {
     const cb = el('input', { type: 'checkbox', checked: s.selection.on });
-    cb.addEventListener('change', () => void bridge.brain.setSelection(cb.checked).then(applyBrain));
+    cb.addEventListener('change', () => void invoke('brain:selection', cb.checked).then(applyBrain));
     page.append(el('label', { className: 'check' }, cb, ' ', L('Править выделенный текст голосом', 'Edit selected text by voice')),
       el('p', { className: 'muted hint indent', textContent: s.selection.hint }));
   }
   if (s.context.visible) {
     const clip = el('input', { type: 'checkbox', checked: s.context.clipboard });
     clip.id = 'brain-context-clipboard';
-    clip.addEventListener('change', () => void bridge.brain.setContext({ clipboard: clip.checked }).then(applyBrain));
+    clip.addEventListener('change', () => void invoke('brain:context', { clipboard: clip.checked }).then(applyBrain));
     const app = el('input', { type: 'checkbox', checked: s.context.app });
     app.id = 'brain-context-app';
-    app.addEventListener('change', () => void bridge.brain.setContext({ app: app.checked }).then(applyBrain));
+    app.addEventListener('change', () => void invoke('brain:context', { app: app.checked }).then(applyBrain));
     page.append(el('label', { className: 'block', textContent: L('Контекст для Мозга (по желанию)', 'Context for the Brain (opt-in)') }),
       el('label', { className: 'check' }, clip, ' ', L('Текст из буфера обмена', 'Clipboard text')),
       el('label', { className: 'check' }, app, ' ', L('Программа и заголовок окна', 'Program and window title')),
@@ -1030,25 +547,25 @@ function renderAppRules(s: BrainState): void {
     card.dataset.rule = String(i);
     const match = el('input', { type: 'text', value: r.match, spellcheck: false, placeholder: v.matchPlaceholder });
     match.dataset.rule = 'match';
-    match.addEventListener('change', () => void bridge.brain.updateRule(i, { match: match.value }).then(applyBrain));
+    match.addEventListener('change', () => void invoke('brain:updateRule', i, { match: match.value }).then(applyBrain));
     const head = el('div', { className: 'card-head' }, match);
-    if (i > 0) head.append(button('↑', () => void bridge.brain.raiseRule(i).then(applyBrain), 'link'));
-    head.append(button(L('Удалить', 'Delete'), () => void bridge.brain.removeRule(i).then(applyBrain), 'link'));
+    if (i > 0) head.append(button('↑', () => void invoke('brain:raiseRule', i).then(applyBrain), 'link'));
+    head.append(button(L('Удалить', 'Delete'), () => void invoke('brain:removeRule', i).then(applyBrain), 'link'));
     card.append(head);
     const row = el('div', { className: 'row' });
     if (v.editVisible) {
-      const edit = selectOf(v.editChoices, r.edit, (x) => void bridge.brain.updateRule(i, { edit: x }).then(applyBrain));
+      const edit = selectOf(v.editChoices, r.edit, (x) => void invoke('brain:updateRule', i, { edit: x }).then(applyBrain));
       edit.dataset.rule = 'edit';
       row.append(edit);
     }
-    const simple = selectOf(v.simpleChoices, r.simple, (x) => void bridge.brain.updateRule(i, { simple: x }).then(applyBrain));
+    const simple = selectOf(v.simpleChoices, r.simple, (x) => void invoke('brain:updateRule', i, { simple: x }).then(applyBrain));
     simple.dataset.rule = 'simple';
     row.append(simple);
     card.append(row);
     if (r.instructionVisible) {
       const box = el('textarea', { value: r.instruction, spellcheck: false, rows: 3, placeholder: v.instructionPlaceholder });
       box.dataset.rule = 'instruction';
-      box.addEventListener('change', () => void bridge.brain.updateRule(i, { instruction: box.value }).then((st) => { brainState = st; }));
+      box.addEventListener('change', () => void invoke('brain:updateRule', i, { instruction: box.value }).then((st) => { brainState = st; }));
       card.append(box);
     }
     page.append(card);
@@ -1056,12 +573,12 @@ function renderAppRules(s: BrainState): void {
   if (v.last) page.append(el('p', { className: 'muted hint line', textContent: v.last }));
   const act = el('div', { className: 'row' });
   if (v.canAdd) {
-    const add = button(L('Добавить правило', 'Add a rule'), () => void bridge.brain.addRule().then(applyBrain));
+    const add = button(L('Добавить правило', 'Add a rule'), () => void invoke('brain:addRule', '').then(applyBrain));
     add.dataset.rule = 'add';
     act.append(add);
     if (v.lastMatch) {
       const name = v.lastMatch;
-      const quick = button(L(`Добавить для ${name}`, `Add for ${name}`), () => void bridge.brain.addRule(name).then(applyBrain));
+      const quick = button(L(`Добавить для ${name}`, `Add for ${name}`), () => void invoke('brain:addRule', name).then(applyBrain));
       quick.dataset.rule = 'add-last';
       act.append(quick);
     }
@@ -1150,14 +667,14 @@ async function refreshMicDevices(): Promise<void> {
     const defaultName = (def?.label ?? '').replace(/^(default|по умолчанию)\s*[-—:]\s*/i, '');
     const list = inputs.filter((d) => d.deviceId && d.deviceId !== 'default' && d.deviceId !== 'communications')
       .map((d) => ({ id: d.deviceId, label: d.label }));
-    applyDictation(await bridge.dictation.setDevices(list, defaultName));
+    applyDictation(await invoke('dictation:devices', list, defaultName));
   } catch {
     /* no mediaDevices: the list keeps only the default row */
   }
 }
 
 async function beginTake(): Promise<MicCapture | null> {
-  const r = await bridge.dictation.startTake();
+  const r = await invoke('dictation:start');
   applyDictation(r.state);
   if (!r.ok) {
     // No model, client role or busy: the status says why; the button does not pretend to listen.
@@ -1167,11 +684,11 @@ async function beginTake(): Promise<MicCapture | null> {
   }
   const cap = new MicCapture();
   try {
-    await cap.start(r.micId, (c) => bridge.dictation.appendPcm(c));
+    await cap.start(r.micId, (c) => send('dictation:pcm', c));
   } catch (e) {
     await cap.stop().catch(() => undefined);
     const err = e as DOMException;
-    applyDictation(await bridge.dictation.micFailed(err?.name ?? 'Error', err?.message ?? String(e)));
+    applyDictation(await invoke('dictation:micFailed', err?.name ?? 'Error', err?.message ?? String(e)));
     holdPressed = false;
     updateDictationLive();
     return null;
@@ -1197,7 +714,7 @@ async function holdUp(): Promise<void> {
   if (!cap || activeCapture !== cap) return;
   activeCapture = null;
   await cap.stop();
-  applyDictation(await bridge.dictation.stopTake());
+  applyDictation(await invoke('dictation:stop'));
   void refreshMicDevices();
 }
 
@@ -1210,11 +727,11 @@ let hotJob: Promise<MicCapture | null> | null = null;
 async function hotOpen(micId: string): Promise<MicCapture | null> {
   const cap = new MicCapture();
   try {
-    await cap.start(micId, (c) => bridge.dictation.appendPcm(c));
+    await cap.start(micId, (c) => send('dictation:pcm', c));
   } catch (e) {
     await cap.stop().catch(() => undefined);
     const err = e as DOMException;
-    applyDictation(await bridge.dictation.micFailed(err?.name ?? 'Error', err?.message ?? String(e)));
+    applyDictation(await invoke('dictation:micFailed', err?.name ?? 'Error', err?.message ?? String(e)));
     return null;
   }
   activeCapture = cap;
@@ -1229,7 +746,7 @@ async function hotClose(recognize: boolean): Promise<void> {
     activeCapture = null;
     await cap.stop();
   } else if (cap) await cap.stop().catch(() => undefined);
-  if (recognize && cap) applyDictation(await bridge.dictation.stopTake());
+  if (recognize && cap) applyDictation(await invoke('dictation:stop'));
 }
 
 // ── «Чаво»: an always-on capture for the word, separate from the take's own capture ──
@@ -1252,12 +769,12 @@ function applyWake(want: WakeWant): void {
     if (!want.on || wakeKey !== key) return;
     const cap = new MicCapture();
     try {
-      await cap.start(want.micId, (c) => bridge.dictation.wakePcm(c));
+      await cap.start(want.micId, (c) => send('wake:pcm', c));
     } catch (e) {
       await cap.stop().catch(() => undefined);
       const err = e as DOMException;
       wakeKey = '';
-      applyDictation(await bridge.dictation.wakeMicFailed(err?.name ?? 'Error', err?.message ?? String(e)));
+      applyDictation(await invoke('wake:micFailed', err?.name ?? 'Error', err?.message ?? String(e)));
       return;
     }
     if (wakeKey !== key) {
@@ -1270,10 +787,10 @@ function applyWake(want: WakeWant): void {
     if (!wakeCapture) document.documentElement.dataset.wake = 'off';
   });
 }
-bridge.dictation.onWake(applyWake);
-void bridge.dictation.wakeWant().then(applyWake);
+on('wake:listen', applyWake);
+void invoke('wake:want').then(applyWake);
 
-bridge.dictation.onHot((ev) => {
+on('dictation:hot', (ev) => {
   if (ev.kind === 'start') {
     if (hotJob) return;
     hotJob = hotOpen(ev.micId);
@@ -1282,7 +799,7 @@ bridge.dictation.onHot((ev) => {
 
 function cancelTake(): void {
   holdPressed = false;
-  void bridge.dictation.cancelTake().then(applyDictation);
+  void invoke('dictation:cancel').then(applyDictation);
 }
 
 const applyDictation = (s: DictationState) => {
@@ -1327,14 +844,14 @@ function renderDictation(): void {
     const card = el('div', { className: 'card start' },
       el('div', { className: 'card-head' },
         el('strong', { textContent: c.title }),
-        button(c.close, () => void bridge.dictation.dismissStartCard().then(applyDictation), 'link'),
+        button(c.close, () => void invoke('dictation:dismissStart').then(applyDictation), 'link'),
       ));
     for (const step of c.steps) card.append(partsTo(el('p', { className: 'step' }), step));
     page.append(card);
   }
 
   page.append(el('label', { className: 'block', textContent: L('Режим', 'Mode') }),
-    selectOf(s.modeChoices, s.mode, (v) => void bridge.dictation.setMode(v).then(applyDictation)),
+    selectOf(s.modeChoices, s.mode, (v) => void invoke('dictation:mode', v).then(applyDictation)),
     el('p', { className: 'muted hint', textContent: s.modeHint }));
 
   // Phase line + Stop (WPF), then the in-window hold button with the level meter.
@@ -1377,33 +894,33 @@ function renderDictation(): void {
   const form = el('div', { className: 'form wide' });
   form.append(el('span', { textContent: L('Клавиша диктовки', 'Dictation key') }),
     selectOf(s.hotkeyChoices.map((c) => ({ value: String(c.value), label: c.label })), String(s.hotkey),
-      (v) => void bridge.dictation.setHotkey(Number(v)).then(applyDictation)));
+      (v) => void invoke('dictation:hotkey', Number(v)).then(applyDictation)));
   form.append(el('span', { textContent: L('Как вставлять текст', 'How to insert text') }),
-    selectOf(s.insertChoices, s.insertMode, (v) => void bridge.dictation.setInsertMode(v).then(applyDictation)));
+    selectOf(s.insertChoices, s.insertMode, (v) => void invoke('dictation:insert', v).then(applyDictation)));
   page.append(form);
   if (s.keyNote) page.append(el('p', { className: 'muted hint', textContent: s.keyNote }));
 
   page.append(el('label', { className: 'block', textContent: L('Микрофон', 'Microphone') }));
-  const mic = selectOf(s.micChoices, s.micId, (v) => void bridge.dictation.setMic(v).then(applyDictation));
+  const mic = selectOf(s.micChoices, s.micId, (v) => void invoke('dictation:mic', v).then(applyDictation));
   mic.classList.add('wide');
   page.append(mic, el('p', { className: 'muted hint', textContent: s.micHint }));
 
   const ov = el('input', { type: 'checkbox', checked: s.showOverlay });
-  ov.addEventListener('change', () => void bridge.dictation.setOverlay(ov.checked).then(applyDictation));
+  ov.addEventListener('change', () => void invoke('dictation:overlay', ov.checked).then(applyDictation));
   const ovLabel = el('label', { className: 'check' }, ov, ' ', s.overlayLabel);
   ovLabel.title = s.overlayTip;
   page.append(ovLabel);
 
   const cue = el('input', { type: 'checkbox', checked: s.soundCues });
   cue.dataset.d = 'cues';
-  cue.addEventListener('change', () => void bridge.dictation.setSoundCues(cue.checked).then(applyDictation));
+  cue.addEventListener('change', () => void invoke('dictation:cues', cue.checked).then(applyDictation));
   const cueLabel = el('label', { className: 'check' }, cue, ' ', s.soundCuesLabel);
   cueLabel.title = s.soundCuesTip;
   page.append(cueLabel);
 
   const wake = el('input', { type: 'checkbox', checked: s.wakeWord });
   wake.dataset.d = 'wake';
-  wake.addEventListener('change', () => void bridge.dictation.setWakeWord(wake.checked).then(applyDictation));
+  wake.addEventListener('change', () => void invoke('dictation:wake', wake.checked).then(applyDictation));
   const wakeLabel = el('label', { className: 'check' }, wake, ' ', s.wakeLabel);
   wakeLabel.title = s.wakeTip;
   page.append(wakeLabel);
@@ -1416,7 +933,7 @@ function renderDictation(): void {
   // Manual update check (WPF CheckUpdatesButton at the bottom of Dictation). Check only; opens the release page if the user confirms.
   const upd = button(s.checkUpdatesLabel, () => {
     upd.disabled = true;
-    void bridge.dictation.checkUpdates().then(applyDictation).finally(() => { upd.disabled = false; });
+    void invoke('dictation:checkUpdates').then(applyDictation).finally(() => { upd.disabled = false; });
   });
   upd.dataset.d = 'updates';
   upd.title = s.checkUpdatesTip;
@@ -1561,10 +1078,10 @@ function fillHistoryList(s: HistoryState): void {
     const item = el('div', { className: 'hist-item' }, head, el('div', { className: 'hist-text', textContent: r.final }));
     if (r.raw) item.append(el('div', { className: 'hist-raw muted' }, el('span', { textContent: s.labels.rawHeader + ' ' }), r.raw));
     const acts = el('div', { className: 'row hist-acts' },
-      button(s.labels.copy, () => void bridge.history.copy(r.id, 'final').then(applyHistory)),
+      button(s.labels.copy, () => void invoke('history:copy', r.id, 'final').then(applyHistory)),
     );
-    if (r.raw) acts.append(button(s.labels.copyRaw, () => void bridge.history.copy(r.id, 'raw').then(applyHistory), 'link'));
-    const again = button(s.rerunningId === r.id ? '…' : s.labels.rerun, () => void bridge.history.rerun(r.id).then(applyHistory), 'link');
+    if (r.raw) acts.append(button(s.labels.copyRaw, () => void invoke('history:copy', r.id, 'raw').then(applyHistory), 'link'));
+    const again = button(s.rerunningId === r.id ? '…' : s.labels.rerun, () => void invoke('history:rerun', r.id).then(applyHistory), 'link');
     again.disabled = !s.canRerun;
     if (s.rerunTip) again.title = s.rerunTip;
     // «Исправить»: the text becomes an editor in place; saving teaches «Словарь из исправлений».
@@ -1574,7 +1091,7 @@ function fillHistoryList(s: HistoryState): void {
       const area = el('textarea', { value: r.final, spellcheck: true, rows: Math.min(8, Math.max(2, Math.ceil(r.final.length / 90))) });
       area.className = 'hist-edit';
       area.dataset.history = 'edit';
-      const ok = button(s.labels.save, () => void bridge.history.edit(r.id, area.value).then(applyHistory));
+      const ok = button(s.labels.save, () => void invoke('history:edit', r.id, area.value).then(applyHistory));
       ok.dataset.history = 'save';
       const bar = el('div', { className: 'row hist-acts' }, ok, button(s.labels.cancel, () => fillHistoryList(historyState ?? s), 'link'));
       text.replaceWith(area);
@@ -1582,7 +1099,7 @@ function fillHistoryList(s: HistoryState): void {
       area.focus();
     }, 'link');
     fix.dataset.history = 'fix';
-    acts.append(fix, again, button(s.labels.remove, () => void bridge.history.remove(r.id).then(applyHistory), 'link'));
+    acts.append(fix, again, button(s.labels.remove, () => void invoke('history:remove', r.id).then(applyHistory), 'link'));
     item.append(acts);
     list.append(item);
   }
@@ -1606,15 +1123,15 @@ function fillAsk(): void {
   q.addEventListener('input', () => (askDraft = q.value));
   const go = () => {
     if (a.busy || !q.value.trim()) return;
-    void bridge.ask.run(q.value).then(applyAsk);
+    void invoke('ask:run', q.value).then(applyAsk);
   };
   q.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') go();
   });
-  const run = a.busy ? button(a.labels.cancel, () => void bridge.ask.cancel().then(applyAsk)) : button(a.labels.ask, go, 'primary');
+  const run = a.busy ? button(a.labels.cancel, () => void invoke('ask:cancel').then(applyAsk)) : button(a.labels.ask, go, 'primary');
   run.dataset.ask = 'run';
   const hist = el('input', { type: 'checkbox', checked: a.useHistory });
-  hist.addEventListener('change', () => void bridge.ask.setHistory(hist.checked).then(applyAsk));
+  hist.addEventListener('change', () => void invoke('ask:history', hist.checked).then(applyAsk));
   const where = el('div', { className: 'row ask-where muted' }, el('span', { textContent: a.labels.where }), el('label', {}, hist, ' ' + a.labels.history));
   const chip = (label: string, tip: string, remove?: () => void) => {
     const c = el('span', { className: 'ask-chip', textContent: label, title: tip });
@@ -1624,9 +1141,9 @@ function fillAsk(): void {
   if (a.meetingFolders.length > 0) where.append(chip(a.labels.meetings, a.meetingFolders.join('\n')));
   for (const f of a.folders) {
     const name = f.split(/[\\/]/).filter(Boolean).pop() ?? f;
-    where.append(chip(name, f, () => void bridge.ask.removeFolder(f).then(applyAsk)));
+    where.append(chip(name, f, () => void invoke('ask:removeFolder', f).then(applyAsk)));
   }
-  where.append(button(a.labels.addFolder, () => void bridge.ask.addFolder().then(applyAsk), 'link'));
+  where.append(button(a.labels.addFolder, () => void invoke('ask:addFolder').then(applyAsk), 'link'));
   const kids: Node[] = [
     el('h2', { textContent: a.title }),
     el('div', { className: 'row' }, q, run),
@@ -1639,7 +1156,7 @@ function fillAsk(): void {
   if (a.answer) {
     const ans = el('div', { className: 'ask-answer', textContent: a.answer });
     ans.dataset.ask = 'answer';
-    kids.push(ans, el('div', { className: 'row hist-acts' }, button(a.labels.copy, () => void bridge.ask.copy().then(applyAsk), 'link')));
+    kids.push(ans, el('div', { className: 'row hist-acts' }, button(a.labels.copy, () => void invoke('ask:copy').then(applyAsk), 'link')));
   }
   if (a.excerpts.length > 0) {
     const list = el('div', { className: 'ask-src' });
@@ -1651,7 +1168,7 @@ function fillAsk(): void {
       item.open = a.answer ? x.cited : true;
       if (x.path) {
         const p = x.path;
-        item.append(el('div', { className: 'row hist-acts' }, button(a.labels.open, () => void bridge.ask.open(p).then(applyAsk), 'link')));
+        item.append(el('div', { className: 'row hist-acts' }, button(a.labels.open, () => void invoke('ask:open', p).then(applyAsk), 'link')));
       }
       list.append(item);
     }
@@ -1673,13 +1190,13 @@ function renderHistory(): void {
   page.append(askBox);
   fillAsk();
   page.append(el('p', { className: 'muted', textContent: s.intro }));
-  const keep = selectOf(s.keepChoices, s.keep, (v) => void bridge.history.setKeep(v).then(applyHistory));
+  const keep = selectOf(s.keepChoices, s.keep, (v) => void invoke('history:keep', v).then(applyHistory));
   keep.setAttribute('aria-label', s.keepLabel);
   const search = el('input', { type: 'text', value: s.query, placeholder: s.searchPlaceholder, spellcheck: false });
   search.dataset.history = 'search';
   search.className = 'hist-search';
-  search.addEventListener('input', () => void bridge.history.setQuery(search.value).then(applyHistory));
-  const clear = button(s.labels.clearAll, () => void bridge.history.clearAll().then(applyHistory), 'link');
+  search.addEventListener('input', () => void invoke('history:query', search.value).then(applyHistory));
+  const clear = button(s.labels.clearAll, () => void invoke('history:clear').then(applyHistory), 'link');
   clear.disabled = s.rows.length === 0 && !s.query;
   page.append(el('div', { className: 'row' }, search, el('label', {}, s.keepLabel + ' ', keep), clear));
   page.append(el('p', { className: 'muted hint', textContent: s.keepHint }));
@@ -1713,33 +1230,33 @@ function renderDictionary(focusId?: number): void {
     heard.setAttribute('aria-label', s.heardHeader);
     written.setAttribute('aria-label', s.writtenHeader);
     // Saved on every edit like WPF; the page is not redrawn so the caret stays put.
-    const send = () => void bridge.dict.setRow(r.id, heard.value, written.value).then((st) => { dictState = st; });
+    const send = () => void invoke('dict:setRow', r.id, heard.value, written.value).then((st) => { dictState = st; });
     heard.addEventListener('input', send);
     written.addEventListener('input', send);
-    const del = button(s.deleteLabel, () => void bridge.dict.remove(r.id).then((st) => applyDict(st)));
+    const del = button(s.deleteLabel, () => void invoke('dict:remove', r.id).then((st) => applyDict(st)));
     table.append(el('div', { className: 'dict-row' }, heard, written, del));
     if (r.id === focusId) focusEl = heard;
   }
   page.append(table);
   page.append(el('div', { className: 'row' },
-    button(s.addLabel, () => void bridge.dict.add().then((res) => applyDict(res.state, res.id))),
+    button(s.addLabel, () => void invoke('dict:add').then((res) => applyDict(res.state, res.id))),
   ));
 
   // Voice punctuation and numbers: two switches, each with one hint line.
   const sp = s.spoken;
   const punct = el('input', { type: 'checkbox', checked: sp.punctuation });
   punct.dataset.dict = 'punctuation';
-  punct.addEventListener('change', () => void bridge.dict.setSpoken('punctuation', punct.checked).then((st) => applyDict(st)));
+  punct.addEventListener('change', () => void invoke('dict:setSpoken', 'punctuation', punct.checked).then((st) => applyDict(st)));
   page.append(el('label', { className: 'check' }, punct, ' ' + sp.punctuationLabel),
     el('p', { className: 'muted hint indent', textContent: sp.punctuationHint }));
   const nums = el('input', { type: 'checkbox', checked: sp.numbers });
   nums.dataset.dict = 'numbers';
-  nums.addEventListener('change', () => void bridge.dict.setSpoken('numbers', nums.checked).then((st) => applyDict(st)));
+  nums.addEventListener('change', () => void invoke('dict:setSpoken', 'numbers', nums.checked).then((st) => applyDict(st)));
   page.append(el('label', { className: 'check' }, nums, ' ' + sp.numbersLabel),
     el('p', { className: 'muted hint indent', textContent: sp.numbersHint }));
 
   page.append(el('div', { className: 'row' },
-    button(s.suggestLabel, () => void bridge.dict.suggest().then((st) => applyDict(st))),
+    button(s.suggestLabel, () => void invoke('dict:suggest').then((st) => applyDict(st))),
   ));
   page.append(el('p', { className: 'muted hint', textContent: s.suggestHint }));
   if (s.suggestions.length > 0) {
@@ -1748,7 +1265,7 @@ function renderDictionary(focusId?: number): void {
       list.append(el('div', { className: 'dict-row' },
         el('span', { className: 'cell', textContent: g.heard }),
         el('span', { className: 'cell muted', textContent: g.written + (g.source ? `  (${g.source})` : '') }),
-        button(s.addSuggestionLabel, () => void bridge.dict.addSuggestion(g.heard, g.written).then((st) => applyDict(st))),
+        button(s.addSuggestionLabel, () => void invoke('dict:addSuggestion', g.heard, g.written).then((st) => applyDict(st))),
       ));
     }
     page.append(list);
@@ -1758,21 +1275,21 @@ function renderDictionary(focusId?: number): void {
   const lr = s.learned;
   const auto = el('input', { type: 'checkbox', checked: lr.autoAdd });
   auto.dataset.dict = 'learnAuto';
-  auto.addEventListener('change', () => void bridge.dict.setLearnAuto(auto.checked).then((st) => applyDict(st)));
+  auto.addEventListener('change', () => void invoke('dict:setLearnAuto', auto.checked).then((st) => applyDict(st)));
   const lBox = el('fieldset', { className: 'learned' }, el('legend', { textContent: lr.heading }),
     el('p', { className: 'muted hint', textContent: lr.hint }),
     el('label', { className: 'check' }, auto, ' ' + lr.autoLabel));
   lBox.dataset.dict = 'learned';
   if (lr.rows.length === 0) lBox.append(el('p', { className: 'muted hint', textContent: lr.empty }));
   for (const r of lr.rows) {
-    const add = button(lr.acceptLabel, () => void bridge.dict.acceptLearned(r.from, r.to).then((st) => applyDict(st)));
+    const add = button(lr.acceptLabel, () => void invoke('dict:acceptLearned', r.from, r.to).then((st) => applyDict(st)));
     add.dataset.dict = 'learnAccept';
     lBox.append(el('div', { className: 'learned-row' },
       el('span', { className: 'cell', textContent: r.from }),
       el('span', { className: 'cell', textContent: '→ ' + r.to }),
       el('span', { className: 'muted', textContent: r.times }),
       add,
-      button(lr.dismissLabel, () => void bridge.dict.dismissLearned(r.from, r.to).then((st) => applyDict(st)), 'link')));
+      button(lr.dismissLabel, () => void invoke('dict:dismissLearned', r.from, r.to).then((st) => applyDict(st)), 'link')));
   }
   page.append(lBox);
 
@@ -1788,14 +1305,14 @@ function renderDictionary(focusId?: number): void {
     body.setAttribute('aria-label', sn.textHeader);
     trig.dataset.dict = 'snippetTrigger';
     body.dataset.dict = 'snippetText';
-    const send = () => void bridge.dict.setSnippet(r.id, trig.value, body.value).then((st) => { dictState = st; });
+    const send = () => void invoke('dict:setSnippet', r.id, trig.value, body.value).then((st) => { dictState = st; });
     trig.addEventListener('input', send);
     body.addEventListener('input', () => { body.rows = Math.min(6, Math.max(1, body.value.split('\n').length)); send(); });
-    const del = button(s.deleteLabel, () => void bridge.dict.removeSnippet(r.id).then((st) => applyDict(st)));
+    const del = button(s.deleteLabel, () => void invoke('dict:removeSnippet', r.id).then((st) => applyDict(st)));
     snBox.append(el('div', { className: 'snippet-row' }, trig, body, del));
     if (r.id === focusId) focusEl = trig;
   }
-  const addSn = button(sn.addLabel, () => void bridge.dict.addSnippet().then((res) => applyDict(res.state, res.id)));
+  const addSn = button(sn.addLabel, () => void invoke('dict:addSnippet').then((res) => applyDict(res.state, res.id)));
   addSn.dataset.dict = 'snippetAdd';
   snBox.append(el('div', { className: 'row' }, addSn));
   page.append(snBox);
@@ -1806,16 +1323,16 @@ function renderDictionary(focusId?: number): void {
   cmd.dataset.dict = 'script';
   cmd.setAttribute('aria-label', sc.heading);
   cmd.className = 'grow';
-  cmd.addEventListener('input', () => void bridge.dict.setScript(cmd.value).then((st) => { dictState = st; }));
+  cmd.addEventListener('input', () => void invoke('dict:setScript', cmd.value).then((st) => { dictState = st; }));
   const test = button(sc.testLabel, () => {
     test.disabled = true;
-    void bridge.dict.setScript(cmd.value).then(() => bridge.dict.testScript()).then((st) => applyDict(st));
+    void invoke('dict:setScript', cmd.value).then(() => invoke('dict:testScript')).then((st) => applyDict(st));
   });
   test.dataset.dict = 'scriptTest';
   test.disabled = sc.busy;
   const files = el('input', { type: 'checkbox', checked: sc.files });
   files.dataset.dict = 'scriptFiles';
-  files.addEventListener('change', () => void bridge.dict.setScriptFiles(files.checked).then((st) => applyDict(st)));
+  files.addEventListener('change', () => void invoke('dict:setScriptFiles', files.checked).then((st) => applyDict(st)));
   const box = el('fieldset', { className: 'post-script' }, el('legend', { textContent: sc.heading }),
     el('p', { className: 'muted hint', textContent: sc.hint }),
     el('div', { className: 'row' }, cmd, test),
@@ -1863,25 +1380,25 @@ function renderSales(focusId?: number): void {
     const name = box(r.Name, s.nameHeader);
     const line = box(r.Line, s.lineHeader);
     const similar = box(r.SimilarCode, s.similarHeader);
-    const send = () => void bridge.sales.setRow(r.id, code.value, name.value, line.value, similar.value).then((st) => { salesState = st; });
+    const send = () => void invoke('sales:setRow', r.id, code.value, name.value, line.value, similar.value).then((st) => { salesState = st; });
     for (const i of [code, name, line, similar]) i.addEventListener('input', send);
-    const del = button(s.deleteLabel, () => void bridge.sales.remove(r.id).then((st) => applySales(st)));
+    const del = button(s.deleteLabel, () => void invoke('sales:remove', r.id).then((st) => applySales(st)));
     table.append(el('div', { className: 'dict-row' }, code, name, line, similar, del));
     if (r.id === focusId) focusEl = code;
   }
   page.append(table);
   page.append(el('div', { className: 'row' },
-    button(s.addLabel, () => void bridge.sales.add().then((res) => applySales(res.state, res.id))),
+    button(s.addLabel, () => void invoke('sales:add').then((res) => applySales(res.state, res.id))),
   ));
 
   // Materials folder (local RAG).
   const rag = el('fieldset', {}, el('legend', { textContent: s.ragHeading }), el('p', { className: 'muted hint', textContent: s.ragIntro }));
   const folder = el('input', { type: 'text', value: s.ragFolderText, readOnly: true, spellcheck: false });
   folder.setAttribute('aria-label', s.ragHeading);
-  const clear = button(s.clearLabel, () => void bridge.sales.clearFolder().then((st) => applySales(st)));
+  const clear = button(s.clearLabel, () => void invoke('sales:clearFolder').then((st) => applySales(st)));
   clear.disabled = !s.canClear;
   rag.append(el('div', { className: 'folder-row' }, folder,
-    button(s.pickLabel, () => void bridge.sales.pickFolder().then((st) => applySales(st))),
+    button(s.pickLabel, () => void invoke('sales:pickFolder').then((st) => applySales(st))),
     clear,
   ));
   rag.append(el('p', { className: 'muted hint', textContent: s.ragStatus }));
@@ -1900,7 +1417,7 @@ function renderSales(focusId?: number): void {
   const val = (l: HTMLElement) => (l.querySelector('input') as HTMLInputElement).value;
   call.append(el('div', { className: 'call-row' }, ext, num, mgr));
   call.append(el('div', { className: 'row' },
-    button(s.showCallLabel, () => void bridge.sales.showCall(val(ext), val(num), val(mgr)).then((st) => applySales(st))),
+    button(s.showCallLabel, () => void invoke('sales:showCall', val(ext), val(num), val(mgr)).then((st) => applySales(st))),
   ));
   if (s.call.status) call.append(el('p', { className: 'muted hint', textContent: s.call.status }));
   page.append(call);
@@ -1917,18 +1434,18 @@ function renderSpeech(): void {
   const rows = el('div', { className: 'models' });
   for (const m of s.models) {
     const radio = el('input', { type: 'radio', name: 'speech-model', checked: m.selected, disabled: busy });
-    radio.addEventListener('change', () => radio.checked && void bridge.speech.select(m.kind).then(applySpeech));
+    radio.addEventListener('change', () => radio.checked && void invoke('speech:select', m.kind).then(applySpeech));
     const label = el('label', { title: m.path ?? '' }, radio, ' ' + m.label);
     const row = el('div', { className: 'model' }, label);
     if (m.onDisk) row.append(el('span', { className: 'disk', textContent: L('на диске', 'on disk') }));
     else {
-      const dl = button(L('Скачать', 'Download'), () => void bridge.speech.download(m.kind).then(applySpeech));
+      const dl = button(L('Скачать', 'Download'), () => void invoke('speech:download', m.kind).then(applySpeech));
       dl.disabled = busy || s.client;
       if (s.client) dl.title = L('Клиент не скачивает модель.', 'A client does not download a model.');
       row.append(dl);
     }
     if (m.canDelete) {
-      const del = button(L('Удалить', 'Delete'), () => void bridge.speech.remove(m.kind).then(applySpeech));
+      const del = button(L('Удалить', 'Delete'), () => void invoke('speech:delete', m.kind).then(applySpeech));
       del.title = m.deleteTip;
       del.disabled = busy && s.download?.kind === m.kind;
       row.append(del);
@@ -1950,10 +1467,10 @@ function renderSpeech(): void {
     }
     card.append(el('p', { className: 'status muted', textContent: d.text }));
     const act = el('div', { className: 'row' });
-    if (d.running) act.append(button(L('Отмена', 'Cancel'), () => void bridge.speech.cancel().then(applySpeech)));
+    if (d.running) act.append(button(L('Отмена', 'Cancel'), () => void invoke('speech:cancel').then(applySpeech)));
     else {
-      if (d.failed && !s.client) act.append(button(L('Повторить', 'Retry'), () => void bridge.speech.download(d.kind).then(applySpeech), 'primary'));
-      act.append(button(L('Скрыть', 'Hide'), () => void bridge.speech.dismiss().then(applySpeech), 'link'));
+      if (d.failed && !s.client) act.append(button(L('Повторить', 'Retry'), () => void invoke('speech:download', d.kind).then(applySpeech), 'primary'));
+      act.append(button(L('Скрыть', 'Hide'), () => void invoke('speech:dismiss').then(applySpeech), 'link'));
     }
     card.append(act);
     page.append(card);
@@ -1964,7 +1481,7 @@ function renderSpeech(): void {
   page.append(el('label', { className: 'block', textContent: L('Где считать речь', 'Where speech runs') }));
   const dev = el('select');
   for (const c of s.deviceChoices) dev.append(el('option', { value: c.value, textContent: c.label, selected: c.value === s.device }));
-  dev.addEventListener('change', () => void bridge.speech.setDevice(dev.value as 'Gpu' | 'Cpu').then(applySpeech));
+  dev.addEventListener('change', () => void invoke('speech:device', dev.value as 'Gpu' | 'Cpu').then(applySpeech));
   page.append(dev);
 
   if (s.device === 'Cpu') {
@@ -1972,24 +1489,24 @@ function renderSpeech(): void {
     const th = el('select');
     th.append(el('option', { value: '0', textContent: L(`Все ядра (${s.cores})`, `All cores (${s.cores})`), selected: s.cpuThreads === 0 }));
     for (let n = 1; n <= s.cores; n++) th.append(el('option', { value: String(n), textContent: String(n), selected: s.cpuThreads === n }));
-    th.addEventListener('change', () => void bridge.speech.setThreads(Number(th.value)).then(applySpeech));
+    th.addEventListener('change', () => void invoke('speech:threads', Number(th.value)).then(applySpeech));
     page.append(th, el('p', { className: 'muted hint', textContent: s.threadsHint }));
   }
 
   if (s.vad) {
     const v = s.vad;
     const cb = el('input', { type: 'checkbox', checked: v.enabled });
-    cb.addEventListener('change', () => void bridge.speech.setVad(cb.checked).then(applySpeech));
+    cb.addEventListener('change', () => void invoke('speech:vad', cb.checked).then(applySpeech));
     page.append(el('label', { className: 'block' }, cb, L(' Обрезать тишину (VAD)', ' Trim silence (VAD)')));
     const hint = el('p', { className: 'muted hint', textContent: v.note });
-    if (v.canDownload) hint.append(' ', button(L('Скачать (2 МБ)', 'Download (2 MB)'), () => void bridge.speech.downloadVad().then(applySpeech), 'link'));
+    if (v.canDownload) hint.append(' ', button(L('Скачать (2 МБ)', 'Download (2 MB)'), () => void invoke('speech:vadDownload').then(applySpeech), 'link'));
     page.append(hint);
   }
 
   page.append(el('label', { className: 'block', textContent: L('Выгружать модели при простое', 'Unload models when idle') }));
   const idle = el('select');
   for (const c of s.idleChoices) idle.append(el('option', { value: String(c.value), textContent: c.label, selected: c.value === s.idleMinutes }));
-  idle.addEventListener('change', () => void bridge.speech.setIdle(Number(idle.value)).then(applySpeech));
+  idle.addEventListener('change', () => void invoke('speech:idle', Number(idle.value)).then(applySpeech));
   page.append(idle, el('p', { className: 'muted hint', textContent: s.idleHint }));
 
   page.append(el('p', { className: 'muted line', textContent: s.status }));
@@ -2120,8 +1637,8 @@ function renderCallStats(page: HTMLElement, s: FileState): void {
   area.dataset.stats = 'trackers';
   area.value = cs.trackers;
   area.placeholder = cs.defaultTrackers;
-  area.addEventListener('change', () => void bridge.file.setCallTrackers(area.value).then(apply));
-  const reset = button(L('Вернуть встроенные', 'Restore built-in'), () => void bridge.file.setCallTrackers('').then(apply), 'link');
+  area.addEventListener('change', () => void invoke('file:callTrackers', area.value).then(apply));
+  const reset = button(L('Вернуть встроенные', 'Restore built-in'), () => void invoke('file:callTrackers', '').then(apply), 'link');
   const cfg = el('details', { className: 'tracker-config' },
     el('summary', { textContent: L('Настроить трекеры', 'Edit trackers') }),
     el('p', { className: 'muted hint', textContent: L(
@@ -2145,13 +1662,13 @@ function renderFile(): void {
   if (!s) return;
 
   const actions = el('div', { className: 'row' },
-    button(L('Добавить файлы…', 'Add files…'), () => void bridge.file.pick('files').then(apply)),
-    button(L('Добавить папку…', 'Add folder…'), () => void bridge.file.pick('folder').then(apply)),
+    button(L('Добавить файлы…', 'Add files…'), () => void invoke('file:pick', 'files').then(apply)),
+    button(L('Добавить папку…', 'Add folder…'), () => void invoke('file:pick', 'folder').then(apply)),
     s.busy
-      ? button(L('Остановить', 'Stop'), () => void bridge.file.stop().then(apply), 'primary')
-      : button(L('Расшифровать', 'Transcribe'), () => void bridge.file.run().then(apply), 'primary'),
+      ? button(L('Остановить', 'Stop'), () => void invoke('file:stop').then(apply), 'primary')
+      : button(L('Расшифровать', 'Transcribe'), () => void invoke('file:run').then(apply), 'primary'),
   );
-  if (s.lastOutput) actions.append(button(L('Открыть папку', 'Open folder'), () => void bridge.file.reveal()));
+  if (s.lastOutput) actions.append(button(L('Открыть папку', 'Open folder'), () => void invoke('file:reveal')));
   page.append(actions);
 
   const list = el('div', { className: 'queue' });
@@ -2167,16 +1684,16 @@ function renderFile(): void {
     // Actions share the last grid column, so «Показать» + «Слушать» + × stay on one line.
     const acts = el('span', { className: 'acts' });
     if (it.outputPath) {
-      acts.append(button(L('Показать', 'Show'), () => void bridge.file.reveal(it.outputPath), 'link'));
-      acts.append(button(L('Слушать', 'Listen'), () => void bridge.file.openEditor(it.outputPath).then(apply), 'link'));
+      acts.append(button(L('Показать', 'Show'), () => void invoke('file:reveal', it.outputPath), 'link'));
+      acts.append(button(L('Слушать', 'Listen'), () => void invoke('file:openEditor', it.outputPath).then(apply), 'link'));
     }
-    if (it.state !== 'Running') acts.append(button('×', () => void bridge.file.remove(it.id).then(apply), 'link x'));
+    if (it.state !== 'Running') acts.append(button('×', () => void invoke('file:remove', it.id).then(apply), 'link x'));
     row.append(acts);
     list.append(row);
   }
   page.append(list);
   if (s.items.some((i) => i.state !== 'Queued' && i.state !== 'Running')) {
-    page.append(el('div', { className: 'row' }, button(L('Убрать готовые из списка', 'Clear finished'), () => void bridge.file.clearFinished().then(apply), 'link')));
+    page.append(el('div', { className: 'row' }, button(L('Убрать готовые из списка', 'Clear finished'), () => void invoke('file:clearFinished').then(apply), 'link')));
   }
 
   // «Расшифровка»: timed phrases; click seeks the source audio (chawo-media://).
@@ -2213,7 +1730,7 @@ function renderFile(): void {
         const finish = (save: boolean) => {
           if (done) return;
           done = true;
-          if (save && input.value.trim() && input.value.trim() !== seg.text.trim()) void bridge.file.editPhrase(idx, input.value).then(apply);
+          if (save && input.value.trim() && input.value.trim() !== seg.text.trim()) void invoke('file:editPhrase', idx, input.value).then(apply);
           else input.replaceWith(row);
         };
         input.addEventListener('keydown', (e) => {
@@ -2251,7 +1768,7 @@ function renderFile(): void {
     }
     if (ed.txtPath) {
       editorBox.append(el('div', { className: 'row' },
-        button(L('Показать файл', 'Show file'), () => void bridge.file.reveal(ed.txtPath!), 'link'),
+        button(L('Показать файл', 'Show file'), () => void invoke('file:reveal', ed.txtPath!), 'link'),
       ));
     }
   } else {
@@ -2265,7 +1782,7 @@ function renderFile(): void {
     editorBox.append(el('p', { className: 'muted hint', textContent: why }));
     if (ed.txtPath || s.lastOutput) {
       editorBox.append(el('div', { className: 'row' },
-        button(L('Открыть расшифровку', 'Open transcript'), () => void bridge.file.openEditor(ed.txtPath || s.lastOutput || undefined).then(apply), 'link'),
+        button(L('Открыть расшифровку', 'Open transcript'), () => void invoke('file:openEditor', ed.txtPath || s.lastOutput || undefined).then(apply), 'link'),
       ));
     }
   }
@@ -2276,25 +1793,25 @@ function renderFile(): void {
   renderMeeting();
 
   const ts = el('input', { type: 'checkbox', checked: s.options.timestamps });
-  ts.addEventListener('change', () => void bridge.file.setOptions({ timestamps: ts.checked }).then(apply));
+  ts.addEventListener('change', () => void invoke('file:options', { timestamps: ts.checked }).then(apply));
   // One row for every extra file; .srt keeps its own WPF setting, the others share FileExtraFormats.
   const formats = el('span', { className: 'formats' });
   const srt = el('input', { type: 'checkbox', checked: s.options.srt });
-  srt.addEventListener('change', () => void bridge.file.setOptions({ srt: srt.checked }).then(apply));
+  srt.addEventListener('change', () => void invoke('file:options', { srt: srt.checked }).then(apply));
   formats.append(el('label', { title: L('Субтитры SubRip', 'SubRip subtitles') }, srt, ' .srt'));
   for (const [f, tip] of EXTRA_FORMATS) {
     const box = el('input', { type: 'checkbox', checked: s.options.extra.includes(f) });
     box.addEventListener('change', () => {
       const next = EXTRA_FORMATS.map(([x]) => x).filter((x) => (x === f ? box.checked : s.options.extra.includes(x)));
-      void bridge.file.setOptions({ extra: next }).then(apply);
+      void invoke('file:options', { extra: next }).then(apply);
     });
     formats.append(el('label', { title: L(tip[0], tip[1]) }, box, ` .${f}`));
   }
   const diar = el('input', { type: 'checkbox', checked: s.options.diarize });
-  diar.addEventListener('change', () => void bridge.file.setOptions({ diarize: diar.checked }).then(apply));
+  diar.addEventListener('change', () => void invoke('file:options', { diarize: diar.checked }).then(apply));
   const speed = el('select');
   for (const [v, label] of SPEED.map(([v, r]) => [v, ru ? r : SPEED_EN[v]] as [string, string])) speed.append(el('option', { value: v, textContent: label, selected: v === s.options.parallelism }));
-  speed.addEventListener('change', () => void bridge.file.setOptions({ parallelism: speed.value }).then(apply));
+  speed.addEventListener('change', () => void invoke('file:options', { parallelism: speed.value }).then(apply));
 
   page.append(
     el('fieldset', {},
@@ -2310,14 +1827,14 @@ function renderFile(): void {
   // «Кратко и задачи» — after a meeting/file transcript, via the Brain (local by default).
   const br = s.brief ?? { enabled: false, instruction: '', defaultInstruction: '', template: '', templates: [], templateNote: '', where: '', available: false, text: '', path: null, busy: false };
   const briefOn = el('input', { type: 'checkbox', checked: br.enabled || s.options.brief, disabled: !br.available && !br.enabled });
-  briefOn.addEventListener('change', () => void bridge.file.setOptions({ brief: briefOn.checked }).then(apply));
+  briefOn.addEventListener('change', () => void invoke('file:options', { brief: briefOn.checked }).then(apply));
   // Template picker: built-ins, the user's own templates, then «Своя инструкция» (the free text).
   const templates = br.templates ?? [];
   const picked = templates.find((x) => x.id === br.template) ?? null;
   const tplSel = selectOf([
     ...templates.map((x) => ({ value: x.id, label: x.builtin ? x.name : `${x.name} ${L('(свой)', '(custom)')}` })),
     { value: '', label: L('Своя инструкция', 'Own instruction') },
-  ], picked ? picked.id : '', (v) => void bridge.file.setBriefTemplate(v).then(apply));
+  ], picked ? picked.id : '', (v) => void invoke('file:briefTemplate', v).then(apply));
   tplSel.dataset.brief = 'template';
   tplSel.setAttribute('aria-label', L('Шаблон', 'Template'));
   const instr = el('textarea', { rows: 4, spellcheck: true });
@@ -2326,21 +1843,21 @@ function renderFile(): void {
   instr.placeholder = br.defaultInstruction;
   // Built-ins stay editable: changing the text copies it into «Своя инструкция» and selects OWN.
   instr.addEventListener('change', () => {
-    if (picked && !picked.builtin) void bridge.file.saveBriefTemplate(picked.name, instr.value).then(apply);
-    else void bridge.file.setBriefInstruction(instr.value).then(apply);
+    if (picked && !picked.builtin) void invoke('file:saveBriefTemplate', picked.name, instr.value).then(apply);
+    else void invoke('file:briefInstruction', instr.value).then(apply);
   });
   const tplName = el('input', { type: 'text', spellcheck: false, placeholder: L('название нового шаблона', 'new template name') });
   tplName.dataset.brief = 'templateName';
   tplName.className = 'grow';
-  const saveTpl = button(L('Сохранить как шаблон', 'Save as template'), () => void bridge.file.saveBriefTemplate(tplName.value, instr.value).then(apply));
+  const saveTpl = button(L('Сохранить как шаблон', 'Save as template'), () => void invoke('file:saveBriefTemplate', tplName.value, instr.value).then(apply));
   saveTpl.dataset.brief = 'saveTemplate';
   const tplRow = el('div', { className: 'row tpl-row' }, tplName, saveTpl);
   if (picked && !picked.builtin) {
-    const del = button(L('Удалить шаблон', 'Delete template'), () => void bridge.file.deleteBriefTemplate(picked.name).then(apply), 'link');
+    const del = button(L('Удалить шаблон', 'Delete template'), () => void invoke('file:deleteBriefTemplate', picked.name).then(apply), 'link');
     del.dataset.brief = 'deleteTemplate';
     tplRow.append(del);
   }
-  const make = button(L('Составить по последней расшифровке', 'Build from the last transcript'), () => void bridge.file.runBrief().then(apply), 'primary');
+  const make = button(L('Составить по последней расшифровке', 'Build from the last transcript'), () => void invoke('file:runBrief').then(apply), 'primary');
   make.disabled = s.busy || br.busy || !br.available || !s.lastOutput;
   const briefBox = el('fieldset', { className: 'meeting-brief' },
     el('legend', { textContent: L('Кратко и задачи', 'Brief and tasks') }),
@@ -2359,8 +1876,8 @@ function renderFile(): void {
       el('div', { className: 'card-head' },
         el('strong', { textContent: L('Карточка', 'Card') }),
         el('span', { className: 'row inline' },
-          br.path ? (() => { const b = button(L('В CRM', 'To CRM'), () => { crmUi.open = !crmUi.open; void bridge.crm.clearPreview().then((st) => { crmState = st; if (crmUi.open) crmPanel(br.path!, crmHost); else crmHost.replaceChildren(); }); }, 'link'); b.dataset.crm = 'open'; return b; })() : el('span'),
-          br.path ? button(L('Показать файл', 'Show file'), () => void bridge.file.reveal(br.path!), 'link') : el('span'),
+          br.path ? (() => { const b = button(L('В CRM', 'To CRM'), () => { crmUi.open = !crmUi.open; void invoke('crm:clearPreview').then((st) => { crmState = st; if (crmUi.open) crmPanel(br.path!, crmHost); else crmHost.replaceChildren(); }); }, 'link'); b.dataset.crm = 'open'; return b; })() : el('span'),
+          br.path ? button(L('Показать файл', 'Show file'), () => void invoke('file:reveal', br.path!), 'link') : el('span'),
         ),
       ),
       el('pre', { className: 'last-text', textContent: br.text }),
@@ -2379,9 +1896,9 @@ function renderFile(): void {
   const cur = sc.checklists.find((x) => x.id === sc.checklist) ?? sc.checklists[0] ?? null;
   const scoreOn = el('input', { type: 'checkbox', checked: sc.enabled, disabled: !sc.available && !sc.enabled });
   scoreOn.dataset.score = 'enabled';
-  scoreOn.addEventListener('change', () => void bridge.file.setOptions({ score: scoreOn.checked }).then(apply));
+  scoreOn.addEventListener('change', () => void invoke('file:options', { score: scoreOn.checked }).then(apply));
   const clSel = selectOf(sc.checklists.map((x) => ({ value: x.id, label: x.builtin ? x.name : `${x.name} ${L('(свой)', '(custom)')}` })), cur?.id ?? '',
-    (v) => { checklistDraft = null; void bridge.file.setScoreChecklist(v).then(apply); });
+    (v) => { checklistDraft = null; void invoke('file:scoreChecklist', v).then(apply); });
   clSel.dataset.score = 'checklist';
   clSel.setAttribute('aria-label', L('Чек-лист', 'Checklist'));
   const items = el('textarea', { rows: Math.min(8, Math.max(3, cur?.items.length ?? 3)), spellcheck: true });
@@ -2393,15 +1910,15 @@ function renderFile(): void {
   clName.dataset.score = 'name';
   clName.className = 'grow';
   clName.addEventListener('input', () => { checklistDraft = { items: items.value, name: clName.value }; });
-  const saveCl = button(L('Сохранить чек-лист', 'Save checklist'), () => void bridge.file.saveChecklist(clName.value, items.value).then((st) => { if (!st.score?.note) checklistDraft = null; apply(st); }));
+  const saveCl = button(L('Сохранить чек-лист', 'Save checklist'), () => void invoke('file:saveChecklist', clName.value, items.value).then((st) => { if (!st.score?.note) checklistDraft = null; apply(st); }));
   saveCl.dataset.score = 'save';
   const clRow = el('div', { className: 'row tpl-row' }, clName, saveCl);
   if (cur && !cur.builtin) {
-    const del = button(L('Удалить', 'Delete'), () => { checklistDraft = null; void bridge.file.deleteChecklist(cur.name).then(apply); }, 'link');
+    const del = button(L('Удалить', 'Delete'), () => { checklistDraft = null; void invoke('file:deleteChecklist', cur.name).then(apply); }, 'link');
     del.dataset.score = 'delete';
     clRow.append(del);
   }
-  const doScore = button(L('Проверить последнюю расшифровку', 'Score the last transcript'), () => void bridge.file.runScore().then(apply), 'primary');
+  const doScore = button(L('Проверить последнюю расшифровку', 'Score the last transcript'), () => void invoke('file:runScore').then(apply), 'primary');
   doScore.dataset.score = 'run';
   doScore.disabled = s.busy || sc.busy || !sc.available || !s.lastOutput;
   const scoreBox = el('fieldset', { className: 'meeting-brief call-score' },
@@ -2430,7 +1947,7 @@ function renderFile(): void {
     scoreBox.append(el('div', { className: 'card result score-card' },
       el('div', { className: 'card-head' },
         el('strong', { textContent: L(`${r.checklist.name}: ${String(r.score).replace('.', ',')} из ${r.max} (${r.percent}%)`, `${r.checklist.name}: ${r.score} of ${r.max} (${r.percent}%)`) }),
-        sc.path ? button(L('Показать файл', 'Show file'), () => void bridge.file.reveal(sc.path!), 'link') : el('span'),
+        sc.path ? button(L('Показать файл', 'Show file'), () => void invoke('file:reveal', sc.path!), 'link') : el('span'),
       ),
       list,
     ));
@@ -2446,9 +1963,9 @@ function renderFile(): void {
   const langs = el('datalist', { id: langListId });
   for (const l of tr.languages) langs.append(el('option', { value: l.label }));
   lang.addEventListener('input', () => { translateDraft = lang.value; });
-  lang.addEventListener('change', () => void bridge.file.setTranslateTarget(lang.value).then((st) => { translateDraft = null; fileState = st; }));
+  lang.addEventListener('change', () => void invoke('file:translateTarget', lang.value).then((st) => { translateDraft = null; fileState = st; }));
   const doTranslate = button(L('Перевести последнюю расшифровку', 'Translate the last transcript'),
-    () => void bridge.file.runTranslate(lang.value).then((st) => { translateDraft = null; apply(st); }));
+    () => void invoke('file:runTranslate', lang.value).then((st) => { translateDraft = null; apply(st); }));
   doTranslate.disabled = s.busy || tr.busy || !tr.available || !s.lastOutput;
   const translateBox = el('fieldset', { className: 'translate-box' },
     el('legend', { textContent: L('Перевод', 'Translation') }),
@@ -2462,7 +1979,7 @@ function renderFile(): void {
     translateBox.append(el('div', { className: 'card result translate-card' },
       el('div', { className: 'card-head' },
         el('strong', { textContent: L('Перевод', 'Translation') }),
-        tr.path ? button(L('Показать файл', 'Show file'), () => void bridge.file.reveal(tr.path!), 'link') : el('span'),
+        tr.path ? button(L('Показать файл', 'Show file'), () => void invoke('file:reveal', tr.path!), 'link') : el('span'),
       ),
       el('pre', { className: 'last-text', textContent: tr.text }),
     ));
@@ -2477,7 +1994,7 @@ function renderFile(): void {
     const link = el('input', { type: 'text', id: 'file-url', value: urlDraft, spellcheck: false, autocomplete: 'off', placeholder: 'https://www.youtube.com/watch?v=…' });
   const go = () => {
     if (!urlDraft.trim()) return;
-    void bridge.file.fromUrl(urlDraft).then((st) => {
+    void invoke('file:url', urlDraft).then((st) => {
       if (st.url.busy) urlDraft = '';
       apply(st);
     });
@@ -2495,7 +2012,7 @@ function renderFile(): void {
     el('p', { className: 'muted', textContent: s.url.line }),
   );
   if (s.url.canDownload && (!s.url.installed || s.url.managed)) {
-    const b = button(s.url.managed ? L('Обновить yt-dlp', 'Update yt-dlp') : L('Скачать yt-dlp', 'Download yt-dlp'), () => void bridge.file.downloadYtDlp().then(apply), 'link');
+    const b = button(s.url.managed ? L('Обновить yt-dlp', 'Update yt-dlp') : L('Скачать yt-dlp', 'Download yt-dlp'), () => void invoke('file:ytdlpDownload').then(apply), 'link');
     b.disabled = s.busy;
     byUrl.append(b);
   }
@@ -2506,7 +2023,7 @@ function renderFile(): void {
   }
 
   const ff = el('fieldset', {}, el('legend', { textContent: 'ffmpeg' }), el('p', { className: 'muted', textContent: s.ffmpeg.line }));
-  if (!s.ffmpeg.installed && s.ffmpeg.canDownload) ff.append(button(L('Скачать ffmpeg', 'Download ffmpeg'), () => void bridge.file.downloadFfmpeg().then(apply)));
+  if (!s.ffmpeg.installed && s.ffmpeg.canDownload) ff.append(button(L('Скачать ffmpeg', 'Download ffmpeg'), () => void invoke('file:ffmpegDownload').then(apply)));
   page.append(ff);
 
   const d = s.diarization ?? { onDisk: false, ready: false, downloading: false, line: '', canDownload: true };
@@ -2514,7 +2031,7 @@ function renderFile(): void {
     el('legend', { textContent: L('Спикеры', 'Speakers') }),
     el('p', { className: 'muted', textContent: d.line }),
   );
-  if (d.canDownload) diarFs.append(button(L('Скачать модели (~47 МБ)', 'Download models (~47 MB)'), () => void bridge.file.downloadDiarize().then(apply)));
+  if (d.canDownload) diarFs.append(button(L('Скачать модели (~47 МБ)', 'Download models (~47 MB)'), () => void invoke('file:diarizeDownload').then(apply)));
   page.append(diarFs);
 }
 
@@ -2555,13 +2072,13 @@ class MeetingCapture {
       // Only the sound is wanted: the screen track is stopped before any frame is used.
       for (const v of st.getVideoTracks()) { v.stop(); st.removeTrack(v); }
       if (st.getAudioTracks().length === 0) {
-        await bridge.meeting.systemOpened(false, L('нет звуковой дорожки', 'no audio track'));
+        await invoke('meeting:systemOpened', false, L('нет звуковой дорожки', 'no audio track'));
         return null;
       }
-      await bridge.meeting.systemOpened(true);
+      await invoke('meeting:systemOpened', true, '');
       return st;
     } catch (e) {
-      await bridge.meeting.systemOpened(false, (e as DOMException)?.name ?? String(e));
+      await invoke('meeting:systemOpened', false, (e as DOMException)?.name ?? String(e));
       return null;
     }
   }
@@ -2590,7 +2107,7 @@ class MeetingCapture {
           if (y > b) b = y;
         }
         this.levels = [a, b];
-        bridge.meeting.pcm(c);
+        send('meeting:pcm', c);
       } else if (e.data === 'flushed') this.flushed?.();
     };
     this.ctx.createMediaStreamSource(mic).connect(this.node, 0, 0);
@@ -2658,7 +2175,7 @@ async function meetingStart(): Promise<void> {
   if (meetingBusy || meetingState?.recording) return;
   meetingBusy = true;
   try {
-    const r = await bridge.meeting.start();
+    const r = await invoke('meeting:start');
     if (!r.ok) {
       applyMeeting(r.state);
       return;
@@ -2668,11 +2185,11 @@ async function meetingStart(): Promise<void> {
       await cap.start(r.micId, r.system);
     } catch (e) {
       await cap.stop().catch(() => undefined);
-      applyMeeting(await bridge.meeting.failed((e as DOMException)?.name ?? String(e)));
+      applyMeeting(await invoke('meeting:failed', (e as DOMException)?.name ?? String(e)));
       return;
     }
     meetingCapture = cap;
-    applyMeeting(await bridge.meeting.state());
+    applyMeeting(await invoke('meeting:state'));
   } finally {
     meetingBusy = false;
   }
@@ -2685,7 +2202,7 @@ async function meetingFinish(cancel: boolean): Promise<void> {
     const cap = meetingCapture;
     meetingCapture = null;
     await cap?.stop();
-    applyMeeting(await (cancel ? bridge.meeting.cancel() : bridge.meeting.stop()));
+    applyMeeting(await (cancel ? invoke('meeting:cancel') : invoke('meeting:stop')));
   } finally {
     meetingBusy = false;
   }
@@ -2704,8 +2221,8 @@ function renderMeeting(): void {
       el('p', { className: 'muted hint', textContent: why }),
       el('div', { className: 'row' },
         button(L('Записать', 'Record'), () => void meetingStart(), 'primary'),
-        button(L('Не сейчас', 'Not now'), () => void bridge.meeting.offerSnooze().then(applyMeeting), 'link'),
-        button(L('Больше не предлагать', 'Do not offer again'), () => void bridge.meeting.offerNever().then(applyMeeting), 'link'),
+        button(L('Не сейчас', 'Not now'), () => void invoke('meeting:offerSnooze').then(applyMeeting), 'link'),
+        button(L('Больше не предлагать', 'Do not offer again'), () => void invoke('meeting:offerNever').then(applyMeeting), 'link'),
       ),
     );
     box.append(offer);
@@ -2736,15 +2253,15 @@ function renderMeeting(): void {
     box.append(el('div', { className: 'row' }, button(L('Записать встречу', 'Record a meeting'), () => void meetingStart())));
     if (m.systemSupported) {
       const cb = el('input', { type: 'checkbox', checked: m.systemOn });
-      cb.addEventListener('change', () => void bridge.meeting.setSystem(cb.checked).then(applyMeeting));
+      cb.addEventListener('change', () => void invoke('meeting:system', cb.checked).then(applyMeeting));
       box.append(el('label', {}, cb, L(' Со звуком компьютера (собеседники в Zoom, Teams, Telegram)', ' With the computer sound (people in Zoom, Teams, Telegram)')));
     }
     const ad = el('input', { type: 'checkbox', checked: m.autoDetect, id: 'meeting-auto-detect' });
-    ad.addEventListener('change', () => void bridge.meeting.setAutoDetect(ad.checked).then(applyMeeting));
+    ad.addEventListener('change', () => void invoke('meeting:autoDetect', ad.checked).then(applyMeeting));
     box.append(el('label', { className: 'check' }, ad, ' ', L('Предлагать запись, если похоже на встречу', 'Offer to record when a meeting looks active')));
     if (m.autoDetect) {
       const apps = el('input', { type: 'checkbox', checked: m.autoDetectApps, id: 'meeting-auto-apps' });
-      apps.addEventListener('change', () => void bridge.meeting.setAutoDetectApps(apps.checked).then(applyMeeting));
+      apps.addEventListener('change', () => void invoke('meeting:autoDetectApps', apps.checked).then(applyMeeting));
       box.append(el('label', { className: 'check' }, apps, ' ', L('Смотреть Zoom, Teams, Телемост и др. (Windows/Linux)', 'Watch Zoom, Teams, Telemost, etc. (Windows/Linux)')));
       const calRow = el('div', { className: 'row cal-row' });
       const cal = el('input', {
@@ -2754,10 +2271,10 @@ function renderMeeting(): void {
         value: m.autoDetectCalendar,
         id: 'meeting-auto-cal',
       });
-      cal.addEventListener('change', () => void bridge.meeting.setAutoDetectCalendar(cal.value.trim()).then(applyMeeting));
+      cal.addEventListener('change', () => void invoke('meeting:autoDetectCalendar', cal.value.trim()).then(applyMeeting));
       calRow.append(
         cal,
-        button(L('Обзор…', 'Browse…'), () => void bridge.meeting.pickCalendar().then(applyMeeting), 'link'),
+        button(L('Обзор…', 'Browse…'), () => void invoke('meeting:pickCalendar').then(applyMeeting), 'link'),
       );
       box.append(calRow);
       box.append(el('p', { className: 'muted hint', textContent: L(
@@ -2773,48 +2290,48 @@ function renderMeeting(): void {
 }
 
 function show(name: string): void {
-  if (current === 'brain' && name !== 'brain') void bridge.brain.close();
+  if (current === 'brain' && name !== 'brain') void invoke('brain:close');
   current = name;
   if (name === 'dictation') {
     renderDictation();
-    void bridge.dictation.state().then(applyDictation).then(() => refreshMicDevices());
+    void invoke('dictation:state').then(applyDictation).then(() => refreshMicDevices());
     return;
   }
   if (name === 'file') {
     renderFile();
-    void bridge.file.state().then(apply);
-    void bridge.meeting.state().then(applyMeeting);
+    void invoke('file:state').then(apply);
+    void invoke('meeting:state').then(applyMeeting);
     return;
   }
   if (name === 'speech') {
     renderSpeech();
-    void bridge.speech.state().then(applySpeech);
+    void invoke('speech:state').then(applySpeech);
     return;
   }
   if (name === 'dictionary') {
     renderDictionary();
-    void bridge.dict.state().then((st) => applyDict(st));
+    void invoke('dict:state').then((st) => applyDict(st));
     return;
   }
   if (name === 'brain') {
     renderBrain();
-    void bridge.brain.state(true).then(applyBrain);
+    void invoke('brain:state', true).then(applyBrain);
     return;
   }
   if (name === 'history') {
     renderHistory();
-    void bridge.history.state().then(applyHistory);
-    void bridge.ask.state().then(applyAsk);
+    void invoke('history:state').then(applyHistory);
+    void invoke('ask:state').then(applyAsk);
     return;
   }
   if (name === 'sales') {
     renderSales();
-    void bridge.sales.state().then((st) => applySales(st));
+    void invoke('sales:state').then((st) => applySales(st));
     return;
   }
   if (name === 'network') {
     renderNetwork();
-    void bridge.network.state().then(applyNetwork);
+    void invoke('network:state').then(applyNetwork);
     return;
   }
   page.replaceChildren(
@@ -2831,17 +2348,17 @@ for (const btn of Array.from(document.querySelectorAll<HTMLButtonElement>('.nav 
   });
 }
 
-bridge.file.onState(apply);
-bridge.meeting.onState(applyMeeting);
-bridge.speech.onState(applySpeech);
-bridge.brain.onState(applyBrainPush);
-bridge.dictation.onState(applyDictation);
-bridge.dictation.onLevel(onLevel);
-bridge.dictation.onCue(playCue);
-bridge.network.onState(applyNetwork);
-bridge.history.onState(applyHistory);
-bridge.ask.onState(applyAsk);
-bridge.file.onToast((msg) => {
+on('file:state', apply);
+on('meeting:state', applyMeeting);
+on('speech:state', applySpeech);
+on('brain:state', applyBrainPush);
+on('dictation:state', applyDictation);
+on('dictation:level', onLevel);
+on('dictation:cue', playCue);
+on('network:state', applyNetwork);
+on('history:state', applyHistory);
+on('ask:state', applyAsk);
+on('file:toast', (msg) => {
   if (fileState) apply({ ...fileState, status: msg });
 });
 
@@ -2851,7 +2368,7 @@ window.addEventListener('drop', (e) => {
   e.preventDefault();
   const files = Array.from(e.dataTransfer?.files ?? []);
   if (files.length === 0) return;
-  void bridge.file.addDropped(files).then((s) => {
+  void addDropped(files).then((s) => {
     document.querySelector<HTMLButtonElement>('.nav button[data-page="file"]')?.click();
     apply(s);
   });

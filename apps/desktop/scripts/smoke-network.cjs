@@ -5,6 +5,7 @@
 // through the queue and holds the in-window button with Chromium's fake mic. Prints what it sees.
 // Usage: CHAWO_LOCALAPPDATA=<dir with models> CHAWO_APPDATA=<tmp> \
 //   electron --no-sandbox scripts/smoke-network.cjs <speech.wav> <file.wav> [shot-prefix]
+const { appEvent } = require('./lib/appEvent.cjs');
 const { app, BrowserWindow, dialog } = require('electron');
 const { copyFileSync, existsSync, readFileSync, writeFileSync } = require('node:fs');
 const { join } = require('node:path');
@@ -47,15 +48,15 @@ app.whenReady().then(async () => {
     if (shot) writeFileSync(shot + '-host.png', (await w.webContents.capturePage()).toPNG());
 
     // 2) The whole LAN (yes/no auto-answered).
-    await h.get('network:lan')({});
-    const st = await h.get('network:state')({});
+    await h.get('network:lan')(appEvent());
+    const st = await h.get('network:state')(appEvent());
     log('lan status', st.host.status);
     const ip = (st.host.status.match(/http:\/\/(\d+\.\d+\.\d+\.\d+):17831/) || [])[1];
     if (ip) log('health via', ip, JSON.stringify(await (await fetch(`http://${ip}:17831/v1/health`)).json()));
     await sleep(300);
     if (shot) writeFileSync(shot + '-lan.png', (await w.webContents.capturePage()).toPNG());
-    await h.get('network:lan')({});
-    log('back to', (await h.get('network:state')({})).host.status);
+    await h.get('network:lan')(appEvent());
+    log('back to', (await h.get('network:state')(appEvent())).host.status);
 
     // 3) A second "machine": Hermes on 17832 with its own real recognizer.
     const dir = findComplete('v3_e2e_rnnt');
@@ -64,22 +65,22 @@ app.whenReady().then(async () => {
     await peer.start();
 
     // 4) This app becomes a client of it.
-    await h.get('network:role')({}, 'Client');
-    await h.get('network:remote')({}, '127.0.0.1', '17832');
-    await h.get('network:check')({});
+    await h.get('network:role')(appEvent(), 'Client');
+    await h.get('network:remote')(appEvent(), '127.0.0.1', '17832');
+    await h.get('network:check')(appEvent());
     await sleep(200);
     log('client page', await js(`document.querySelector('main').innerText.replace(/\\n+/g, ' | ')`));
-    log('speech status', (await h.get('speech:state')({})).status);
+    log('speech status', (await h.get('speech:state')(appEvent())).status);
     if (shot) writeFileSync(shot + '-client.png', (await w.webContents.capturePage()).toPNG());
 
     // File through the queue → the host.
     const copy = join(app.getPath('temp'), 'chawo-smoke-remote.wav');
     copyFileSync(fileWav, copy);
-    await h.get('file:options')({}, { timestamps: true, srt: false });
-    await h.get('file:add')({}, [copy], false);
-    await h.get('file:run')({});
-    for (let i = 0; i < 240 && (await h.get('file:state')({})).busy; i++) await sleep(250);
-    const fs = await h.get('file:state')({});
+    await h.get('file:options')(appEvent(), { timestamps: true, srt: false });
+    await h.get('file:add')(appEvent(), [copy], false);
+    await h.get('file:run')(appEvent());
+    for (let i = 0; i < 240 && (await h.get('file:state')(appEvent())).busy; i++) await sleep(250);
+    const fs = await h.get('file:state')(appEvent());
     log('file status', fs.status);
     const txt = copy.replace(/\.wav$/, '.txt');
     log('file txt', existsSync(txt) ? JSON.stringify(readFileSync(txt, 'utf8').slice(0, 200)) : '(none)');
@@ -112,7 +113,7 @@ app.whenReady().then(async () => {
     await sleep(1500);
     log('host down status', await js(`document.querySelector('[data-d="status"]').textContent`));
     log('own hermes while client', await fetch('http://127.0.0.1:17831/v1/health').then(() => 'up', () => 'down'));
-    await h.get('network:role')({}, 'Host');
+    await h.get('network:role')(appEvent(), 'Host');
     await sleep(300);
     log('own hermes after Host', await fetch('http://127.0.0.1:17831/v1/health').then(() => 'up', () => 'down'));
   } catch (e) {

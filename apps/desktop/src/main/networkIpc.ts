@@ -1,7 +1,7 @@
 // IPC for the «Сеть» page. Hermes lives here in the main process only; the renderer just asks.
 // The yes/no box before listening on the LAN is a native dialog.
 
-import { BrowserWindow, dialog, ipcMain } from 'electron';
+import { BrowserWindow, dialog } from 'electron';
 import * as Settings from '@chawo/engine/settings';
 import type { SettingsData } from '@chawo/engine/settings';
 import { t } from '@chawo/core/strings';
@@ -10,6 +10,7 @@ import * as Firewall from '@chawo/engine/network/hermesFirewall';
 import * as KeepAwake from './network/keepAwake';
 import * as RemoteSpeech from '@chawo/engine/network/remoteSpeech';
 import { NetworkController } from '@chawo/engine/network/networkPage';
+import { emit, handle } from './ipc';
 
 export function registerNetworkIpc(
   getWindow: () => BrowserWindow | null,
@@ -22,7 +23,7 @@ export function registerNetworkIpc(
     pushTimer = setTimeout(() => {
       pushTimer = null;
       const w = getWindow();
-      if (w && !w.isDestroyed()) w.webContents.send('network:state', ctl.state());
+      emit(w, 'network:state', ctl.state());
     }, 60);
   };
   const box = async (options: Electron.MessageBoxOptions) => {
@@ -52,24 +53,24 @@ export function registerNetworkIpc(
   });
   const str = (v: unknown) => (typeof v === 'string' ? v : '');
 
-  ipcMain.handle('network:state', () => ctl.state());
-  ipcMain.handle('network:role', async (_e, v: unknown) => {
+  handle('network:state', () => ctl.state());
+  handle('network:role', async (_e, v: unknown) => {
     if (v === 'Host' || v === 'Client') await ctl.setRole(v);
     return ctl.state();
   });
-  ipcMain.handle('network:remote', (_e, host: unknown, port: unknown) => {
+  handle('network:remote', (_e, host: unknown, port: unknown) => {
     ctl.setRemote(str(host).slice(0, 512), typeof port === 'number' ? port : str(port).slice(0, 16));
     return ctl.state();
   });
-  ipcMain.handle('network:check', async () => {
+  handle('network:check', async () => {
     await ctl.checkHost();
     return ctl.state();
   });
-  ipcMain.handle('network:lan', async () => {
+  handle('network:lan', async () => {
     await ctl.toggleLan();
     return ctl.state();
   });
-  ipcMain.handle('network:keepAwake', (_e, v: unknown) => {
+  handle('network:keepAwake', (_e, v: unknown) => {
     if (typeof v === 'boolean') ctl.setKeepAwake(v);
     return ctl.state();
   });

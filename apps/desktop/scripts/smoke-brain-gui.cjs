@@ -4,6 +4,7 @@
 // WAVs and prints queue notes and the .txt / .brain.txt next to each copy.
 // Usage: CHAWO_LOCALAPPDATA=<dir with models> CHAWO_APPDATA=<tmp with settings.json> \
 //   electron --no-sandbox scripts/smoke-brain-gui.cjs <a.wav> [b.wav…]
+const { appEvent } = require('./lib/appEvent.cjs');
 const { app, BrowserWindow } = require('electron');
 const { copyFileSync, existsSync, readFileSync } = require('node:fs');
 const { basename, join } = require('node:path');
@@ -26,11 +27,11 @@ app.whenReady().then(async () => {
       copyFileSync(wav, c);
       return c;
     });
-    await h.get('file:add')({}, copies, false);
+    await h.get('file:add')(appEvent(), copies, false);
     const t0 = Date.now();
-    await h.get('file:run')({});
-    for (let i = 0; i < 2400 && (await h.get('file:state')({})).busy; i++) await sleep(250);
-    const st = await h.get('file:state')({});
+    await h.get('file:run')(appEvent());
+    for (let i = 0; i < 2400 && (await h.get('file:state')(appEvent())).busy; i++) await sleep(250);
+    const st = await h.get('file:state')(appEvent());
     for (const it of st.items) log('row', JSON.stringify({ name: it.name ?? it.path, state: it.state, note: it.note }));
     log(`${Date.now() - t0} ms`);
     log('page text:', (await js(`(document.querySelector('[data-page-body="file"]') || document.body).innerText.slice(0, 400)`)).replace(/\n+/g, ' | '));

@@ -5,6 +5,7 @@
 // check line, settings on disk, the .txt and the «post script» log lines (never the text itself).
 // Usage: CHAWO_LOCALAPPDATA=<dir with models> CHAWO_APPDATA=<tmp> \
 //   xvfb-run electron --no-sandbox scripts/smoke-postscript.cjs <mic.wav> <file.wav> "<command>" [shot-prefix]
+const { appEvent } = require('./lib/appEvent.cjs');
 const { app, BrowserWindow, clipboard, ipcMain } = require('electron');
 const { writeFileSync, readFileSync, existsSync } = require('node:fs');
 const { join } = require('node:path');
@@ -77,10 +78,10 @@ app.whenReady().then(async () => {
     log('settings on disk:', JSON.stringify({ PostScript: disk.PostScript, PostScriptFiles: disk.PostScriptFiles }));
 
     const h = ipcMain._invokeHandlers;
-    await h.get('file:add')({}, [fileWav], false);
-    await h.get('file:run')({});
-    for (let i = 0; i < 360 && (await h.get('file:state')({})).busy; i++) await sleep(500);
-    const st = await h.get('file:state')({});
+    await h.get('file:add')(appEvent(), [fileWav], false);
+    await h.get('file:run')(appEvent());
+    for (let i = 0; i < 360 && (await h.get('file:state')(appEvent())).busy; i++) await sleep(500);
+    const st = await h.get('file:state')(appEvent());
     log('file rows:', JSON.stringify(st.items.map((x) => [x.state, x.note])));
     const txt = fileWav.replace(/\.[^.]+$/, '.txt');
     log('file .txt:', JSON.stringify(existsSync(txt) ? readFileSync(txt, 'utf8').slice(0, 160) : '(none)'));

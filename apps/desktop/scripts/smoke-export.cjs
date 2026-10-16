@@ -3,6 +3,7 @@
 // speech WAV through the queue with the real local model and prints what was written.
 // Usage: CHAWO_LOCALAPPDATA=<dir with models> CHAWO_APPDATA=<tmp> \
 //   electron --no-sandbox scripts/smoke-export.cjs <speech.wav> [shot.png]
+const { appEvent } = require('./lib/appEvent.cjs');
 const { app, BrowserWindow } = require('electron');
 const { copyFileSync, existsSync, readFileSync, writeFileSync, statSync } = require('node:fs');
 const { join } = require('node:path');
@@ -22,7 +23,7 @@ app.whenReady().then(async () => {
     const h = require('electron').ipcMain._invokeHandlers;
     await js(`document.querySelector('.nav button[data-page="file"]').click(); true`);
     await sleep(600);
-    await h.get('file:options')({}, { timestamps: true, srt: true, extra: [] });
+    await h.get('file:options')(appEvent(), { timestamps: true, srt: true, extra: [] });
     await js(`document.querySelector('.nav button[data-page="file"]').click(); true`);
     await sleep(400);
     for (const ext of ['vtt', 'json', 'md', 'docx']) {
@@ -38,11 +39,11 @@ app.whenReady().then(async () => {
 
     const copy = join(app.getPath('temp'), 'chawo-smoke-export.wav');
     copyFileSync(wav, copy);
-    await h.get('file:add')({}, [copy], false);
+    await h.get('file:add')(appEvent(), [copy], false);
     const t0 = Date.now();
-    await h.get('file:run')({});
-    for (let i = 0; i < 480 && (await h.get('file:state')({})).busy; i++) await sleep(250);
-    const st = await h.get('file:state')({});
+    await h.get('file:run')(appEvent());
+    for (let i = 0; i < 480 && (await h.get('file:state')(appEvent())).busy; i++) await sleep(250);
+    const st = await h.get('file:state')(appEvent());
     log('row note', JSON.stringify(st.items.at(-1)), `${Date.now() - t0} ms`);
     for (const ext of ['txt', 'srt', 'vtt', 'json', 'md', 'docx']) {
       const p = copy.replace(/\.wav$/, '.' + ext);

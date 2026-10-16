@@ -42,8 +42,17 @@ export default tseslint.config(
     },
   },
   {
+    // The window is sandboxed: it talks to the system only through the preload bridge.
     files: ['apps/desktop/src/renderer/**/*.ts'],
     languageOptions: { globals: { ...globals.browser } },
+    rules: {
+      'no-restricted-imports': ['error', {
+        patterns: [
+          { regex: '^(node:|electron$)', message: 'The renderer has no Node or Electron: ask main through window.chawo.' },
+          { regex: '^@chawo/(core|engine)/', allowTypeImports: true, message: 'Only types from @chawo/core / @chawo/engine; runtime code stays in main.' },
+        ],
+      }],
+    },
   },
   {
     // Plain JS: scripts, fixtures, AudioWorklets, config — no type information.

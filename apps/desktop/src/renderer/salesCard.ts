@@ -1,16 +1,7 @@
 // The sales card's drawing (SalesCardWindow.ShowModel): who/script for a call, the «похоже» badge,
 // the catalog name and line, and the materials snippet. Text goes in via textContent only. Reports its
-// size to main. Script, not a module: everything stays inside one function so names never clash.
-
-interface SalesCardDraw {
-  visible: boolean; hasCall: boolean; callHead: string; who: string; script: string; hasHit: boolean;
-  badge: string; kind: 'Exact' | 'Similar'; name: string; line: string; ragLabel: string; rag: string;
-}
-interface SalesCardApi {
-  onState(fn: (s: SalesCardDraw) => void): void;
-  size(w: number, h: number): void;
-  dismiss(): void;
-}
+// size to main.
+import type { SalesCardApi } from '@chawo/ipc/contract';
 
 (() => {
   const api = (window as unknown as { chawoSalesCard: SalesCardApi }).chawoSalesCard;

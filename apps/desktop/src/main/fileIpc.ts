@@ -1,7 +1,7 @@
 // IPC for the «Расшифровка файла» page. The renderer never touches the filesystem: it asks the
 // main process to pick, add, run, stop and reveal, and receives queue/status pushes.
 
-import { BrowserWindow, Notification, app, clipboard, dialog, ipcMain, shell } from 'electron';
+import { BrowserWindow, Notification, app, clipboard, dialog, shell } from 'electron';
 import { withContext } from '@chawo/core/brainContext';
 import { dirname, join } from 'node:path';
 import { FileQueue, FileRunner, Ffmpeg, UrlImport, YtDlp, OPEN_FILTERS, load16k, localPrepare, remoteFatal, remotePrepare } from '@chawo/engine/file/index';
@@ -20,109 +20,13 @@ import { computeCallStats, DEFAULT_TRACKERS_TEXT, parseTrackers, type CallStats 
 import { allowMediaPath, isMediaAllowed, mediaUrlFor } from './localMediaProtocol';
 import { scriptCommand } from '@chawo/core/postScript';
 import * as Settings from '@chawo/engine/settings';
-import { asExtraFormats, type FileExtraFormat, type SettingsData, type SettingsFileParallelism } from '@chawo/engine/settings';
+import { asExtraFormats, type SettingsData, type SettingsFileParallelism } from '@chawo/engine/settings';
 import { isRussian, t } from '@chawo/core/strings';
 import * as Log from '@chawo/engine/log';
 import { editTranscriptPhrase } from '@chawo/core/transcriptEdit';
 import { learnFromEdit } from '@chawo/engine/dictionary/learnedWords';
-
-interface FileOptionsDto {
-  timestamps: boolean;
-  srt: boolean;
-  /** vtt / json / md / docx */
-  extra: FileExtraFormat[];
-  parallelism: SettingsFileParallelism;
-  diarize: boolean;
-  /** «Кратко и задачи» after transcription (MeetingBriefEnabled). */
-  brief: boolean;
-  /** «Проверка по чек-листу» after transcription (CallScoreEnabled). */
-  score: boolean;
-}
-
-
-interface FileEditorSegmentDto {
-  start: number;
-  end: number;
-  text: string;
-  speaker?: number;
-}
-
-interface FileEditorDto {
-  available: boolean;
-  reason?: string;
-  audioPath: string | null;
-  txtPath: string | null;
-  segments: FileEditorSegmentDto[];
-  mediaUrl: string | null;
-  /** Which timed file fed the phrases: srt | json | txt */
-  sourceHint?: string;
-  /** Result of the last phrase fix («Исправлено…»), empty before one. */
-  note?: string;
-}
-
-interface FileStateDto {
-  items: { id: number; path: string; state: string; note: string; outputPath?: string }[];
-  status: string;
-  busy: boolean;
-  options: FileOptionsDto;
-  ffmpeg: { line: string; canDownload: boolean; installed: boolean };
-  /** «По ссылке»: yt-dlp state, where the audio is saved, whether a link is downloading. */
-  url: { line: string; canDownload: boolean; installed: boolean; managed: boolean; busy: boolean; folder: string };
-  diarization: { onDisk: boolean; ready: boolean; downloading: boolean; line: string; canDownload: boolean };
-  lastOutput: string | null;
-  /** «Кратко и задачи» card on the File page. */
-  brief: {
-    enabled: boolean;
-    instruction: string;
-    /** Built-in default shown when the saved instruction is empty. */
-    defaultInstruction: string;
-    /** Selected template id ('' = own instruction). */
-    template: string;
-    templates: { id: string; name: string; builtin: boolean; instruction: string }[];
-    /** Last save/delete problem, '' when fine. */
-    templateNote: string;
-    /** Where the Brain would run (empty when unavailable). */
-    where: string;
-    available: boolean;
-    /** Last brief text shown in the card (from auto-run or «Составить»). */
-    text: string;
-    path: string | null;
-    busy: boolean;
-  };
-  /** «Проверка по чек-листу» card on the File page. */
-  score: {
-    enabled: boolean;
-    /** Selected checklist id (built-in id or custom name). */
-    checklist: string;
-    checklists: { id: string; name: string; builtin: boolean; items: string[] }[];
-    /** Last save/delete problem, '' when fine. */
-    note: string;
-    where: string;
-    available: boolean;
-    result: CallScore.ScoreResult | null;
-    path: string | null;
-    busy: boolean;
-  };
-  /** «Перевести» block on the File page (Brain-based, local by default). */
-  translate: {
-    /** Saved TranslateTarget (code, name or free text); empty = auto. */
-    target: string;
-    /** Common languages for the picker; free text is allowed too. */
-    languages: { code: string; label: string }[];
-    where: string;
-    available: boolean;
-    /** Last translation shown in the card. */
-    text: string;
-    path: string | null;
-    busy: boolean;
-  };
-  /** UI language picked in main (Auto follows the OS locale), so the page matches status lines. */
-  ru: boolean;
-  /** Click-a-phrase transcript editor (timed segments + local audio). */
-  editor: FileEditorDto;
-  /** «Статистика разговора» for the editor's transcript (null = no timed phrases). */
-  callStats: { stats: CallStats | null; trackers: string; defaultTrackers: string };
-}
+import type { FileEditorDto, FileEditorSegmentDto, FileStateDto } from '@chawo/ipc/contract';
+import { emit, handle } from './ipc';
 
 const PARALLELISM: readonly SettingsFileParallelism[] = ['Auto', 'Gentle1', 'Two', 'Four', 'Max'];
 
@@ -344,7 +248,7 @@ export function registerFileIpc(getWindow: () => BrowserWindow | null, settings:
     if (pushTimer) return;
     pushTimer = setTimeout(() => {
       pushTimer = null;
-      getWindow()?.webContents.send('file:state', state());
+      emit(getWindow(), 'file:state', state());
     }, 50);
   };
 
@@ -483,13 +387,13 @@ export function registerFileIpc(getWindow: () => BrowserWindow | null, settings:
     },
   });
 
-  ipcMain.handle('file:url', (_e, url: unknown) => {
+  handle('file:url', (_e, url: unknown) => {
     if (ffmpegBusy || ytdlpBusy || typeof url !== 'string') return state();
     void urlImport.start(url).then((p) => p && Log.write(`url → ${p}`));
     return state();
   });
 
-  ipcMain.handle('file:ytdlpDownload', () => {
+  handle('file:ytdlpDownload', () => {
     if (urlImport.busy || ytdlpBusy || !YtDlp.canDownload()) return state();
     ytdlpBusy = true;
     ytdlpAbort = new AbortController();
@@ -509,19 +413,19 @@ export function registerFileIpc(getWindow: () => BrowserWindow | null, settings:
   });
   let ytdlpAbort: AbortController | null = null;
 
-  ipcMain.handle('file:state', () => state());
+  handle('file:state', () => state());
 
-  ipcMain.handle('file:add', (_e, paths: unknown, onlyAudio: unknown) => {
+  handle('file:add', (_e, paths: unknown, onlyAudio: unknown) => {
     if (!Array.isArray(paths)) return state();
     const r = queue.add(paths.filter((p): p is string => typeof p === 'string'), onlyAudio === true);
     if (r.added === 0 && r.skipped > 0) {
       ffmpegStatus = '';
-      getWindow()?.webContents.send('file:toast', t('Ничего не добавлено: не аудио или уже в очереди.', 'Nothing added: not audio or already queued.'));
+      emit(getWindow(), 'file:toast', t('Ничего не добавлено: не аудио или уже в очереди.', 'Nothing added: not audio or already queued.'));
     }
     return state();
   });
 
-  ipcMain.handle('file:pick', async (_e, kind: unknown) => {
+  handle('file:pick', async (_e, kind: unknown) => {
     const w = getWindow();
     const folder = kind === 'folder';
     const opts: Electron.OpenDialogOptions = folder
@@ -532,17 +436,17 @@ export function registerFileIpc(getWindow: () => BrowserWindow | null, settings:
     return state();
   });
 
-  ipcMain.handle('file:remove', (_e, id: unknown) => {
+  handle('file:remove', (_e, id: unknown) => {
     if (typeof id === 'number') queue.remove(id);
     return state();
   });
 
-  ipcMain.handle('file:clearFinished', () => {
+  handle('file:clearFinished', () => {
     for (const i of queue.snapshot()) if (i.state !== 'Queued' && i.state !== 'Running') queue.remove(i.id);
     return state();
   });
 
-  ipcMain.handle('file:run', () => {
+  handle('file:run', () => {
     if (ffmpegBusy) return state();
     ffmpegStatus = '';
     briefCloudOk = null;
@@ -551,7 +455,7 @@ export function registerFileIpc(getWindow: () => BrowserWindow | null, settings:
     return state();
   });
 
-  ipcMain.handle('file:stop', () => {
+  handle('file:stop', () => {
     runner.stop();
     urlImport.stop();
     ffmpegAbort?.abort();
@@ -563,27 +467,29 @@ export function registerFileIpc(getWindow: () => BrowserWindow | null, settings:
     return state();
   });
 
-  ipcMain.handle('file:reveal', (_e, path: unknown) => {
+  handle('file:reveal', (_e, path: unknown) => {
     const p = typeof path === 'string' ? path : queue.lastOutput;
     if (p) shell.showItemInFolder(p);
     else if (typeof path === 'string') void shell.openPath(dirname(path));
     return true;
   });
 
-  ipcMain.handle('file:options', (_e, o: Partial<FileOptionsDto>) => {
+  handle('file:options', (_e, raw: unknown) => {
+    const o = (raw !== null && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
     const s = settings.get();
-    if (typeof o?.timestamps === 'boolean') s.FileTimestamps = o.timestamps;
-    if (typeof o?.srt === 'boolean') s.FileSrt = o.srt;
-    if (typeof o?.diarize === 'boolean') s.FileDiarize = o.diarize;
-    if (typeof o?.brief === 'boolean') s.MeetingBriefEnabled = o.brief;
-    if (typeof o?.score === 'boolean') s.CallScoreEnabled = o.score;
-    if (Array.isArray(o?.extra)) s.FileExtraFormats = asExtraFormats(o.extra);
-    if (typeof o?.parallelism === 'string' && PARALLELISM.includes(o.parallelism)) s.FileParallelism = o.parallelism;
+    if (typeof o.timestamps === 'boolean') s.FileTimestamps = o.timestamps;
+    if (typeof o.srt === 'boolean') s.FileSrt = o.srt;
+    if (typeof o.diarize === 'boolean') s.FileDiarize = o.diarize;
+    if (typeof o.brief === 'boolean') s.MeetingBriefEnabled = o.brief;
+    if (typeof o.score === 'boolean') s.CallScoreEnabled = o.score;
+    if (Array.isArray(o.extra)) s.FileExtraFormats = asExtraFormats(o.extra);
+    const parallelism = PARALLELISM.find((p) => p === o.parallelism);
+    if (parallelism) s.FileParallelism = parallelism;
     Settings.save(s);
     return state();
   });
 
-  ipcMain.handle('file:ffmpegDownload', () => {
+  handle('file:ffmpegDownload', () => {
     if (runner.busy || ffmpegBusy || urlImport.busy || ytdlpBusy || !Ffmpeg.canDownload()) return state();
     ffmpegBusy = true;
     ffmpegAbort = new AbortController();
@@ -601,7 +507,7 @@ export function registerFileIpc(getWindow: () => BrowserWindow | null, settings:
       });
     return state();
   });
-  ipcMain.handle('file:diarizeDownload', () => {
+  handle('file:diarizeDownload', () => {
     const diar = getDiarizeRuntime();
     if (runner.busy || ffmpegBusy || urlImport.busy || ytdlpBusy || diarBusy || diar.onDisk) return state();
     diarBusy = true;
@@ -626,7 +532,7 @@ export function registerFileIpc(getWindow: () => BrowserWindow | null, settings:
   });
 
 
-  ipcMain.handle('file:briefTemplate', (_e, id: unknown) => {
+  handle('file:briefTemplate', (_e, id: unknown) => {
     const s = settings.get();
     briefTemplateNote = '';
     if (typeof id === 'string' && (id === BriefTemplates.OWN || BriefTemplates.findTemplate(id, customTemplates()))) {
@@ -636,7 +542,7 @@ export function registerFileIpc(getWindow: () => BrowserWindow | null, settings:
     return state();
   });
 
-  ipcMain.handle('file:saveBriefTemplate', (_e, name: unknown, instruction: unknown) => {
+  handle('file:saveBriefTemplate', (_e, name: unknown, instruction: unknown) => {
     const s = settings.get();
     const n = typeof name === 'string' ? name.trim() : '';
     const body = typeof instruction === 'string' ? instruction.trim() : '';
@@ -658,7 +564,7 @@ export function registerFileIpc(getWindow: () => BrowserWindow | null, settings:
     return state();
   });
 
-  ipcMain.handle('file:deleteBriefTemplate', (_e, name: unknown) => {
+  handle('file:deleteBriefTemplate', (_e, name: unknown) => {
     const s = settings.get();
     briefTemplateNote = '';
     if (typeof name === 'string') {
@@ -674,7 +580,7 @@ export function registerFileIpc(getWindow: () => BrowserWindow | null, settings:
     return state();
   });
 
-  ipcMain.handle('file:briefInstruction', (_e, text: unknown) => {
+  handle('file:briefInstruction', (_e, text: unknown) => {
     const s = settings.get();
     if (typeof text === 'string') {
       s.MeetingBriefInstruction = text;
@@ -686,7 +592,7 @@ export function registerFileIpc(getWindow: () => BrowserWindow | null, settings:
     return state();
   });
 
-  ipcMain.handle('file:runBrief', async (_e, path: unknown) => {
+  handle('file:runBrief', async (_e, path: unknown) => {
     if (briefBusy || runner.busy) return state();
     const s = settings.get();
     const kind = MeetingBrief.target(s);
@@ -754,7 +660,7 @@ export function registerFileIpc(getWindow: () => BrowserWindow | null, settings:
     return state();
   });
 
-  ipcMain.handle('file:scoreChecklist', (_e, id: unknown) => {
+  handle('file:scoreChecklist', (_e, id: unknown) => {
     const s = settings.get();
     scoreNote = '';
     const c = typeof id === 'string' ? CallScore.findChecklist(id, customChecklists()) : null;
@@ -765,7 +671,7 @@ export function registerFileIpc(getWindow: () => BrowserWindow | null, settings:
     return state();
   });
 
-  ipcMain.handle('file:saveChecklist', (_e, name: unknown, items: unknown) => {
+  handle('file:saveChecklist', (_e, name: unknown, items: unknown) => {
     const s = settings.get();
     const n = typeof name === 'string' ? name.replace(/\s+/g, ' ').trim() : '';
     const list = customChecklists();
@@ -785,7 +691,7 @@ export function registerFileIpc(getWindow: () => BrowserWindow | null, settings:
     return state();
   });
 
-  ipcMain.handle('file:deleteChecklist', (_e, name: unknown) => {
+  handle('file:deleteChecklist', (_e, name: unknown) => {
     const s = settings.get();
     scoreNote = '';
     const c = typeof name === 'string' ? CallScore.findChecklist(name, customChecklists()) : null;
@@ -799,7 +705,7 @@ export function registerFileIpc(getWindow: () => BrowserWindow | null, settings:
     return state();
   });
 
-  ipcMain.handle('file:runScore', async (_e, path: unknown) => {
+  handle('file:runScore', async (_e, path: unknown) => {
     if (scoreBusy || runner.busy) return state();
     scoreNote = '';
     const s = settings.get();
@@ -842,7 +748,7 @@ export function registerFileIpc(getWindow: () => BrowserWindow | null, settings:
     return state();
   });
 
-  ipcMain.handle('file:translateTarget', (_e, text: unknown) => {
+  handle('file:translateTarget', (_e, text: unknown) => {
     const s = settings.get();
     if (typeof text === 'string') {
       s.TranslateTarget = text.trim();
@@ -851,7 +757,7 @@ export function registerFileIpc(getWindow: () => BrowserWindow | null, settings:
     return state();
   });
 
-  ipcMain.handle('file:runTranslate', async (_e, to: unknown, path: unknown) => {
+  handle('file:runTranslate', async (_e, to: unknown, path: unknown) => {
     if (translateBusy || briefBusy || runner.busy) return state();
     const s = settings.get();
     if (typeof to === 'string') {
@@ -919,7 +825,7 @@ export function registerFileIpc(getWindow: () => BrowserWindow | null, settings:
   });
 
 
-  ipcMain.handle('file:openEditor', (_e, path: unknown) => {
+  handle('file:openEditor', (_e, path: unknown) => {
     const p = typeof path === 'string' && path.length > 0 ? path : queue.lastOutput;
     editorFocus = p;
     editorNote = '';
@@ -929,7 +835,7 @@ export function registerFileIpc(getWindow: () => BrowserWindow | null, settings:
 
   // A phrase fixed in the editor: the same text in .txt/.srt/.vtt/.md/.json beside it, then the fix
   // goes to «Словарь из исправлений» like «История» → «Исправить».
-  ipcMain.handle('file:editPhrase', (_e, index: unknown, text: unknown) => {
+  handle('file:editPhrase', (_e, index: unknown, text: unknown) => {
     const ed = refreshEditor();
     const i = typeof index === 'number' && Number.isInteger(index) ? index : -1;
     const seg = ed.segments[i];
@@ -950,7 +856,7 @@ export function registerFileIpc(getWindow: () => BrowserWindow | null, settings:
     return state();
   });
 
-  ipcMain.handle('file:callTrackers', (_e, text: unknown) => {
+  handle('file:callTrackers', (_e, text: unknown) => {
     const s = settings.get();
     if (typeof text === 'string') {
       // The built-in text saved back unchanged stays '' so future defaults still apply.
@@ -961,7 +867,7 @@ export function registerFileIpc(getWindow: () => BrowserWindow | null, settings:
     return state();
   });
 
-  ipcMain.handle('file:mediaUrl', (_e, path: unknown) => {
+  handle('file:mediaUrl', (_e, path: unknown) => {
     if (typeof path !== 'string' || !path) return null;
     if (!isMediaAllowed(path) && existsSync(path)) {
       // Only queue / editor audio: allow if it matches the current editor audio or a queue item.

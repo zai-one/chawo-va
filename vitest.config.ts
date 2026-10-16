@@ -16,6 +16,7 @@ export default defineConfig({
       project('core', './packages/core'),
       project('engine', './packages/engine'),
       project('cli', './apps/cli'),
+      project('ipc', './packages/ipc'),
       project('desktop', './apps/desktop'),
     ],
   },

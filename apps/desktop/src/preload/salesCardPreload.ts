@@ -1,10 +1,13 @@
 // Bridge for the sales card (salesCard.html): state in, its measured size and the × out. Nothing else.
 import { contextBridge, ipcRenderer } from 'electron';
+import type { SalesCardApi, SalesCardState } from '@chawo/ipc/contract';
 
-contextBridge.exposeInMainWorld('chawoSalesCard', {
-  onState: (fn: (s: unknown) => void) => {
-    ipcRenderer.on('salesCard:state', (_e, s: unknown) => fn(s));
+const api: SalesCardApi = {
+  onState: (listener) => {
+    ipcRenderer.on('salesCard:state', (_e, state: SalesCardState) => listener(state));
   },
-  size: (w: number, h: number) => ipcRenderer.send('salesCard:size', w, h),
+  size: (width, height) => ipcRenderer.send('salesCard:size', width, height),
   dismiss: () => ipcRenderer.send('salesCard:dismiss'),
-});
+};
+
+contextBridge.exposeInMainWorld('chawoSalesCard', api);
