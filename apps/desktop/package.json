@@ -3,7 +3,7 @@
   "productName": "Chawo Voice Assistant",
   "version": "2.1.0",
   "description": "Chawo Voice Assistant: local dictation and file transcription (Electron).",
-  "license": "MIT",
+  "license": "LicenseRef-ZAI-ONE",
   "author": "Chawo",
   "repository": {
     "type": "git",
@@ -126,6 +126,14 @@
         {
           "from": "packaging/win/chawo-va.cmd",
           "to": "chawo-va.cmd"
+        },
+        {
+          "from": "../../LICENSE",
+          "to": "LICENSE.txt"
+        },
+        {
+          "from": "../../NOTICE",
+          "to": "NOTICE.txt"
         }
       ]
     },
@@ -135,6 +143,7 @@
       "allowToChangeInstallationDirectory": true,
       "artifactName": "ChawoVoiceAssistant-${version}-Setup.${ext}",
       "shortcutName": "Chawo Voice Assistant",
+      "license": "../../LICENSE",
       "deleteAppDataOnUninstall": false
     }
   }

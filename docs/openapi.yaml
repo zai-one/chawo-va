@@ -25,8 +25,8 @@ info:
     after creation, whatever their status. Unfinished jobs are re-queued after a restart.
     Every response is `application/json; charset=utf-8` with `Connection: close`.
   license:
-    name: MIT
-    identifier: MIT
+    name: LicenseRef-ZAI-ONE 2.0 (source-available)
+    url: https://github.com/zai-one/chawo-va/blob/main/LICENSE
 servers:
   - url: http://127.0.0.1:17831
     description: Default local bind (port 17831, overridable with --port)

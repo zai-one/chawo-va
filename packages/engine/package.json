@@ -3,7 +3,7 @@
   "version": "2.1.0",
   "private": true,
   "description": "Node services of Chawo VA shared by the app and the CLI: settings, file queue, models, Brain, network, CRM, history, MCP. No Electron.",
-  "license": "MIT",
+  "license": "LicenseRef-ZAI-ONE",
   "type": "module",
   "exports": {
     "./*": "./src/*.ts"

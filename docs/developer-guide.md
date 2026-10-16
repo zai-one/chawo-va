@@ -205,6 +205,8 @@ Dependabot (`.github/dependabot.yml`) раз в неделю предлагае�
 2. PR в `main`, дождитесь зелёного CI, merge commit.
 3. `git tag vX.Y.Z && git push origin vX.Y.Z` — `ts-windows.yml` соберёт
    `ChawoVoiceAssistant-X.Y.Z-Setup.exe` и `…-win-x64.zip` и приложит к GitHub Release.
+   Без права пушить теги — то же вручную: Actions → TS Windows → Run workflow на `main`, поле
+   `release` = `vX.Y.Z` (тег создаётся на этом коммите; должен совпадать с версией в package.json).
 4. Веса моделей в артефакты не входят.
 
 ### Подпись

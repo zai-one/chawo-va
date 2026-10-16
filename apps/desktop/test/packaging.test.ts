@@ -14,6 +14,7 @@ const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')) as {
     npmRebuild: boolean;
     electronFuses: Record<string, boolean>;
     win: { target: { target: string }[]; extraFiles: { from: string; to: string }[]; icon: string };
+    nsis: { license?: string };
   };
 };
 
@@ -65,5 +66,25 @@ describe('hardened runtime (Electron fuses)', () => {
     expect(appPaths).not.toMatch(/loadFile\(/);
     expect(appPaths).toContain("APP_ORIGIN = `${APP_SCHEME}://bundle`");
     expect(appPaths).toContain('w.loadURL(`${APP_ORIGIN}/${page}.html`)');
+  });
+});
+
+describe('licence in the package', () => {
+  it('ships LICENSE and NOTICE next to the exe and shows the licence in the installer', () => {
+    const extra = pkg.build.win.extraFiles;
+    expect(extra).toContainEqual({ from: '../../LICENSE', to: 'LICENSE.txt' });
+    expect(extra).toContainEqual({ from: '../../NOTICE', to: 'NOTICE.txt' });
+    expect(pkg.build.nsis.license).toBe('../../LICENSE');
+    const license = readFileSync(join(root, '..', '..', 'LICENSE'), 'utf8');
+    expect(license.split('\n')[0]).toBe('LicenseRef-ZAI-ONE');
+    // MIT asks for its notice to stay with the code that came from giga-pisar-win.
+    expect(readFileSync(join(root, '..', '..', 'NOTICE'), 'utf8')).toContain('Copyright (c) 2026 giga-pisar contributors');
+  });
+
+  it('every workspace package declares the same licence', () => {
+    for (const p of ['', 'apps/cli/', 'apps/desktop/', 'packages/core/', 'packages/engine/', 'packages/ipc/', 'packages/ui/']) {
+      const json = JSON.parse(readFileSync(join(root, '..', '..', p, 'package.json'), 'utf8')) as { license: string };
+      expect(json.license, p || 'root').toBe('LicenseRef-ZAI-ONE');
+    }
   });
 });

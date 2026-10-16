@@ -3,7 +3,7 @@
   "version": "2.1.0",
   "private": true,
   "description": "chawo-va command line. Built into the desktop package (out/main/cli.js) and run by the same exe.",
-  "license": "MIT",
+  "license": "LicenseRef-ZAI-ONE",
   "type": "module",
   "exports": {
     "./*": "./src/*.ts"
