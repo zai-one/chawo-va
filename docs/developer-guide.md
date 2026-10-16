@@ -10,7 +10,7 @@
 
 ```
 apps/desktop/     приложение Electron: main (окна, IPC), preload, renderer (интерфейс), упаковка,
-                  ChawoNative (native/win), e2e и smoke-скрипты (scripts/)
+                  ChawoNative (native/win), сценарии Playwright (e2e/), e2e и smoke-скрипты (scripts/)
 apps/cli/         chawo-va: разбор флагов, команды, serve и клиент --server; собирается в пакет
                   приложения как out/main/cli.js и запускается тем же exe (ELECTRON_RUN_AS_NODE)
 packages/core/    @chawo/core — логика без Electron (распознавание, VAD, форматы, строки)
@@ -126,6 +126,29 @@ CHAWO_SMOKE_MODEL_DIR=/path/v3-e2e-rnnt CHAWO_SMOKE_AUDIO=/path/a.wav pnpm e2e  
 Смоук прогоняет все команды `chawo-va` и GUI (на Linux — под xvfb) во временном профиле с фейковым
 Мозгом на 127.0.0.1; без весов случаи с реальной расшифровкой пропускаются.
 
+### Playwright
+
+```bash
+pnpm e2e:pw                                            # build + playwright test (apps/desktop/e2e)
+cd apps/desktop && xvfb-run -a pnpm exec playwright test   # Linux без дисплея, уже собранное приложение
+pnpm --filter @chawo/desktop exec playwright test -g История --trace on
+```
+
+Сценарии ведут окно как пользователь — кликами, клавиатурой, вводом текста — через `_electron` из
+`@playwright/test` (браузеры Playwright не нужны: запускается сам Electron). Каждый тест стартует
+`out/main/main.js` в своём временном профиле (`e2e/fixtures.ts`): секреты в `secrets.json` профиля,
+не в системном хранилище. Профиль заполняется до запуска:
+`test.use({ seed: { settings: { Brain: 'Server' }, history: ['…'] } })`. Ошибка в консоли окна,
+необработанное исключение или падение рендерера проваливают тест. При падении в
+`apps/desktop/test-results` остаются трассировка (`npx playwright show-trace …/trace.zip`) и скриншот;
+в CI они в артефакте `playwright-report`.
+
+Что покрыто: запуск и тёмная тема, все страницы из меню (мышью и с клавиатуры), изоляция страницы
+(нет Node/Electron, только API контракта, `contextIsolation`/`sandbox`), запрет сети и перехода на
+внешние адреса, словарь после перезапуска, поиск и удаление в истории (в том числе из chawo.db),
+«Контекст для Мозга» и его сохранение. Новые сценарии — сюда, длинные конвейеры с фейковыми
+серверами — по-прежнему в `scripts/e2e-smoke.cjs`.
+
 Ручная проверка сервера:
 
 ```bash
@@ -137,7 +160,7 @@ pnpm cli transcribe a.wav --server http://127.0.0.1:17899 -f txt,srt,vtt,json,md
 
 | Workflow | Когда | Что |
 |----------|-------|-----|
-| `ts-e2e.yml` | push в `main`, `ts-port`, `ts/**`; PR в `main`/`ts-port` (пути `apps/**`, `packages/**`, …) | типы, ESLint, Knip, юнит-тесты, e2e под xvfb |
+| `ts-e2e.yml` | push в `main`, `ts-port`, `ts/**`; PR в `main`/`ts-port` (пути `apps/**`, `packages/**`, …) | типы, ESLint, Knip, юнит-тесты, e2e-смоук и сценарии Playwright под xvfb |
 | `ts-windows.yml` | push в `main`, `ts-port`, `ts/**`, теги `v*`, PR | Windows-пакет, смоук пакета; на теге — вложения релиза |
 | `legacy-wpf-installer.yml`, `legacy-wpf-zip.yml` | вручную | старая WPF-сборка |
 

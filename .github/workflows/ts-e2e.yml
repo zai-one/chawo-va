@@ -2,6 +2,7 @@
 # apps/desktop/scripts/e2e-smoke.cjs — every chawo-va command and the GUI under xvfb, in a temp profile
 # with a fake Brain on 127.0.0.1. No model weights are downloaded here, so the real-transcription cases
 # are skipped (run `pnpm e2e` with CHAWO_SMOKE_MODEL_DIR / CHAWO_SMOKE_AUDIO locally for those).
+# Then the Playwright scenarios (apps/desktop/e2e) drive the window with real clicks and keys.
 name: TS E2E
 
 on:
@@ -56,9 +57,24 @@ jobs:
       - name: End-to-end smoke (CLI + GUI under xvfb)
         run: pnpm e2e --shots e2e-shots
 
+      # The app is already built by the step above. Traces and screenshots of failed tests go to the report.
+      - name: End-to-end UI scenarios (Playwright, under xvfb)
+        if: success() || failure()
+        working-directory: apps/desktop
+        run: xvfb-run -a -s '-screen 0 1280x800x24' pnpm exec playwright test
+
       - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: ts-e2e-screenshots
           path: apps/desktop/e2e-shots
+          if-no-files-found: ignore
+
+      - uses: actions/upload-artifact@v7
+        if: failure()
+        with:
+          name: playwright-report
+          path: |
+            apps/desktop/playwright-report
+            apps/desktop/test-results
           if-no-files-found: ignore

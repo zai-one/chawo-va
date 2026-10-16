@@ -11,6 +11,7 @@ src/renderer/   dark-only UI (sandboxed, strict CSP, no network); public/ holds 
 resources/      icons packed into the app
 native/win/     ChawoNative.exe: Windows hold key + inserting text (.NET Framework 4.8)
 packaging/win/  chawo-va.cmd — the CLI next to the installed exe
+e2e/            Playwright scenarios (clicks, keys, typing) against the built app (out/)
 scripts/        e2e and smoke scripts against the built app (out/)
 test/           vitest tests of this package
 ```
@@ -22,6 +23,7 @@ pnpm install
 pnpm dev             # hot reload of the UI
 pnpm start           # build + run
 pnpm e2e             # build + scripts/e2e-smoke.cjs (xvfb on Linux)
+pnpm e2e:pw          # build + Playwright scenarios in e2e/ (xvfb-run on Linux without a display)
 pnpm dist:win        # Setup.exe + portable zip (Windows)
 ```
 

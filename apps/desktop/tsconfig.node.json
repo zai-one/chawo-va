@@ -3,5 +3,5 @@
   "compilerOptions": {
     "lib": ["ES2024", "DOM"]
   },
-  "include": ["src/main", "src/preload", "src/env.d.ts", "test", "electron.vite.config.ts"]
+  "include": ["src/main", "src/preload", "src/env.d.ts", "test", "e2e", "electron.vite.config.ts", "playwright.config.ts"]
 }

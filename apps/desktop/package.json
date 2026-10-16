@@ -23,7 +23,8 @@
     "build:native": "dotnet build native/win/ChawoNative.csproj -c Release -o native/win/bin/out",
     "dist:win": "electron-vite build && electron-builder --win --x64 --publish never",
     "dist:dir": "electron-vite build && electron-builder --dir --publish never",
-    "e2e": "electron-vite build && node scripts/e2e-smoke.cjs"
+    "e2e": "electron-vite build && node scripts/e2e-smoke.cjs",
+    "e2e:pw": "electron-vite build && playwright test"
   },
   "dependencies": {
     "@napi-rs/keyring": "^2.1.1",
@@ -39,6 +40,7 @@
     "@chawo/ipc": "workspace:*",
     "@chawo/ui": "workspace:*",
     "@modelcontextprotocol/sdk": "^1.32.1",
+    "@playwright/test": "1.64.1",
     "@rolldown/plugin-babel": "^0.2.4",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",

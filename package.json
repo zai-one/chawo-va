@@ -20,6 +20,7 @@
     "test:watch": "vitest",
     "check": "pnpm typecheck && pnpm lint && pnpm knip && pnpm test",
     "e2e": "pnpm --filter @chawo/desktop e2e",
+    "e2e:pw": "pnpm --filter @chawo/desktop e2e:pw",
     "dist:win": "pnpm --filter @chawo/desktop dist:win",
     "dist:dir": "pnpm --filter @chawo/desktop dist:dir"
   },
