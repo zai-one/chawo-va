@@ -25,7 +25,7 @@
 | `cleanup [--yes [--all]] [--days 30] [--json]` | «Место на диске»: список лишнего с размерами; `--yes` удаляет отмеченное `[x]` (старые версии, недокачанное, старые движки, копии, временное), `--all` — ещё невыбранные модели и расшифрованные записи старше `--days` | stdout |
 | `meeting detect` | Автоопределение встречи (приложения Windows/Linux / локальный `.ics`, в т.ч. RRULE) без запуска записи | stdout |
 | `serve` | Headless CPU-сервер расшифровки ([linux-server.md](linux-server.md)) | — |
-| `--help`, `--version` | Справка / версия (`chawo-va 2.0.0`) | stdout |
+| `--help`, `--version` | Справка / версия (`chawo-va 2.1.0`) | stdout |
 
 ## Флаги
 
@@ -324,7 +324,7 @@ chawo-va ask скидка Ромашка --in ~/Calls --search -n 3
 chawo-va mcp --in ~/Calls --no-history   # для MCP-клиента; включается на «Сети»
 ```
 
-## Полный вывод `chawo-va --lang ru --help` (v2.0.0)
+## Полный вывод `chawo-va --lang ru --help` (v2.1.0)
 
 ```
 Chawo Voice Assistant — расшифровка файлов, «Кратко и задачи», чек-лист, статистика, вопросы к истории, словарь, сниппеты и выгрузка в CRM из командной строки. Всё локально, ничего не отправляется (по ссылке — только скачивание).
@@ -346,6 +346,7 @@ Chawo Voice Assistant — расшифровка файлов, «Кратко и
   chawo-va meeting detect [--json]
   chawo-va crm send <файл.brief.txt> --to amocrm|bitrix|hubspot|webhook [--id N] [--score] [--dry-run] [--yes]
   chawo-va crm config [--to … параметры]
+  chawo-va cleanup [--yes [--all]] [--days 30] [--json]   лишнее на диске: старые версии, недокачанное, …
   chawo-va serve [--host 127.0.0.1|0.0.0.0] [--port 17831] [--token …] [--data-dir …]
 
 Параметры:

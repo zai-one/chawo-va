@@ -30,7 +30,7 @@ cd /opt/chawo-va
 corepack enable                              # pnpm нужной версии
 pnpm install --frozen-lockfile               # бинарник Electron серверу не нужен и не скачивается
 pnpm build
-node apps/desktop/out/main/cli.js --version  # chawo-va 2.0.0
+node apps/desktop/out/main/cli.js --version  # chawo-va 2.1.0
 ```
 
 ### Модель

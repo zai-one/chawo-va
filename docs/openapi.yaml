@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Chawo VA transcription server (chawo-va serve)
-  version: 2.0.0
+  version: 2.1.0
   summary: Hermes-compatible speech-to-text over HTTP plus an async job API for long files.
   description: |
     HTTP API of `chawo-va serve` (packages/engine/src/network/serveServer.ts). CPU only, one speech model

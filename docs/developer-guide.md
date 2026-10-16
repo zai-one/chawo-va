@@ -200,7 +200,8 @@ Dependabot (`.github/dependabot.yml`) раз в неделю предлагае�
 
 ## Релиз
 
-1. Поднимите `version` в `apps/desktop/package.json` (одна версия для приложения и CLI) и упоминания версии в README/доках.
+1. Поднимите `version` в `apps/desktop/package.json` (одна версия для приложения и CLI) и упоминания версии в README/доках;
+   заметки к релизу — `docs/releases/vX.Y.Z.md` (CI подставит их в GitHub Release).
 2. PR в `main`, дождитесь зелёного CI, merge commit.
 3. `git tag vX.Y.Z && git push origin vX.Y.Z` — `ts-windows.yml` соберёт
    `ChawoVoiceAssistant-X.Y.Z-Setup.exe` и `…-win-x64.zip` и приложит к GitHub Release.
