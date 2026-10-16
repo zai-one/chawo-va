@@ -4,7 +4,9 @@ import { ipcRenderer } from 'electron';
 
 const RATE = 16000;
 
-ipcRenderer.on('decoder:decode', async (_e, id: number, bytes: Uint8Array) => {
+ipcRenderer.on('decoder:decode', (_e, id: number, bytes: Uint8Array) => void decode(id, bytes));
+
+async function decode(id: number, bytes: Uint8Array): Promise<void> {
   try {
     // An OfflineAudioContext at 16 kHz makes decodeAudioData resample for us.
     const ctx = new OfflineAudioContext(1, 1, RATE);
@@ -22,4 +24,4 @@ ipcRenderer.on('decoder:decode', async (_e, id: number, bytes: Uint8Array) => {
     const e = err as Error;
     ipcRenderer.send('decoder:result', id, false, `${e?.name ?? 'Error'}: ${e?.message ?? String(err)}`, 0);
   }
-});
+}

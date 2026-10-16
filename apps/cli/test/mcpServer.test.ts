@@ -12,7 +12,7 @@ let dir: string;
 let meet: string;
 let outside: string;
 const t = (_ru: string, en: string) => en;
-const mk = (roots?: string[]) => new McpServer({ version: '9.9.9', roots: () => roots ?? [meet], history: () => [{ id: 'h1', ts: Date.parse('2026-10-13T10:00:00Z'), raw: '', final: 'Позвонить Ивану про скидку', command: null, brain: false, brainFailed: false, seconds: 1 } as never], trackers: () => '', t });
+const mk = (roots?: string[]) => new McpServer({ version: '9.9.9', roots: () => roots ?? [meet], history: () => [{ id: 'h1', ts: Date.parse('2026-10-13T10:00:00Z'), raw: '', final: 'Позвонить Ивану про скидку', command: null, brain: false, brainFailed: false, seconds: 1 }], trackers: () => '', t });
 const ready = async (s: McpServer) => { await s.handle({ jsonrpc: '2.0', id: 0, method: 'initialize', params: { protocolVersion: '2025-06-18' } }); return s; };
 const call = async (s: McpServer, name: string, args: Record<string, unknown>) => ((await s.handle({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name, arguments: args } })) as { result: { content: { text: string }[]; isError?: boolean; structuredContent?: Record<string, unknown> } }).result;
 
@@ -115,15 +115,15 @@ describe('tools', () => {
     const long = join(meet, 'sub', 'long.txt');
     const p1 = await call(s, 'get_transcript', { path: long });
     expect(p1.structuredContent).toMatchObject({ offset: 0, nextOffset: MAX_RESULT_CHARS });
-    expect(p1.content[0]!.text).toMatch(/call again with offset/);
+    expect(p1.content[0].text).toMatch(/call again with offset/);
     const p2 = await call(s, 'get_transcript', { path: long, offset: MAX_RESULT_CHARS });
-    expect(p2.content[0]!.text).toHaveLength(500);
-    expect((await call(s, 'get_brief', { path: join(meet, 'call.txt') })).content[0]!.text).toContain('скидка');
+    expect(p2.content[0].text).toHaveLength(500);
+    expect((await call(s, 'get_brief', { path: join(meet, 'call.txt') })).content[0].text).toContain('скидка');
     expect((await call(s, 'get_score', { path: join(meet, 'call.txt') })).structuredContent).toMatchObject({ percent: 50 });
-    expect((await call(s, 'get_brief', { path: join(meet, 'big.txt') })).content[0]!.text).toMatch(/No brief/);
+    expect((await call(s, 'get_brief', { path: join(meet, 'big.txt') })).content[0].text).toMatch(/No brief/);
     const st = await call(s, 'get_stats', { path: join(meet, 'call.txt') });
     expect(st.isError).toBeUndefined();
-    expect(st.content[0]!.text).toMatch(/Speaker 1/);
+    expect(st.content[0].text).toMatch(/Speaker 1/);
   });
   it('path traversal, symlinks, relative paths, other types and big files are refused', async () => {
     const s = await ready(mk());
@@ -144,7 +144,7 @@ describe('tools', () => {
     for (const path of bad) {
       const r = await call(s, 'get_transcript', { path });
       expect(r.isError, path).toBe(true);
-      expect(r.content[0]!.text).not.toContain('секрет');
+      expect(r.content[0].text).not.toContain('секрет');
     }
     for (const tool of ['get_brief', 'get_score', 'get_stats']) expect((await call(s, tool, { path: join(outside, 'passwords.txt') })).isError).toBe(true);
     // A file root shares only that file.

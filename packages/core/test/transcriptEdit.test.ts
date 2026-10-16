@@ -4,7 +4,7 @@ import { editTranscriptPhrase, siblingTranscripts } from '../src/transcriptEdit'
 function fs(files: Record<string, string>) {
   const written: Record<string, string> = {};
   return {
-    read: (p: string) => (p in written ? written[p]! : files[p] ?? null),
+    read: (p: string) => (p in written ? written[p] : files[p] ?? null),
     write: (p: string, d: string) => void (written[p] = d),
     written,
   };
@@ -21,7 +21,7 @@ describe('editTranscriptPhrase', () => {
     const changed = editTranscriptPhrase('/m.txt', 'звонок в таптейн', 'звонок в  Taptain', f.read, f.write);
     expect(changed).toEqual(['/m.txt', '/m.srt', '/m.json']);
     expect(f.written['/m.txt']).toContain('звонок в Taptain');
-    expect(JSON.parse(f.written['/m.json']!).segments[0].text).toBe('звонок в Taptain "x"');
+    expect(JSON.parse(f.written['/m.json']).segments[0].text).toBe('звонок в Taptain "x"');
     expect(f.written['/m.md']).toBeUndefined(); // twice → ambiguous, left alone
   });
   it('nothing for empty, unchanged or missing text; $ in the new text is literal', () => {

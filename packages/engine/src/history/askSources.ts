@@ -28,12 +28,12 @@ export function dictationSources(entries: readonly HistoryEntry[], tr: (ru: stri
   }
   const out: AskSource[] = [];
   for (const [key, list] of days) {
-    const d = new Date(list[0]!.ts);
+    const d = new Date(list[0].ts);
     out.push({
       id: `dictation:${key}`,
       kind: 'dictation',
       title: tr(`Диктовка ${pad(d.getDate())}.${pad(d.getMonth() + 1)}`, `Dictation ${pad(d.getDate())}.${pad(d.getMonth() + 1)}`),
-      when: list[list.length - 1]!.ts,
+      when: list[list.length - 1].ts,
       path: null,
       text: list.map((e) => {
         const t = new Date(e.ts);
@@ -134,7 +134,7 @@ export function documentsFolder(platform: string, home: string, userDirs: string
     for (const raw of userDirs.split('\n')) {
       const m = /^\s*XDG_DOCUMENTS_DIR\s*=\s*"([^"]*)"\s*$/.exec(raw);
       if (!m) continue;
-      const v = m[1]!.replace(/^\$HOME(?=\/|$)/, home);
+      const v = m[1].replace(/^\$HOME(?=\/|$)/, home);
       if (v.startsWith('/') && v.replace(/\/+$/, '') !== home.replace(/\/+$/, '')) return v.replace(/\/+$/, '');
     }
   }

@@ -58,7 +58,7 @@ function waitUntil(pred: () => Promise<boolean> | boolean, ms = 3000): Promise<v
     const tick = async () => {
       if (await pred()) return resolve();
       if (Date.now() - t0 > ms) return reject(new Error('timeout'));
-      setTimeout(tick, 30);
+      setTimeout(() => void tick(), 30);
     };
     void tick();
   });

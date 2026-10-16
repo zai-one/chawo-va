@@ -117,7 +117,7 @@ export function findChecklist(nameOrId: string, custom: readonly CustomChecklist
 
 /** The saved selection, or the built-in sales checklist when blank or deleted. */
 export function resolveChecklist(selected: string, custom: readonly CustomChecklist[]): Checklist {
-  return findChecklist(selected, custom) ?? builtinChecklists()[0]!;
+  return findChecklist(selected, custom) ?? builtinChecklists()[0];
 }
 
 export function upsertCustom(list: readonly CustomChecklist[], c: CustomChecklist): CustomChecklist[] {
@@ -183,7 +183,7 @@ export function assemblePrompt(items: readonly string[]): string {
 }
 
 export function normalizeVerdict(v: unknown): Verdict | null {
-  const s = key(String(v ?? '')).replace(/[^a-zа-я½]/g, '');
+  const s = key(typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean' ? String(v) : '').replace(/[^a-zа-я½]/g, '');
   if (['yes', 'y', 'true', 'done', 'да', 'выполнено', 'сделано'].includes(s)) return 'yes';
   if (['partial', 'partially', 'part', 'частично', 'отчасти', '½'].includes(s)) return 'partial';
   if (['no', 'n', 'false', 'нет', 'невыполнено', 'не'].includes(s)) return 'no';
@@ -225,7 +225,7 @@ function jsonCandidates(s: string): string[] {
     let inStr = false;
     let esc = false;
     for (let i = start; i < s.length; i++) {
-      const ch = s[i]!;
+      const ch = s[i];
       if (inStr) {
         if (esc) esc = false;
         else if (ch === '\\') esc = true;
@@ -316,7 +316,7 @@ export function neutralize(transcript: string): string {
 /** Several parts of one call: an item counts as done if any part shows it (yes > partial > no). */
 export function mergeParts(parts: readonly ScoredItem[][]): ScoredItem[] {
   const rank: Record<Verdict, number> = { no: 0, partial: 1, yes: 2 };
-  return parts[0]!.map((first, i) => parts.map((p) => p[i]!).reduce((best, x) => (rank[x.verdict] > rank[best.verdict] || (rank[x.verdict] === rank[best.verdict] && !best.quote && x.quote) ? x : best), first));
+  return parts[0].map((first, i) => parts.map((p) => p[i]).reduce((best, x) => (rank[x.verdict] > rank[best.verdict] || (rank[x.verdict] === rank[best.verdict] && !best.quote && x.quote) ? x : best), first));
 }
 
 export function total(items: readonly ScoredItem[]): { score: number; max: number; percent: number } {
@@ -372,7 +372,7 @@ export async function scoreAsync(o: ScoreRunOpts): Promise<ScoreResult> {
       throw e;
     }
     o.status(pieces.length === 1 ? t('Мозг: проверяю по чек-листу…', 'Brain: checking against the checklist…') : t(`Мозг: чек-лист, часть ${i + 1} из ${pieces.length}…`, `Brain: checklist, part ${i + 1} of ${pieces.length}…`));
-    const piece = neutralize(pieces[i]!);
+    const piece = neutralize(pieces[i]);
     try {
       const answer = await o.ask(prompt, piece, Math.min(2048, 160 + items.length * 120), o.status, o.signal);
       parts.push(parseAnswer(answer, items, piece));

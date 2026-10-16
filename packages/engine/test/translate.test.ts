@@ -175,8 +175,8 @@ describe('runTranslateAsync', () => {
     expect(r.text).toBe('Hallo, Welt.\n');
     expect(r.target.code).toBe('de');
     expect(r.parts).toBe(1);
-    expect(seen[0]!.prompt).toContain('into German');
-    expect(seen[0]!.text).toBe('Привет, мир.');
+    expect(seen[0].prompt).toContain('into German');
+    expect(seen[0].text).toBe('Привет, мир.');
     expect(statuses.join('\n')).toContain('перевожу на немецкий');
   });
 
@@ -249,24 +249,24 @@ describe('dictation: «Чаво, переведи на …» uses the translatio
     const statuses: string[] = [];
     const out = await transformAsync(serverSettings(), 'Доброе утро, коллеги.', 'переведи на английский', (l) => statuses.push(l), signal, false, srv.fetch);
     expect(out).toBe('Good morning, colleagues.');
-    expect(all(srv.calls[0]!)).toContain('Translate the whole input into English');
-    expect(all(srv.calls[0]!)).toMatch(/filler/); // dictation → spoken
-    expect(all(srv.calls[0]!)).not.toContain('Ты обрабатываешь надиктованный');
+    expect(all(srv.calls[0])).toContain('Translate the whole input into English');
+    expect(all(srv.calls[0])).toMatch(/filler/); // dictation → spoken
+    expect(all(srv.calls[0])).not.toContain('Ты обрабатываешь надиктованный');
     expect(statuses).toContain('Перевожу…');
   });
 
   it('no language → auto (Russian dictation → English); selection is not «spoken»', async () => {
     const srv = server('Hello');
     await transformAsync(serverSettings(), 'Привет', 'переведи', noop, signal, true, srv.fetch);
-    expect(all(srv.calls[0]!)).toContain('into English');
-    expect(all(srv.calls[0]!)).not.toMatch(/filler/);
+    expect(all(srv.calls[0])).toContain('into English');
+    expect(all(srv.calls[0])).not.toMatch(/filler/);
   });
 
   it('other commands keep the generic edit prompt', async () => {
     const srv = server('Коротко.');
     await transformAsync(serverSettings(), 'Очень длинный текст.', 'сделай короче', noop, signal, false, srv.fetch);
-    expect(all(srv.calls[0]!)).toContain('Ты обрабатываешь надиктованный');
-    expect(all(srv.calls[0]!)).not.toContain('Translate the whole input');
+    expect(all(srv.calls[0])).toContain('Ты обрабатываешь надиктованный');
+    expect(all(srv.calls[0])).not.toContain('Translate the whole input');
   });
 
   it('actionLabel says «Перевожу…» for any translation command', () => {

@@ -8,7 +8,6 @@ import {
   runBriefAsync,
   splitTranscript,
 } from '../src/brain/meetingBrief';
-import { defaults } from '../src/settings';
 
 describe('MeetingBrief helpers', () => {
   it('default / effective instruction', () => {

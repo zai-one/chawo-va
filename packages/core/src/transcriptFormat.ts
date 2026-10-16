@@ -228,12 +228,12 @@ export function fromSrt(text: string): TranscriptSegment[] {
     const lines = block.split('\n').map((l) => l.trimEnd()).filter((l) => l.length > 0);
     if (lines.length === 0) continue;
     let i = 0;
-    if (/^\d+$/.test(lines[0]!.trim())) i = 1;
+    if (/^\d+$/.test(lines[0].trim())) i = 1;
     if (i >= lines.length) continue;
-    const arrow = SRT_ARROW.exec(lines[i]!.trim());
+    const arrow = SRT_ARROW.exec(lines[i].trim());
     if (!arrow) continue;
-    const start = parseSrtClock(arrow[1]!);
-    const end = parseSrtClock(arrow[2]!);
+    const start = parseSrtClock(arrow[1]);
+    const end = parseSrtClock(arrow[2]);
     if (start === null || end === null) continue;
     i++;
     const rawText = lines.slice(i).map((l) => l.trim()).filter(Boolean).join(' ');

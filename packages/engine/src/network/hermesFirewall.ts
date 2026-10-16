@@ -45,7 +45,7 @@ export function firewallScript(port: number): string {
 export function tryOpenPort(port: number, deps: FirewallDeps = {}): Promise<FirewallResult> {
   const platform = deps.platform ?? process.platform;
   if (platform !== 'win32') return Promise.resolve({ ok: true, error: '', attempted: false });
-  const run = deps.spawn ?? (spawn as unknown as Spawn);
+  const run = deps.spawn ?? (spawn);
   return new Promise((resolve) => {
     let settled = false;
     const done = (r: FirewallResult) => {
@@ -91,7 +91,7 @@ export function tryOpenPort(port: number, deps: FirewallDeps = {}): Promise<Fire
 export function openConsole(deps: FirewallDeps = {}): void {
   if ((deps.platform ?? process.platform) !== 'win32') return;
   try {
-    const run = deps.spawn ?? (spawn as unknown as Spawn);
+    const run = deps.spawn ?? (spawn);
     const child = run('mmc.exe', ['WF.msc'], { detached: true, stdio: 'ignore', windowsHide: false });
     child.once('error', (e) => Log.write(`firewall console: ${e.message}`));
     child.unref();

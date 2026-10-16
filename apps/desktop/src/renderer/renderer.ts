@@ -709,7 +709,7 @@ function crmPanel(briefPath: string, host: HTMLElement): void {
     host.append(el('p', { className: 'muted hint', textContent: L('CRM не настроена — заполните «Настройки CRM» ниже.', 'No CRM set up — fill in «CRM settings» below.') }));
     return;
   }
-  if (!ready.some((x) => x.id === crmUi.target)) crmUi.target = ready[0]!.id;
+  if (!ready.some((x) => x.id === crmUi.target)) crmUi.target = ready[0].id;
   const tgt = selectOf(ready.map((x) => ({ value: x.id, label: x.name })), crmUi.target, (v) => { crmUi.target = v as CrmTarget; void bridge.crm.clearPreview().then(redraw); });
   tgt.dataset.crm = 'target';
   tgt.setAttribute('aria-label', L('Куда', 'Where'));
@@ -771,7 +771,7 @@ function crmSettings(): HTMLElement {
   for (const [target, name, inputs] of rows) {
     const save = button(L('Сохранить', 'Save'), () => {
       const fields: Record<string, unknown> = {};
-      for (const i of inputs) fields[(i.dataset.crm ?? '').split('.')[1]!] = (i as HTMLInputElement).value;
+      for (const i of inputs) fields[(i.dataset.crm ?? '').split('.')[1]] = (i as HTMLInputElement).value;
       void bridge.crm.setConfig(target, fields).then((st) => { crmState = st; box.replaceWith(crmSettings()); });
     });
     save.dataset.crm = `${target}.save`;
@@ -1073,7 +1073,7 @@ function renderAppRules(s: BrainState): void {
 // ── «Диктовка» ───────────────────────────────────────────────
 
 const METER_BARS = 28;
-const meter: number[] = new Array(METER_BARS).fill(0);
+const meter: number[] = new Array<number>(METER_BARS).fill(0);
 
 /** One take's capture: mic stream → 16 kHz AudioContext → worklet → chunks to main. */
 class MicCapture {
@@ -2116,7 +2116,7 @@ function renderCallStats(page: HTMLElement, s: FileState): void {
   }
   box.append(el('label', {}, L('Трекеры слов', 'Keyword trackers')), list);
   // Tracker editor: one line per tracker, «Название: слово, слов*»; empty = built-in.
-  const area = el('textarea', { rows: 6, spellcheck: false }) as HTMLTextAreaElement;
+  const area = el('textarea', { rows: 6, spellcheck: false });
   area.dataset.stats = 'trackers';
   area.value = cs.trackers;
   area.placeholder = cs.defaultTrackers;
@@ -2140,7 +2140,7 @@ function renderFile(): void {
   const prev = document.activeElement as HTMLInputElement | null;
   const hadFocus = prev?.id === 'file-url';
   const langFocus = prev?.id === 'translate-to' ? [prev.selectionStart, prev.selectionEnd] : null;
-  const caret = hadFocus ? [prev!.selectionStart, prev!.selectionEnd] : null;
+  const caret = hadFocus ? [prev.selectionStart, prev.selectionEnd] : null;
   page.replaceChildren(el('h1', { textContent: title('file') }));
   if (!s) return;
 
@@ -2189,7 +2189,7 @@ function renderFile(): void {
     const phrases = el('div', { className: 'phrases' });
     const rows: HTMLElement[] = [];
     for (let i = 0; i < ed.segments.length; i++) {
-      const seg = ed.segments[i]!;
+      const seg = ed.segments[i];
       const sp = typeof seg.speaker === 'number' ? L(`Спикер ${seg.speaker + 1}`, `Speaker ${seg.speaker + 1}`) + ' · ' : '';
       const row = el('button', {
         type: 'button',
@@ -2230,10 +2230,10 @@ function renderFile(): void {
     const paint = () => {
       const t = audio.currentTime;
       for (let i = 0; i < ed.segments.length; i++) {
-        const seg = ed.segments[i]!;
+        const seg = ed.segments[i];
         const next = ed.segments[i + 1];
         const end = seg.end > seg.start ? seg.end : (next ? next.start : seg.start + 0.5);
-        rows[i]!.classList.toggle('active', t >= seg.start && t < end);
+        rows[i].classList.toggle('active', t >= seg.start && t < end);
       }
     };
     audio.ontimeupdate = paint;
@@ -2320,7 +2320,7 @@ function renderFile(): void {
   ], picked ? picked.id : '', (v) => void bridge.file.setBriefTemplate(v).then(apply));
   tplSel.dataset.brief = 'template';
   tplSel.setAttribute('aria-label', L('Шаблон', 'Template'));
-  const instr = el('textarea', { rows: 4, spellcheck: true }) as HTMLTextAreaElement;
+  const instr = el('textarea', { rows: 4, spellcheck: true });
   instr.dataset.brief = 'instruction';
   instr.value = picked ? picked.instruction : br.instruction || br.defaultInstruction;
   instr.placeholder = br.defaultInstruction;
@@ -2359,7 +2359,7 @@ function renderFile(): void {
       el('div', { className: 'card-head' },
         el('strong', { textContent: L('Карточка', 'Card') }),
         el('span', { className: 'row inline' },
-          br.path ? (() => { const b = button(L('В CRM', 'To CRM'), () => { crmUi.open = !crmUi.open; void bridge.crm.clearPreview().then((st) => { crmState = st; crmUi.open ? crmPanel(br.path!, crmHost) : crmHost.replaceChildren(); }); }, 'link'); b.dataset.crm = 'open'; return b; })() : el('span'),
+          br.path ? (() => { const b = button(L('В CRM', 'To CRM'), () => { crmUi.open = !crmUi.open; void bridge.crm.clearPreview().then((st) => { crmState = st; if (crmUi.open) crmPanel(br.path!, crmHost); else crmHost.replaceChildren(); }); }, 'link'); b.dataset.crm = 'open'; return b; })() : el('span'),
           br.path ? button(L('Показать файл', 'Show file'), () => void bridge.file.reveal(br.path!), 'link') : el('span'),
         ),
       ),
@@ -2384,7 +2384,7 @@ function renderFile(): void {
     (v) => { checklistDraft = null; void bridge.file.setScoreChecklist(v).then(apply); });
   clSel.dataset.score = 'checklist';
   clSel.setAttribute('aria-label', L('Чек-лист', 'Checklist'));
-  const items = el('textarea', { rows: Math.min(8, Math.max(3, cur?.items.length ?? 3)), spellcheck: true }) as HTMLTextAreaElement;
+  const items = el('textarea', { rows: Math.min(8, Math.max(3, cur?.items.length ?? 3)), spellcheck: true });
   items.dataset.score = 'items';
   items.value = checklistDraft?.items ?? (cur?.items ?? []).join('\n');
   items.placeholder = L('Один пункт на строку', 'One item per line');
@@ -2753,7 +2753,7 @@ function renderMeeting(): void {
         placeholder: L('Файл или папка .ics (необязательно)', '.ics file or folder (optional)'),
         value: m.autoDetectCalendar,
         id: 'meeting-auto-cal',
-      }) as HTMLInputElement;
+      });
       cal.addEventListener('change', () => void bridge.meeting.setAutoDetectCalendar(cal.value.trim()).then(applyMeeting));
       calRow.append(
         cal,

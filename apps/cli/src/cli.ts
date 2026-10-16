@@ -188,7 +188,7 @@ export function realDeps(signal: AbortSignal): CliDeps {
       // The protocol owns stdout: keep a handle to the real writer, then send every other
       // stdout write (console.log in a library, a stray warning) to stderr so it cannot corrupt it.
       const real = process.stdout.write.bind(process.stdout);
-      process.stdout.write = process.stderr.write.bind(process.stderr) as typeof process.stdout.write;
+      process.stdout.write = process.stderr.write.bind(process.stderr);
       console.log = console.error;
       console.info = console.error;
       console.debug = console.error;

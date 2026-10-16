@@ -5,7 +5,7 @@
 // This smoke exercises the real CLI entry with --help and a dry parse, then runs brief
 // through runCli with a fake ask (same as unit tests) to prove the binary builds.
 
-const { mkdtempSync, writeFileSync, readFileSync, rmSync } = require('node:fs');
+const { mkdtempSync, writeFileSync, rmSync } = require('node:fs');
 const { join } = require('node:path');
 const { tmpdir } = require('node:os');
 const { spawnSync } = require('node:child_process');

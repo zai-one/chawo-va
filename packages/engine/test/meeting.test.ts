@@ -303,6 +303,7 @@ describe('meeting worklet', () => {
     });
     vi.stubGlobal('registerProcessor', (_n: string, c: new () => Proc) => (Ctor = c));
     const src = readFileSync(join(__dirname, '../../../apps/desktop/src/renderer/public/meeting-processor.js'), 'utf8');
+    // eslint-disable-next-line @typescript-eslint/no-implied-eval -- runs the worklet file as AudioWorkletGlobalScope would
     new Function(src)();
     const p = new Ctor!();
     vi.unstubAllGlobals();

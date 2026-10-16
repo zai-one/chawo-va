@@ -81,7 +81,7 @@ export class FileJob {
       } else {
         await first.dispose();
         first = null;
-        workers = new Array(plan.workers);
+        workers = new Array<Recognizer>(plan.workers);
         for (let i = 0; i < plan.workers; i++) {
           workers[i] = await Recognizer.open(modelDir, kind, 'cpu', plan.intraOpThreads);
           workers[i].script = script;
@@ -105,7 +105,7 @@ export class FileJob {
     signal?: AbortSignal,
   ): Promise<string[]> {
     const n = ranges.length;
-    const texts: string[] = new Array(n);
+    const texts: string[] = new Array<string>(n);
     if (n === 0) return texts;
 
     const t0 = Date.now();
@@ -127,8 +127,8 @@ export class FileJob {
       let readyTake = 0;
 
       const copyBatch = (at: number, take: number): { waves: Float32Array[]; lengths: number[] } => {
-        const waves: Float32Array[] = new Array(take);
-        const lengths: number[] = new Array(take);
+        const waves: Float32Array[] = new Array<Float32Array>(take);
+        const lengths: number[] = new Array<number>(take);
         for (let k = 0; k < take; k++) {
           const { from, to } = ranges[at + k];
           lengths[k] = to - from;
@@ -258,6 +258,7 @@ export class FileJob {
     }
 
     if (signal?.aborted) throw abortError();
+    // eslint-disable-next-line @typescript-eslint/only-throw-error -- a worker's own failure, rethrown as is
     if (fault) throw fault;
     return texts;
   }

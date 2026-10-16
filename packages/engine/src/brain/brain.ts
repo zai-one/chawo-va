@@ -60,12 +60,12 @@ const LeadingAddressRegex = new RegExp(`^\\s*${AddressInner}`, 'iu');
 export function parseCommand(text: string): { body: string; command: string } | null {
   const matches = [...text.matchAll(AddressRegex)];
   if (matches.length === 0) return null;
-  const m = matches[matches.length - 1]!;
+  const m = matches[matches.length - 1];
   const index = m.index ?? 0;
   let command = text.slice(index + m[0].length).trim();
   let body = text.slice(0, index).replace(/[\s]+$/u, ''); // TrimEnd whitespace
   // TrimEnd of trailing separators like C#: while body ends with ,—–-
-  while (body.length > 0 && ',—–-'.includes(body[body.length - 1]!)) {
+  while (body.length > 0 && ',—–-'.includes(body[body.length - 1])) {
     body = body.slice(0, -1).replace(/\s+$/u, '');
   }
   if (command.length === 0 || body.length === 0) return null;

@@ -136,7 +136,7 @@ describe('HistoryController', () => {
   it('copy puts the final or the raw text on the clipboard', async () => {
     const { ctl, rec, copied } = make();
     rec('Привет, мир!', 'привет мир', { brain: true });
-    const id = ctl.state().rows[0]!.id;
+    const id = ctl.state().rows[0].id;
     expect((await ctl.copy(id, 'final')).status).toBe('Скопировано в буфер обмена.');
     await ctl.copy(id, 'raw');
     expect(copied).toEqual(['Привет, мир!', 'привет мир']);
@@ -145,20 +145,20 @@ describe('HistoryController', () => {
   it('a clipboard error is a status line, not a crash', async () => {
     const { ctl, rec } = make({ copy: () => { throw new Error('busy'); } });
     rec('x');
-    expect((await ctl.copy(ctl.state().rows[0]!.id, 'final')).status).toBe('В буфер обмена скопировать не получилось.');
+    expect((await ctl.copy(ctl.state().rows[0].id, 'final')).status).toBe('В буфер обмена скопировать не получилось.');
   });
 
   it('an async clipboard (Electron 44) that rejects is a status line too', async () => {
     const { ctl, rec } = make({ copy: async () => { throw new Error('busy'); } });
     rec('x');
-    expect((await ctl.copy(ctl.state().rows[0]!.id, 'final')).status).toBe('В буфер обмена скопировать не получилось.');
+    expect((await ctl.copy(ctl.state().rows[0].id, 'final')).status).toBe('В буфер обмена скопировать не получилось.');
   });
 
   it('remove and clear all (after a yes)', async () => {
     const { ctl, rec, asked, store } = make();
     rec('раз');
     rec('два');
-    expect(ctl.remove(ctl.state().rows[0]!.id).rows.map((r) => r.final)).toEqual(['раз']);
+    expect(ctl.remove(ctl.state().rows[0].id).rows.map((r) => r.final)).toEqual(['раз']);
     const st = await ctl.clearAll();
     expect(asked).toEqual(['Удалить всю историю (1)? Это не отменить.']);
     expect(st.status).toBe('История очищена.');
@@ -183,11 +183,11 @@ describe('HistoryController', () => {
     rec('привет мир. Chawo, переведи на английский', 'привет мир. Chawo, переведи на английский');
     const [cmdRow, plainRow] = ctl.state().rows;
     expect(ctl.state().canRerun).toBe(true);
-    let st = await ctl.rerun(cmdRow!.id);
+    let st = await ctl.rerun(cmdRow.id);
     expect(seen[0]).toEqual({ body: 'привет мир.', command: 'переведи на английский' });
     expect(st.status).toBe('Готово. Новый текст в буфере обмена.');
     expect(st.rows[0]).toMatchObject({ final: 'Hello world', tag: 'Мозг', raw: 'привет мир. Chawo, переведи на английский' });
-    st = await ctl.rerun(plainRow!.id);
+    st = await ctl.rerun(plainRow.id);
     expect(seen[1]).toEqual({ body: 'привет мир', command: null });
     expect(st.rows[1]).toMatchObject({ final: 'Привет, мир.', raw: 'привет мир' });
     expect(copied).toEqual(['Hello world', 'Привет, мир.']);
@@ -204,13 +204,13 @@ describe('HistoryController', () => {
       },
     }, (x) => { x.Brain = 'Server'; });
     rec('как есть');
-    const id = ctl.state().rows[0]!.id;
+    const id = ctl.state().rows[0].id;
     expect((await ctl.rerun(id)).status).toBe('Мозг не справился: ключ не подошёл.');
     mode = 'empty';
     expect((await ctl.rerun(id)).status).toBe('Мозг не справился: нейросеть вернула пустой ответ.');
     mode = 'server';
     expect((await ctl.rerun(id)).status).toBe('Мозг не справился: сервер не ответил.');
-    expect(ctl.state().rows[0]!.final).toBe('как есть');
+    expect(ctl.state().rows[0].final).toBe('как есть');
     expect(copied).toEqual([]);
   });
 
@@ -223,7 +223,7 @@ describe('HistoryController', () => {
       transform: async (_s, body, _c, _st, sig) => { signal = sig; await gate; return body + '!'; },
     });
     rec('раз');
-    const id = ctl.state().rows[0]!.id;
+    const id = ctl.state().rows[0].id;
     const run = ctl.rerun(id);
     const during = ctl.state();
     expect(during.rerunningId).toBe(id);
@@ -251,15 +251,15 @@ describe('«История» → «Исправить»', () => {
       },
     });
     rec('звонок таптейн');
-    const id = store.list()[0]!.id;
+    const id = store.list()[0].id;
     let st = ctl.edit(id, '  звонок Taptain\r\n');
     expect(store.get(id)!.final).toBe('звонок Taptain');
     expect(seen).toEqual([['звонок таптейн', 'звонок Taptain']]);
     expect(st.status).toBe('Исправлено. На «Словаре» предложено: таптейн → Taptain.');
     expect(st.labels.edit).toBe('Исправить');
-    st = ctl.edit(id, 'звонок Taptain');
+    ctl.edit(id, 'звонок Taptain');
     expect(seen.length).toBe(1); // unchanged text → nothing
-    st = ctl.edit(id, '');
+    ctl.edit(id, '');
     expect(store.get(id)!.final).toBe('звонок Taptain');
     st = ctl.edit(id, 'звонок Taptain!');
     expect(st.status).toBe('Исправлено. В словарь добавлено: таптейн → Taptain.');

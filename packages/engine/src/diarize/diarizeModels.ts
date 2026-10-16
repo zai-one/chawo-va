@@ -180,7 +180,7 @@ export async function downloadDiarizationModels(
       SEGMENTATION_ARCHIVE_URL,
       archive,
       SEGMENTATION_ARCHIVE_SIZE,
-      (got, total) => progress(got, DIAR_TOTAL_BYTES, 'segmentation'),
+      (got) => progress(got, DIAR_TOTAL_BYTES, 'segmentation'),
       signal,
     );
     if (signal?.aborted) throw abortErr();

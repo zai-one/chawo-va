@@ -47,7 +47,7 @@ export async function detectMeeting(
   const appsOn = settings.MeetingAutoDetect && settings.MeetingAutoDetectApps;
   const calPath = settings.MeetingAutoDetectCalendar?.trim() ?? '';
 
-  let appsSupported = false;
+  let appsSupported: boolean;
   let apps: MeetingAppHit[] = [];
   if (appsOn) {
     const listed = await listMeetingApps({ platform: deps.platform, exec: deps.exec });

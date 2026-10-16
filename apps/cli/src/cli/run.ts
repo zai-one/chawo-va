@@ -114,47 +114,47 @@ export interface TranslateBrain {
 
 export interface CliDeps {
   version: string;
-  out(text: string): void;
-  err(text: string): void;
+  out: (text: string) => void;
+  err: (text: string) => void;
   /** stderr is a terminal: progress redraws one line. */
   isTTY: boolean;
-  defaults(): CliDefaults;
-  applyLanguage(choice: 'Auto' | 'Russian' | 'English'): void;
-  t(ru: string, en: string): string;
+  defaults: () => CliDefaults;
+  applyLanguage: (choice: 'Auto' | 'Russian' | 'English') => void;
+  t: (ru: string, en: string) => string;
   /** A complete model folder: the given one if it looks complete, else the app's usual places. */
-  findModel(kind: SpeechModelKind, override: string | null): string | null;
-  openEngine(cfg: EngineConfig): Promise<Engine>;
-  load16k(path: string, signal: AbortSignal): Promise<Float32Array>;
-  outputPath(source: string): string;
+  findModel: (kind: SpeechModelKind, override: string | null) => string | null;
+  openEngine: (cfg: EngineConfig) => Promise<Engine>;
+  load16k: (path: string, signal: AbortSignal) => Promise<Float32Array>;
+  outputPath: (source: string) => string;
   /** .brief.txt path beside a transcript .txt. */
-  briefOutputPath(transcriptTxt: string): string;
+  briefOutputPath: (transcriptTxt: string) => string;
   /** .brain.txt path beside a transcript .txt. */
-  brainOutputPath?(transcriptTxt: string): string;
+  brainOutputPath?: (transcriptTxt: string) => string;
   /** .translate.txt path beside a transcript .txt. */
-  translateOutputPath(transcriptTxt: string): string;
-  isDirectory(path: string): boolean;
-  exists(path: string): boolean;
-  collectFromFolder(folder: string): string[];
-  mkdirp(dir: string): void;
-  writeFile(path: string, data: string | Buffer): void;
-  readFile(path: string): string;
+  translateOutputPath: (transcriptTxt: string) => string;
+  isDirectory: (path: string) => boolean;
+  exists: (path: string) => boolean;
+  collectFromFolder: (folder: string) => string[];
+  mkdirp: (dir: string) => void;
+  writeFile: (path: string, data: string | Buffer) => void;
+  readFile: (path: string) => string;
   /** Brain for `brief` (Local / Server). Tests inject a fake ask. */
-  briefBrain(): BriefBrain;
+  briefBrain: () => BriefBrain;
   /** Brain for `translate` (Local / Server). Tests inject a fake ask. */
-  translateBrain(): TranslateBrain;
+  translateBrain: () => TranslateBrain;
   /** Brain for `brain` / `transcribe --brain` (Local / Server). Tests inject a fake ask. */
-  fileBrain?(): FileBrainDep;
+  fileBrain?: () => FileBrainDep;
   /**
    * Speaker diarization, the same hook as the page (`diarizeHook`): null when the models / sherpa-onnx
    * are not there (soft: the transcript is written without speakers). Tests inject a fake diarizer.
    */
   runDiarize?: FileDiarizeHook;
   /** yt-dlp for `transcribe <link>` (the app's tools/yt-dlp, then PATH); null = none. Never downloaded here. */
-  findYtDlp?(): string | null;
+  findYtDlp?: () => string | null;
   /** Runs yt-dlp for one link (same as «По ссылке» on the page); resolves with the saved audio path. */
-  fetchAudio?(url: string, outDir: string, progress: (percent: number) => void, signal: AbortSignal): Promise<string>;
+  fetchAudio?: (url: string, outDir: string, progress: (percent: number) => void, signal: AbortSignal) => Promise<string>;
   /** Where link audio is saved without --out: Downloads/Chawo, like the page. */
-  urlFolder?(): string;
+  urlFolder?: () => string;
   /** «Свой скрипт» runner; defaults to core runPostScript (tests may inject). */
   runScript?: (r: PostScriptRun) => Promise<PostScriptResult>;
   /** snippets.json of the app (read and written by `chawo-va snippets`). */
@@ -179,9 +179,9 @@ export interface CliDeps {
   /** Custom «Кратко и задачи» templates (brief-templates.json, read-only here). */
   briefTemplates?: () => import('@chawo/engine/brain/briefTemplates').CustomTemplate[];
   /** Brain for `ask` (Local / Server), the same target as brief. Tests inject a fake ask. */
-  askBrain?(): FileBrainDep;
+  askBrain?: () => FileBrainDep;
   /** Default `ask` folders: the meetings folder(s) plus Settings.AskFolders. */
-  askFolders?(): string[];
+  askFolders?: () => string[];
   /** Custom call checklists (checklists.json, read-only here). */
   checklists?: () => import('@chawo/engine/brain/callScore').CustomChecklist[];
   /** history.jsonl of the app (read, never written by the CLI). */
@@ -196,8 +196,8 @@ export interface CliDeps {
   meetingPlatform?: NodeJS.Platform;
   /** Wall clock for history dates (defaults to Date.now; `now` above may be a test counter). */
   clock?: () => number;
-  log(line: string): void;
-  now(): number;
+  log: (line: string) => void;
+  now: () => number;
   signal: AbortSignal;
   /** `mcp`: the protocol streams. `write` is the only path to the real stdout (everything else is moved to stderr). */
   mcpIo?: () => { input: NodeJS.ReadableStream; write: (s: string) => void };
@@ -302,7 +302,7 @@ async function brainCommand(o: CliOptions, d: CliDeps): Promise<number> {
 
   for (let i = 0; i < files.length; i++) {
     if (d.signal.aborted) break;
-    const src = files[i]!;
+    const src = files[i];
     const prefix = files.length > 1 ? `[${i + 1}/${files.length}] ` : '';
     say(prefix + src);
     try {
@@ -426,7 +426,7 @@ async function translate(o: CliOptions, d: CliDeps): Promise<number> {
 
   for (let i = 0; i < files.length; i++) {
     if (d.signal.aborted) break;
-    const src = files[i]!;
+    const src = files[i];
     const prefix = files.length > 1 ? `[${i + 1}/${files.length}] ` : '';
     say(prefix + src);
     try {
@@ -527,7 +527,7 @@ async function scoreCommand(o: CliOptions, defaults: CliDefaults, d: CliDeps): P
   const files = inputs.files;
   for (let i = 0; i < files.length; i++) {
     if (d.signal.aborted) break;
-    const src = files[i]!;
+    const src = files[i];
     const prefix = files.length > 1 ? `[${i + 1}/${files.length}] ` : '';
     say(prefix + src + ' · ' + checklist.name);
     try {
@@ -592,7 +592,7 @@ async function brief(o: CliOptions, d: CliDeps): Promise<number> {
 
   for (let i = 0; i < files.length; i++) {
     if (d.signal.aborted) break;
-    const src = files[i]!;
+    const src = files[i];
     const prefix = files.length > 1 ? `[${i + 1}/${files.length}] ` : '';
     say(prefix + src);
     try {
@@ -980,7 +980,7 @@ async function downloadLinks(
   let failed = 0;
   for (let i = 0; i < links.length; i++) {
     if (d.signal.aborted) break;
-    const url = links[i]!;
+    const url = links[i];
     const prefix = links.length > 1 ? `[${i + 1}/${links.length}] ` : '';
     const host = new URL(url).hostname;
     const line = t(`Скачиваю звук с ${host}…`, `Downloading audio from ${host}…`);
@@ -1427,13 +1427,13 @@ async function dictionaryCommand(o: CliOptions, d: CliDeps): Promise<number> {
       return EXIT_OK;
     }
     if (action === 'accept') {
-      const p = L.findPair(data, a1!, a2);
+      const p = L.findPair(data, a1, a2);
       const to = (a2 ?? p?.to ?? '').trim();
       if (!to) {
         d.err(t(`Ошибка: предложения «${a1}» нет. Укажите и как писать: chawo-va dictionary accept ${a1} <как писать>`, `Error: no suggestion «${a1}». Give the written form too: chawo-va dictionary accept ${a1} <written>`) + '\n');
         return EXIT_FAILED;
       }
-      const from = (p?.from ?? a1!).trim();
+      const from = (p?.from ?? a1).trim();
       if (/[\r\n]/.test(from + to) || !from) {
         d.err(t('Ошибка: пустая или многострочная строка.', 'Error: empty or multi-line text.') + '\n');
         return EXIT_USAGE;
@@ -1444,7 +1444,7 @@ async function dictionaryCommand(o: CliOptions, d: CliDeps): Promise<number> {
       return EXIT_OK;
     }
     if (action === 'dismiss') {
-      const p = L.findPair(data, a1!, a2);
+      const p = L.findPair(data, a1, a2);
       if (!p) {
         d.err(t(`Ошибка: предложения «${a1}» нет.`, `Error: no suggestion «${a1}».`) + '\n');
         return EXIT_FAILED;
@@ -1462,13 +1462,13 @@ async function dictionaryCommand(o: CliOptions, d: CliDeps): Promise<number> {
       return EXIT_OK;
     }
     // learn <before> <after>
-    for (const f of [a1!, a2!]) {
+    for (const f of [a1, a2]) {
       if (!d.exists(f)) {
         d.err(t(`Ошибка: нет файла ${f}`, `Error: no file ${f}`) + '\n');
         return EXIT_FAILED;
       }
     }
-    const r = L.learnEdit(data, rules, d.readFile(a1!), d.readFile(a2!), (d.clock ?? Date.now)());
+    const r = L.learnEdit(data, rules, d.readFile(a1), d.readFile(a2), (d.clock ?? Date.now)());
     let next = r.data;
     for (const p of r.added) next = L.addPending(next, p.from, p.to);
     if (r.fixes.length > 0) L.saveLearned(lpath, next);

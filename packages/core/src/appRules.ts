@@ -98,7 +98,7 @@ function fold(s: string): string {
 export function findRule(rules: readonly AppRule[] | undefined, app: ForegroundApp | null): { rule: AppRule; index: number } | null {
   if (!app || !rules) return null;
   for (let i = 0; i < rules.length; i++) {
-    const rule = rules[i]!;
+    const rule = rules[i];
     if (isActive(rule) && ruleMatches(rule, app)) return { rule, index: i };
   }
   return null;

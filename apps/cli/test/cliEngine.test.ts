@@ -52,7 +52,7 @@ function fakeSession(): VadSessionLike {
       }
       return { output: { data: out }, stateN: { data: new Float32Array((feeds.state.data as Float32Array).length) } };
     },
-  } as never;
+  };
 }
 
 /** Identity, not a deep compare of a million samples. */
@@ -80,10 +80,10 @@ describe('cli engine: VAD pauses for long files (same as the page)', () => {
     const samples = longSpeech(80);
     const segs = await e.transcribe(samples, () => undefined, new AbortController().signal, (l) => status.push(l));
     expect(pauses).toHaveBeenCalledTimes(1);
-    expect(pauses.mock.calls[0]![0]).toEqual({ VadEnabled: true });
+    expect(pauses.mock.calls[0][0]).toEqual({ VadEnabled: true });
     expectSplit(split, samples, [20.5, 40.5, 60.5]);
     expect(job.runs).toHaveLength(1);
-    expect(segs.map((s) => s.text)).toEqual(job.runs[0]!.map((_r, i) => `кусок ${i + 1}`));
+    expect(segs.map((s) => s.text)).toEqual(job.runs[0].map((_r, i) => `кусок ${i + 1}`));
   });
 
   it('vad off: no Silero, the energy split (no pauses) as before', async () => {
@@ -106,7 +106,7 @@ describe('cli engine: VAD pauses for long files (same as the page)', () => {
 
   it('the real filePauses: Silero on disk → pauses + «Finding pauses…»; no model → energy split, no download', async () => {
     const split = vi.spyOn(Recognizer, 'splitRanges');
-    setVadRuntime(new VadRuntime(() => '/m/silero_vad.onnx', async () => fakeSession() as never));
+    setVadRuntime(new VadRuntime(() => '/m/silero_vad.onnx', async () => fakeSession()));
     const status: string[] = [];
     const samples = longSpeech(80);
     await engineFromJob(fakeJob(), { vad: true, t: en }).transcribe(samples, () => undefined, new AbortController().signal, (l) => status.push(l));
@@ -116,7 +116,7 @@ describe('cli engine: VAD pauses for long files (same as the page)', () => {
     expect(got.some((p) => p > 19.5 && p < 21.5)).toBe(true);
 
     const fetchTo = vi.fn();
-    setVadRuntime(new VadRuntime(() => null, async () => fakeSession() as never, fetchTo));
+    setVadRuntime(new VadRuntime(() => null, async () => fakeSession(), fetchTo));
     const status2: string[] = [];
     await engineFromJob(fakeJob(), { vad: true, t: en }).transcribe(samples, () => undefined, new AbortController().signal, (l) => status2.push(l));
     expect(split.mock.calls.at(-1)![2]).toBeUndefined();

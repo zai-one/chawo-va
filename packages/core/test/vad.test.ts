@@ -304,7 +304,7 @@ describe.skipIf(!realModel || !existsSync(realModel))('vad: real Silero v5 model
   it('finds no speech in hiss and speech in a real recording', async () => {
     const ort = await import('onnxruntime-node');
     const session = await ort.InferenceSession.create(realModel!);
-    const v = new Vad(sileroScorer(session as unknown as VadSessionLike));
+    const v = new Vad(sileroScorer(session));
     expect(await v.segments(audio(3, [], 0.003))).toEqual([]);
     if (realWav && existsSync(realWav)) {
       const { samples, rate } = readWav(readFileSync(realWav));

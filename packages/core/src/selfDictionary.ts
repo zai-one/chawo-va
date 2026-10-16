@@ -70,7 +70,7 @@ const TOKEN_RE = /[\p{L}\p{N}]+(?:[-'’][\p{L}\p{N}]+)*/gu;
 
 function tokens(text: string): Tok[] {
   const out: Tok[] = [];
-  for (const m of text.matchAll(TOKEN_RE)) out.push({ word: m[0], start: m.index!, end: m.index! + m[0].length });
+  for (const m of text.matchAll(TOKEN_RE)) out.push({ word: m[0], start: m.index, end: m.index + m[0].length });
   return out;
 }
 
@@ -98,10 +98,10 @@ export function wordCorrections(before: string, after: string): ReplacePair[] {
   const dp: Uint16Array[] = Array.from({ length: n + 1 }, () => new Uint16Array(m + 1));
   for (let i = n - 1; i >= 0; i--) {
     for (let j = m - 1; j >= 0; j--) {
-      dp[i]![j] = a[i]!.word === b[j]!.word ? dp[i + 1]![j + 1]! + 1 : Math.max(dp[i + 1]![j]!, dp[i]![j + 1]!);
+      dp[i][j] = a[i].word === b[j].word ? dp[i + 1][j + 1] + 1 : Math.max(dp[i + 1][j], dp[i][j + 1]);
     }
   }
-  const same = dp[0]![0]!;
+  const same = dp[0][0];
   const changed = n - same;
   if (changed > MAX_SPAN && changed * 3 > n * 2) return [];
   const out: ReplacePair[] = [];
@@ -112,7 +112,7 @@ export function wordCorrections(before: string, after: string): ReplacePair[] {
     const lb = j1 - j0;
     if (la < 1 || lb < 1 || la > MAX_SPAN || lb > MAX_SPAN) return;
     const from = a.slice(i0, i1).map((x) => x.word).join(' ');
-    const to = after.slice(b[j0]!.start, b[j1 - 1]!.end).replace(/\s+/g, ' ').trim();
+    const to = after.slice(b[j0].start, b[j1 - 1].end).replace(/\s+/g, ' ').trim();
     if (trivialCase(from, to)) return;
     if (riskyFix(from, to)) return;
     if (/^[\p{N}\s]+$/u.test(from) && /^[\p{N}\s.,]+$/u.test(to)) return;
@@ -121,13 +121,13 @@ export function wordCorrections(before: string, after: string): ReplacePair[] {
   let si = 0;
   let sj = 0;
   while (i < n && j < m) {
-    if (a[i]!.word === b[j]!.word) {
+    if (a[i].word === b[j].word) {
       flush(si, i, sj, j);
       i++;
       j++;
       si = i;
       sj = j;
-    } else if (dp[i + 1]![j]! >= dp[i]![j + 1]!) i++;
+    } else if (dp[i + 1][j] >= dp[i][j + 1]) i++;
     else j++;
   }
   flush(si, n, sj, m);
@@ -213,7 +213,7 @@ export function findPair(d: LearnedData, from: string, to?: string): LearnedPair
   const f = foldWord(from.trim());
   const hits = d.pairs.filter((p) => foldWord(p.from) === f && (to === undefined || p.to === to.trim()));
   if (hits.length === 0) return null;
-  return [...hits].sort((x, y) => y.count - x.count)[0]!;
+  return [...hits].sort((x, y) => y.count - x.count)[0];
 }
 
 /** After «В словарь»: the heard form leaves the learned list (the rule is the record now). */

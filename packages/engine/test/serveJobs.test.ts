@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { mkdtempSync, writeFileSync, existsSync, readFileSync } from 'node:fs';
+import { mkdtempSync, existsSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { ServeJobStore } from '../src/network/serveJobs';
@@ -24,7 +24,7 @@ function waitUntil(pred: () => boolean, ms = 2000): Promise<void> {
 describe('ServeJobStore', () => {
   it('create → run → done with result.txt; DELETE removes files', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'chawo-jobs-'));
-    let now = 1_000_000;
+    const now = 1_000_000;
     const store = new ServeJobStore(
       async (path) => {
         const bytes = readFileSync(path);

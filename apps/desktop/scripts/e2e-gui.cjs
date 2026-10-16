@@ -421,7 +421,7 @@ app.whenReady().then(async () => {
       let sj = null;
       try {
         sj = JSON.parse(readFileSync(join(tx, 'meet.score.json'), 'utf8'));
-      } catch {}
+      } catch { /* best effort */ }
       const okRun = sj && sj.max === 2 && sj.score === 1.5 && existsSync(join(tx, 'meet.score.txt')) && st.score.result?.percent === 75;
       await js(`document.querySelector('.nav button[data-page="file"]').click(); true`);
       await sleep(600);

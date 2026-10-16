@@ -95,6 +95,7 @@ function make(over: Partial<SessionHooks> = {}, edit?: (s: Settings.SettingsData
   const overlay = new SpyOverlay();
   const statuses: string[] = [];
   let sess!: DictationSession;
+  // eslint-disable-next-line prefer-const -- push() may run inside the constructor, before `sess` is set
   sess = new DictationSession({
     settings: () => s,
     push: () => { const st = sess?.view().status; if (st && statuses[statuses.length - 1] !== st) statuses.push(st); },

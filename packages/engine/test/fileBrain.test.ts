@@ -49,7 +49,7 @@ describe('FileBrain helpers', () => {
     ];
     const paras = paragraphsOf(segs);
     expect(paras.length).toBeGreaterThanOrEqual(1);
-    expect(paras[0]!.start).toBe(0);
+    expect(paras[0].start).toBe(0);
 
     expect(splitLong('abc', 10)).toEqual(['abc']);
     const long = Array.from({ length: 20 }, (_, i) => `word${i}`).join(' ');

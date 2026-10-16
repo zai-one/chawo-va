@@ -15,7 +15,7 @@ const MAX_H = 520;
 const EDGE = 12;
 
 /** Bottom-right corner of the work area, EDGE px in (SalesCardWindow.Place). */
-export function cardPosition(area: { x: number; y: number; width: number; height: number }, w: number, h: number): { x: number; y: number } {
+function cardPosition(area: { x: number; y: number; width: number; height: number }, w: number, h: number): { x: number; y: number } {
   return { x: Math.round(area.x + area.width - w - EDGE), y: Math.round(area.y + area.height - h - EDGE) };
 }
 

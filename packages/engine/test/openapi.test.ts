@@ -34,14 +34,14 @@ function codeRoutes(): string[] {
   const src = readFileSync(SRC, 'utf8');
   const out = new Set<string>();
   for (const m of src.matchAll(/method === '([A-Z]+)' && \(([^)]*)\)/g)) {
-    for (const p of m[2]!.matchAll(/path === '([^']+)'/g)) out.add(`${m[1]} ${p[1]}`);
+    for (const p of m[2].matchAll(/path === '([^']+)'/g)) out.add(`${m[1]} ${p[1]}`);
   }
   for (const m of src.matchAll(/method !== '([A-Z]+)' \|\| \(([^)]*)\)/g)) {
-    for (const p of m[2]!.matchAll(/path !== '([^']+)'/g)) out.add(`${m[1]} ${p[1]}`);
+    for (const p of m[2].matchAll(/path !== '([^']+)'/g)) out.add(`${m[1]} ${p[1]}`);
   }
   const job = /\/\^\\\/\(\?:v1\\\/\)\?jobs\\\/\(\[A-Za-z0-9_-\]\+\)\$\/\.exec\(path\)([\s\S]*?)\/\/ Hermes sync/.exec(src);
   expect(job, 'job route regex not found in serveServer.ts').not.toBeNull();
-  for (const m of job![1]!.matchAll(/method === '([A-Z]+)'/g)) {
+  for (const m of job![1].matchAll(/method === '([A-Z]+)'/g)) {
     out.add(`${m[1]} /v1/jobs/{id}`);
     out.add(`${m[1]} /jobs/{id}`);
   }
@@ -83,7 +83,7 @@ describe('docs/openapi.yaml', () => {
     servers.push(server);
     await server.start();
     const base = `http://127.0.0.1:${server.port}`;
-    const keys = (name: string) => doc.components.schemas[name]!.required ?? [];
+    const keys = (name: string) => doc.components.schemas[name].required ?? [];
     const health = (await (await fetch(`${base}/v1/health`)).json()) as Record<string, unknown>;
     expect(Object.keys(health).sort()).toEqual([...keys('Health')].sort());
     const wav = wavBytes(new Float32Array(1600), 16000);

@@ -2,7 +2,7 @@
 // main process to pick, add, run, stop and reveal, and receives queue/status pushes.
 
 import { BrowserWindow, Notification, app, clipboard, dialog, ipcMain, shell } from 'electron';
-import { contextBlock, withContext } from '@chawo/core/brainContext';
+import { withContext } from '@chawo/core/brainContext';
 import { dirname, join } from 'node:path';
 import { FileQueue, FileRunner, Ffmpeg, UrlImport, YtDlp, OPEN_FILTERS, load16k, localPrepare, remoteFatal, remotePrepare } from '@chawo/engine/file/index';
 import { diarizeHook, getDiarizeRuntime } from '@chawo/engine/diarize/index';
@@ -26,7 +26,7 @@ import * as Log from '@chawo/engine/log';
 import { editTranscriptPhrase } from '@chawo/core/transcriptEdit';
 import { learnFromEdit } from '@chawo/engine/dictionary/learnedWords';
 
-export interface FileOptionsDto {
+interface FileOptionsDto {
   timestamps: boolean;
   srt: boolean;
   /** vtt / json / md / docx */
@@ -40,14 +40,14 @@ export interface FileOptionsDto {
 }
 
 
-export interface FileEditorSegmentDto {
+interface FileEditorSegmentDto {
   start: number;
   end: number;
   text: string;
   speaker?: number;
 }
 
-export interface FileEditorDto {
+interface FileEditorDto {
   available: boolean;
   reason?: string;
   audioPath: string | null;
@@ -60,7 +60,7 @@ export interface FileEditorDto {
   note?: string;
 }
 
-export interface FileStateDto {
+interface FileStateDto {
   items: { id: number; path: string; state: string; note: string; outputPath?: string }[];
   status: string;
   busy: boolean;
@@ -401,7 +401,7 @@ export function registerFileIpc(getWindow: () => BrowserWindow | null, settings:
     },
     runBrief: async (segments, opts, status, signal) => {
       const s = settings.get();
-      let kind = MeetingBrief.target(s);
+      const kind = MeetingBrief.target(s);
       if (kind === 'None') {
         return { note: t('краткое: мозг не настроен', 'brief: the Brain is not set up') };
       }

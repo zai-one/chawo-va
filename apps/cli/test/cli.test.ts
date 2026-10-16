@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -112,7 +112,7 @@ function harness(opts: {
       h.files.set(p, data);
     },
     readFile: (p) => {
-      if (opts.fileText?.[p] !== undefined) return opts.fileText[p]!;
+      if (opts.fileText?.[p] !== undefined) return opts.fileText[p];
       if (h.files.has(p)) return String(h.files.get(p)!);
       throw new Error('no such file: ' + p);
     },
@@ -927,7 +927,7 @@ describe('cli history', () => {
     expect(await run(h, 'history', '--json')).toBe(EXIT_OK);
     const lines = h.out.join('').trim().split('\n');
     expect(lines).toHaveLength(1);
-    const o = JSON.parse(lines[0]!);
+    const o = JSON.parse(lines[0]);
     expect(o).toMatchObject({ ts: new Date(NOW - 1000).toISOString(), seconds: 1.5, final: 'Привет.', raw: 'привет', command: 'исправь', brain: true, brainFailed: false });
     expect(typeof o.id).toBe('string');
   });
@@ -1260,10 +1260,10 @@ describe('chawo-va stats', () => {
     expect(doc.file).toBe('/rec/call.txt');
     expect(doc.source).toBe('srt');
     expect(doc.speakers.map((s) => s.speaker)).toEqual([1, 2]);
-    expect(doc.speakers[0]!.share).toBe(0.8);
+    expect(doc.speakers[0].share).toBe(0.8);
     expect(doc.trackers).toHaveLength(1);
     expect(doc.trackers[0]).toMatchObject({ name: 'Цена', count: 1 });
-    expect(doc.trackers[0]!.hits[0]!.speaker).toBe(2);
+    expect(doc.trackers[0].hits[0].speaker).toBe(2);
   });
 
   it('missing file or no timings → exit 1 with a reason', async () => {
@@ -1295,7 +1295,7 @@ describe('cli ask', () => {
     const sent: string[] = [];
     h.deps.historyPath = () => path;
     h.deps.clock = () => NOW;
-    h.deps.exists = (p) => require('node:fs').existsSync(p);
+    h.deps.exists = (p) => existsSync(p);
     h.deps.askFolders = () => [meet];
     h.deps.askBrain = () => ({
       target: o.target ?? 'Local',
@@ -1424,7 +1424,7 @@ describe('chawo-va mcp', () => {
     const p = run(on, 'mcp');
     input.end('{"jsonrpc":"2.0","id":1,"method":"tools/list"}\n');
     expect(await p).toBe(EXIT_OK);
-    expect(JSON.parse(wrote[0]!).result.tools).toHaveLength(6);
+    expect(JSON.parse(wrote[0]).result.tools).toHaveLength(6);
     expect(on.out).toEqual([]); // nothing else on stdout
   });
 });
@@ -1467,7 +1467,7 @@ describe('chawo-va crm', () => {
       h = mk();
       expect(await run(h, 'crm', 'send', '/m/a.brief.txt', '--to', 'amocrm', '--id', '55', '--yes')).toBe(EXIT_OK);
       expect(calls).toHaveLength(1);
-      expect(calls[0]!.auth).toBe(`Bearer ${TOK}`);
+      expect(calls[0].auth).toBe(`Bearer ${TOK}`);
       expect(h.err.join('')).toContain('Sent to amoCRM (id 3)');
       expect(h.err.join('') + h.out.join('') + h.logs.join('')).not.toContain(TOK);
       h = mk();

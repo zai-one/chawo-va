@@ -7,7 +7,7 @@
 //   CHAWO_LOCALAPPDATA=<dir with models> CHAWO_APPDATA=<tmp> CHAWO_MEETINGS_DIR=<tmp> \
 //   electron --no-sandbox scripts/smoke-meeting.cjs <mic.wav> <mic-sink> <system.wav> [shot-prefix]
 const { app, BrowserWindow } = require('electron');
-const { execFileSync, spawn } = require('node:child_process');
+const { spawn } = require('node:child_process');
 const { readFileSync, readdirSync, writeFileSync } = require('node:fs');
 const { join } = require('node:path');
 const args = process.argv.slice(process.argv.findIndex((a) => a.endsWith('smoke-meeting.cjs')) + 1);
@@ -56,7 +56,7 @@ app.whenReady().then(async () => {
       if (f.endsWith('.wav')) {
         const d = readFileSync(p);
         const n = Math.floor((d.length - 44) / 4);
-        let el = 0, er = 0, both = 0;
+        let el = 0, er = 0;
         for (let i = 0; i < n; i++) {
           const l = d.readInt16LE(44 + 4 * i) / 32768, r = d.readInt16LE(46 + 4 * i) / 32768;
           el += l * l; er += r * r;

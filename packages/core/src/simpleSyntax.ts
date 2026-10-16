@@ -21,12 +21,12 @@ export function applySimpleSyntax(text: string): string {
   // A question or an exclamation carries meaning: only the period goes.
   if (result.endsWith('.')) result = result.slice(0, -1);
   // Leave acronyms and the like alone: lowercase only a capital that just starts the sentence.
-  const firstWord = result.split(' ')[0]!;
+  const firstWord = result.split(' ')[0];
   const allCaps = firstWord.length > 1 && firstWord === firstWord.toUpperCase();
-  if (!allCaps && result.length > 0 && isUpper(result[0]!)) {
-    const lower = result[0]!.toLowerCase();
+  if (!allCaps && result.length > 0 && isUpper(result[0])) {
+    const lower = result[0].toLowerCase();
     // ToLowerInvariant maps one UTF-16 char to one; keep the char when JS would expand it (e.g. İ).
-    result = (lower.length === 1 ? lower : result[0]!) + result.slice(1);
+    result = (lower.length === 1 ? lower : result[0]) + result.slice(1);
   }
   return result;
 }

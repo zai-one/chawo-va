@@ -15,6 +15,7 @@ import { existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { learnFromEdit } from '@chawo/engine/dictionary/learnedWords';
 
+/** @public Also read by scripts/smoke-history.cjs from the built app. */
 export function historyPath(): string {
   return historyFilePath();
 }

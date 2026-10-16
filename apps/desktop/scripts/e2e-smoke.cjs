@@ -104,7 +104,7 @@ function fakeBrain() {
       let j = {};
       try {
         j = JSON.parse(body);
-      } catch {}
+      } catch { /* best effort */ }
       const msgs = j.messages ?? [];
       const system = msgs.find((m) => m.role === 'system')?.content ?? '';
       const user = [...msgs].reverse().find((m) => m.role === 'user')?.content ?? '';
@@ -212,7 +212,7 @@ const brief = (r) => `exit ${r.code}${r.signal ? ' ' + r.signal : ''}; ${(r.err 
 const sha = (p) => (existsSync(p) ? createHash('sha256').update(readFileSync(p)).digest('hex') : 'missing');
 const read = (p) => (existsSync(p) ? readFileSync(p, 'utf8') : '');
 
-async function cliCases(brainPort) {
+async function cliCases() {
   const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
   const settingsHash = sha(Paths.settingsPath());
 
@@ -243,7 +243,7 @@ async function cliCases(brainPort) {
   for (const n of ['sample.txt', 'sample.srt', 'sample.json', 'sample.wav']) copyFileSync(join(fixtures, n), join(segDir, n));
   for (const ext of ['txt', 'srt', 'json']) {
     r = await run(['segments', join(segDir, 'sample.' + ext), '--json']);
-    let rows = [];
+    let rows;
     try {
       rows = r.out.trim().split('\n').filter(Boolean).map((l) => JSON.parse(l));
       if (rows.length === 1 && Array.isArray(rows[0])) rows = rows[0];
@@ -359,7 +359,7 @@ async function cliCases(brainPort) {
   let hj = [];
   try {
     hj = r.out.trim().split('\n').map((l) => JSON.parse(l));
-  } catch {}
+  } catch { /* best effort */ }
   check('cli history -n 1 --json', r.code === 0 && hj.length === 1 && hj[0].final === 'Ёжик в тумане.', brief(r));
   r = await run(['history', '--raw', '-n', 'all']);
   check('cli history --raw', r.code === 0 && r.out.includes('ну Совещание'), brief(r));
@@ -478,7 +478,7 @@ async function cliCases(brainPort) {
   let scj = null;
   try {
     scj = JSON.parse(read(join(bd, 'meet.score.json')));
-  } catch {}
+  } catch { /* best effort */ }
   const stxt = read(join(bd, 'meet.score.txt'));
   check('cli score → .score.json + .score.txt (sales: 1.5 of 6, quote checked)',
     r.code === 0 && scj && scj.checklist.id === 'sales' && scj.max === 6 && scj.score === 1.5 && scj.percent === 25 && scj.items[0].quote.includes('Анна') && scj.items[1].quote === '' && /Итог: 1,5 из 6/.test(stxt) && stxt.includes('✓'), brief(r) + ' | ' + stxt.slice(0, 200));
@@ -489,7 +489,7 @@ async function cliCases(brainPort) {
   let cj = null;
   try {
     cj = JSON.parse(r.out);
-  } catch {}
+  } catch { /* best effort */ }
   check('cli score --checklist <custom> --stdout --json', r.code === 0 && cj && cj.max === 2 && cj.checklist.name === 'E2E чек-лист' && /Назвал срок/.test(asked[asked.length - 1]?.full ?? ''), brief(r));
   r = await run(['score', meet, '--checklist', 'nope']);
   check('cli score --checklist unknown → exit 2', r.code === 2 && /sales/.test(r.err), brief(r));
@@ -539,7 +539,7 @@ async function cliCases(brainPort) {
     let jsonOk = false;
     try {
       jsonOk = Boolean(JSON.parse(read(stem + '.json')));
-    } catch {}
+    } catch { /* best effort */ }
     const docxOk = existsSync(stem + '.docx') && readFileSync(stem + '.docx').subarray(0, 2).toString() === 'PK';
     const vttOk = read(stem + '.vtt').startsWith('WEBVTT');
     check('cli transcribe every format', r.code === 0 && missing.length === 0 && jsonOk && docxOk && vttOk, brief(r) + ` missing [${missing}] json ${jsonOk} docx ${docxOk} vtt ${vttOk}`);
@@ -658,7 +658,7 @@ async function guiCase(haveModel) {
     if (flag('--no-cli')) {
       haveModel = installModel();
       skip('cli', '--no-cli');
-    } else haveModel = await cliCases(brain.address().port);
+    } else haveModel = await cliCases();
     await guiCase(haveModel);
   } catch (e) {
     failc('e2e driver', e?.stack ?? String(e));

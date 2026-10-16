@@ -148,7 +148,7 @@ describe('loadTimedTranscript (preference)', () => {
       '/a.srt': srt,
       '/a.json': json,
     };
-    const read = (p: string) => (p in files ? files[p]! : null);
+    const read = (p: string) => (p in files ? files[p] : null);
     expect(loadTimedTranscript('/a.txt', read)).toEqual({
       available: true,
       sourceHint: 'srt',

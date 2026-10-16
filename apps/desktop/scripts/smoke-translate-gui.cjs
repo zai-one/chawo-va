@@ -7,7 +7,7 @@
 //   xvfb-run electron --no-sandbox scripts/smoke-translate-gui.cjs <audio.wav> [shot.png]
 const http = require('node:http');
 const { mkdirSync, writeFileSync, readFileSync, existsSync } = require('node:fs');
-const { join, dirname } = require('node:path');
+const { dirname } = require('node:path');
 const args = process.argv.slice(process.argv.findIndex((a) => a.endsWith('smoke-translate-gui.cjs')) + 1);
 const [audio, shot = ''] = args;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));

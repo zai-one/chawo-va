@@ -34,23 +34,23 @@ describe('callStats', () => {
     expect(st.speakers.map((s) => s.speaker)).toEqual([0, 1]);
     const [a, b] = st.speakers;
     // 10 + 30 + 30 (capped) = 70 s vs 4 + 10 = 14 s.
-    expect(a!.talkSeconds).toBe(70);
-    expect(b!.talkSeconds).toBe(14);
-    expect(Math.round(a!.share * 100)).toBe(83);
-    expect(b!.questions).toBe(2);
-    expect(a!.questions).toBe(0);
+    expect(a.talkSeconds).toBe(70);
+    expect(b.talkSeconds).toBe(14);
+    expect(Math.round(a.share * 100)).toBe(83);
+    expect(b.questions).toBe(2);
+    expect(a.questions).toBe(0);
     expect(st.turns).toBe(3);
     // Speaker 1: phrases at 14–44 and 46–76 (gap 2 s ≤ 5) → one monologue 14..76 = 62 s.
     expect(st.longestMonologue).toMatchObject({ speaker: 0, start: 14, seconds: 62 });
     expect(st.longMonologues).toBe(1);
-    expect(a!.longestMonologueSeconds).toBe(62);
+    expect(a.longestMonologueSeconds).toBe(62);
     const byName = Object.fromEntries(st.trackers.map((r) => [r.name, r]));
-    expect(byName['Цена']!.count).toBe(3); // стоит, цена, дорого
-    expect(byName['Скидка']!.count).toBe(2);
-    expect(byName['Скидка']!.hits.map((h) => h.start)).toEqual([14, 46]);
-    expect(byName['Шаг']!.hits[0]).toMatchObject({ speaker: 1, term: 'созвон*' });
-    expect(byName['Конкуренты']!.count).toBe(1);
-    expect(byName['Нет']!.count).toBe(0);
+    expect(byName['Цена'].count).toBe(3); // стоит, цена, дорого
+    expect(byName['Скидка'].count).toBe(2);
+    expect(byName['Скидка'].hits.map((h) => h.start)).toEqual([14, 46]);
+    expect(byName['Шаг'].hits[0]).toMatchObject({ speaker: 1, term: 'созвон*' });
+    expect(byName['Конкуренты'].count).toBe(1);
+    expect(byName['Нет'].count).toBe(0);
     expect(st.durationSeconds).toBe(100);
     expect(st.turnsPerMinute).toBe(1.8);
   });
@@ -65,8 +65,8 @@ describe('callStats', () => {
     // Several terms in one phrase: counted each time, listed once.
     const both = computeCallStats([{ start: 0, end: 3, text: 'Дорого, нужна скидка и цена ниже.' }], parseTrackers('Цена: дорог*, скидк*, цен*'));
     expect(both.trackers[0]).toMatchObject({ count: 3 });
-    expect(both.trackers[0]!.hits).toHaveLength(1);
-    expect(both.trackers[0]!.hits[0]!.term).toBe('дорог*');
+    expect(both.trackers[0].hits).toHaveLength(1);
+    expect(both.trackers[0].hits[0].term).toBe('дорог*');
   });
 
   it('without speaker labels: one «speech» row at 100 %, no turns', () => {

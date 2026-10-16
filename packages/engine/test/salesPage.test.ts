@@ -69,7 +69,7 @@ describe('«Продажи» page', () => {
     expect(changes()).toBe(1);
     s.RagFolder = '/gone';
     expect(ctl.state().ragStatus).toBe('Папка не найдена на диске.');
-    st = ctl.clearFolder();
+    ctl.clearFolder();
     expect(s.RagFolder).toBe('');
     expect(changes()).toBe(2);
     ctl.clearFolder();

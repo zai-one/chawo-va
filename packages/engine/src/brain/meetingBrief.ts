@@ -125,7 +125,7 @@ export async function runBriefAsync(opts: MeetingBriefRunOpts): Promise<MeetingB
         : t(`Мозг: «Кратко и задачи», часть ${i + 1} из ${pieces.length}…`, `Brain: brief and tasks, part ${i + 1} of ${pieces.length}…`),
     );
     try {
-      const raw = await askFn(prompt, pieces[i]!, maxTokensFor(pieces[i]!), status, signal);
+      const raw = await askFn(prompt, pieces[i], maxTokensFor(pieces[i]), status, signal);
       const formatted = formatBrief(raw);
       if (formatted.trim().length > 0) partials.push(formatted.trim());
     } catch (ex) {
@@ -143,7 +143,7 @@ export async function runBriefAsync(opts: MeetingBriefRunOpts): Promise<MeetingB
     };
   }
 
-  let text = partials[0]!;
+  let text = partials[0];
   if (partials.length > 1) {
     status(t('Мозг: свожу «Кратко и задачи»…', 'Brain: merging the brief…'));
     const mergePrompt =

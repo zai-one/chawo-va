@@ -1,7 +1,7 @@
 // LocalBrain download: resumable fetch, engine unpack, model fallback and checks. Never touches the network:
 // every request goes to an in-memory fake that understands Range.
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { gzipSync } from 'node:zlib';
@@ -112,7 +112,7 @@ describe('fetchResumable (C# FetchAsync)', () => {
     const seen: number[] = [];
     await fetchResumable(url, dest, data.length, (r) => seen.push(r), undefined, { fetch: f });
     expect(readFileSync(dest).equals(data)).toBe(true);
-    expect(reqs[0]!.range).toBeNull();
+    expect(reqs[0].range).toBeNull();
     expect(seen[seen.length - 1]).toBe(data.length);
   });
 
@@ -121,7 +121,7 @@ describe('fetchResumable (C# FetchAsync)', () => {
     const dest = join(root, 'b.part');
     writeFileSync(dest, data.subarray(0, 12_345));
     await fetchResumable(url, dest, data.length, null, undefined, { fetch: f });
-    expect(reqs[0]!.range).toBe('bytes=12345-');
+    expect(reqs[0].range).toBe('bytes=12345-');
     expect(readFileSync(dest).equals(data)).toBe(true);
   });
 
@@ -131,7 +131,7 @@ describe('fetchResumable (C# FetchAsync)', () => {
     await expect(fetchResumable(url, dest, data.length, null, undefined, { fetch: f })).rejects.toThrow();
     expect(statSync(dest).size).toBe(20_000);
     await fetchResumable(url, dest, data.length, null, undefined, { fetch: f });
-    expect(reqs[1]!.range).toBe('bytes=20000-');
+    expect(reqs[1].range).toBe('bytes=20000-');
     expect(readFileSync(dest).equals(data)).toBe(true);
   });
 
@@ -252,7 +252,7 @@ describe('engine unpack', () => {
 });
 
 function readdir(d: string): string[] {
-  return existsSync(d) ? require('node:fs').readdirSync(d) : [];
+  return existsSync(d) ? readdirSync(d) : [];
 }
 
 describe('downloadAsync', () => {
@@ -305,7 +305,7 @@ describe('downloadAsync', () => {
     const { zip, spec } = engineZip();
     const model = gguf(9000, 3);
     const urls = ['https://mirror.test/q.gguf', 'https://hf.test/q.gguf'];
-    const { f, reqs } = fakeNet({ [spec.url]: zip, [urls[1]!]: model }, { status: { [urls[0]!]: 503 } });
+    const { f, reqs } = fakeNet({ [spec.url]: zip, [urls[1]]: model }, { status: { [urls[0]]: 503 } });
     const s = Settings.defaults();
     s.BrainModel = 'Qwen3';
     await LocalBrain.downloadAsync(s, () => {}, new AbortController().signal, {

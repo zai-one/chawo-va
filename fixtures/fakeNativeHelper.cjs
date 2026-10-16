@@ -40,8 +40,8 @@ process.stdin.on('data', (c) => {
       case 'fg': out(`fg ${p[1]} ${b64('notepad')}`); break;
       case 'ping': out(`pong ${p[1]}`); break;
       case 'emit': out(p.slice(1).join(' ')); break;
-      case 'die': process.exit(3);
-      case 'quit': process.exit(0);
+      case 'die': return process.exit(3);
+      case 'quit': return process.exit(0);
     }
   }
 });

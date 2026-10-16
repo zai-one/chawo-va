@@ -28,6 +28,7 @@ const MAX_CHUNK = 64000;
 const realExec: ExecLike = (file, args, timeoutMs) =>
   new Promise((resolve, reject) => {
     execFile(file, args, { timeout: timeoutMs, windowsHide: true, maxBuffer: 1024 * 1024, encoding: 'utf8' }, (err, stdout) => {
+      // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors -- an ExecFileException is an Error (typed via Omit<>)
       if (err) reject(err);
       else resolve(stdout);
     });
@@ -63,6 +64,7 @@ export function registerMeetingIpc(
     autoDetectChanged: () => syncPoller(),
   });
 
+  // eslint-disable-next-line prefer-const -- callbacks above refer to it before it exists
   poller = new MeetingDetectPoller({
     settings: () => {
       const s = settings.get();

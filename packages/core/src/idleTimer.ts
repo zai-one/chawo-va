@@ -61,7 +61,7 @@ export class IdleTimer {
     if (!(ms > 0)) return;
     this.handle = this.clock.setTimeout(() => {
       this.handle = null;
-      let busy = false;
+      let busy: boolean;
       try {
         busy = this.o.busy?.() ?? false;
       } catch {

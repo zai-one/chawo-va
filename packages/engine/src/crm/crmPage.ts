@@ -67,7 +67,7 @@ export class CrmController {
   setConfig(target: CrmTarget, fields: Record<string, unknown>): CrmStateDto {
     if (!CRM_TARGETS.includes(target)) return this.state();
     const c = this.cfg();
-    const f = (k: string) => (typeof fields[k] === 'string' ? (fields[k] as string).trim() : undefined);
+    const f = (k: string) => (typeof fields[k] === 'string' ? (fields[k]).trim() : undefined);
     const rules = crmRules();
     let err = '';
     if (fields.clear === true) c[target] = emptyCrmConfig()[target] as never;

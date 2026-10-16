@@ -126,7 +126,7 @@ export function buildUstar(entries: { name: string; data: Buffer }[]): Buffer {
     header.write('ustar\0', 257, 'utf8');
     header.write('00', 263, 'utf8');
     let sum = 0;
-    for (let i = 0; i < BLOCK; i++) sum += header[i]!;
+    for (let i = 0; i < BLOCK; i++) sum += header[i];
     const chk = sum.toString(8).padStart(6, '0') + '\0 ';
     header.write(chk, 148, 'utf8');
     parts.push(header);
@@ -289,7 +289,7 @@ export function buildUstarTree(entries: { name: string; data?: Buffer; mode?: nu
     header.write('ustar\0', 257, 'utf8');
     header.write('00', 263, 'utf8');
     let sum = 0;
-    for (let i = 0; i < BLOCK; i++) sum += header[i]!;
+    for (let i = 0; i < BLOCK; i++) sum += header[i];
     header.write(sum.toString(8).padStart(6, '0') + '\0 ', 148, 'utf8');
     parts.push(header);
     if (len > 0) {

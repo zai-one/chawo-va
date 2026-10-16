@@ -685,7 +685,7 @@ export class DictationSession {
       this.abandon = false;
       this.selectionAtPress = null;
       if (this.takeAbort === abort) this.takeAbort = null;
-      this.disposeRetired();
+      void this.disposeRetired();
       if (this.rec) this.idle.touch();
       this.push();
     }

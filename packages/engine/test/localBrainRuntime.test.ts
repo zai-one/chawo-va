@@ -102,8 +102,8 @@ describe('LlamaServerRuntime (fake llama-server)', () => {
     const l = launches().slice(before);
     expect(l.length).toBe(1);
     const port = Number(/:(\d+)\/v1$/.exec(rt.endpointUrl)![1]);
-    expect(l[0]!.args).toEqual(serverArgs(join(root, 'good.gguf'), port, rt.apiKey, 'Cpu'));
-    expect(l[0]!.args).toEqual([
+    expect(l[0].args).toEqual(serverArgs(join(root, 'good.gguf'), port, rt.apiKey, 'Cpu'));
+    expect(l[0].args).toEqual([
       '-m', join(root, 'good.gguf'), '--host', '127.0.0.1', '--port', String(port), '--api-key', rt.apiKey,
       '-c', '2048', '--no-webui', '--jinja', '--reasoning', 'off', '--reasoning-budget', '0',
       '--chat-template-kwargs', '{"enable_thinking":false}',
@@ -116,7 +116,7 @@ describe('LlamaServerRuntime (fake llama-server)', () => {
     expect(launches().length - before).toBe(1); // same model, same device: reused
 
     expect(readFileSync(join(root, 'brain.log'), 'utf8')).toContain('fake llama-server starting');
-    const pid = l[0]!.pid;
+    const pid = l[0].pid;
     rt.stop();
     expect(rt.running).toBe(false);
     await until(() => !alive(pid));
@@ -127,7 +127,7 @@ describe('LlamaServerRuntime (fake llama-server)', () => {
     const before = launches().length;
     await Promise.all([rt.ensureStarted(settings('one'), () => {}, signal()), rt.ensureStarted(settings('one'), () => {}, signal())]);
     expect(launches().length - before).toBe(1);
-    const first = launches()[launches().length - 1]!.pid;
+    const first = launches()[launches().length - 1].pid;
     await rt.ensureStarted(settings('two'), () => {}, signal());
     expect(launches().length - before).toBe(2);
     await until(() => !alive(first));
@@ -147,8 +147,8 @@ describe('LlamaServerRuntime (fake llama-server)', () => {
     await rt2.ensureStarted(s, () => {}, signal());
     const l = launches().slice(before);
     expect(l.map((x) => x.exe)).toEqual([gpuExe, cpuExe]);
-    expect(l[0]!.args.slice(-2)).toEqual(['-ngl', '99']);
-    expect(l[1]!.args).not.toContain('-ngl');
+    expect(l[0].args.slice(-2)).toEqual(['-ngl', '99']);
+    expect(l[1].args).not.toContain('-ngl');
     expect(rt2.deviceNote).toBe('Видеокарта не поднялась, мозг считает на процессоре.');
     expect(rt2.loadedOn).toBe('Cpu');
     await rt2.ensureStarted(s, () => {}, signal());
@@ -171,7 +171,7 @@ describe('LlamaServerRuntime (fake llama-server)', () => {
     expect((e as Error).message).toBe('нейронка не поднялась за полторы минуты');
     expect(rt.running).toBe(false);
     await until(() => launches().length > before);
-    const pid = launches()[launches().length - 1]!.pid;
+    const pid = launches()[launches().length - 1].pid;
     await until(() => !alive(pid));
   });
 
@@ -185,7 +185,7 @@ describe('LlamaServerRuntime (fake llama-server)', () => {
   it('idle stop releases the server', async () => {
     const rt = make({ idleStopMs: 150 });
     await rt.ensureStarted(settings('idle'), () => {}, signal());
-    const pid = launches()[launches().length - 1]!.pid;
+    const pid = launches()[launches().length - 1].pid;
     expect(rt.running).toBe(true);
     await until(() => !rt.running);
     await until(() => !alive(pid));

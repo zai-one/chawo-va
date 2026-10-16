@@ -72,18 +72,18 @@ function compile(): Compiled {
 
 function lastWord(s: string): string {
   const m = /([\p{L}\p{N}-]+)[^\p{L}\p{N}]*$/u.exec(s);
-  return m ? norm(m[1]!) : '';
+  return m ? norm(m[1]) : '';
 }
 
 function nextWord(s: string): string {
   const m = /^[^\p{L}\p{N}]*([\p{L}\p{N}-]+)/u.exec(s);
-  return m ? norm(m[1]!) : '';
+  return m ? norm(m[1]) : '';
 }
 
 function upperFirstLetter(s: string): string {
   const i = s.search(/\p{L}/u);
   if (i < 0) return s;
-  const up = s[i]!.toUpperCase();
+  const up = s[i].toUpperCase();
   return up.length === 1 ? s.slice(0, i) + up + s.slice(i + 1) : s;
 }
 
@@ -91,16 +91,16 @@ function upperFirstLetter(s: string): string {
 function lowerFirstLetter(s: string): string {
   const m = /^(\s*)(\p{L}[\p{L}\p{N}-]*)/u.exec(s);
   if (!m) return s;
-  const word = m[2]!;
+  const word = m[2];
   if (word.length > 1 && word === word.toUpperCase()) return s;
-  const low = word[0]!.toLowerCase();
+  const low = word[0].toLowerCase();
   if (low.length !== 1) return s;
-  return m[1]! + low + word.slice(1) + s.slice(m[0].length);
+  return m[1] + low + word.slice(1) + s.slice(m[0].length);
 }
 
 function trimEnd(s: string, chars: string): string {
   let i = s.length;
-  while (i > 0 && (s[i - 1] === ' ' || chars.includes(s[i - 1]!))) i--;
+  while (i > 0 && (s[i - 1] === ' ' || chars.includes(s[i - 1]))) i--;
   return s.slice(0, i);
 }
 
@@ -124,7 +124,7 @@ export function applySpokenPunctuation(text: string): string {
       const prev = lastWord(before);
       const next = nextWord(after);
       const prevChunk = before.trimEnd();
-      const glued = prevChunk.length > 0 && !MODEL_MARKS.includes(prevChunk[prevChunk.length - 1]!);
+      const glued = prevChunk.length > 0 && !MODEL_MARKS.includes(prevChunk[prevChunk.length - 1]);
       if (POINT_NEXT.has(next) && !/^\s*[.,!?…]/.test(after)) continue;
       if (glued && (POINT_PREV.has(prev) || /(ая|яя)$/.test(prev))) continue;
     }
@@ -165,7 +165,7 @@ export function applySpokenPunctuation(text: string): string {
     at = m.index + m[0].length + cut;
     re.lastIndex = at;
     const hasMore = rest.length > 0;
-    if (hasMore && cmd.kind !== 'open' && cmd.kind !== 'hyphen' && cmd.kind !== 'line' && LETTER.test(rest[0]!)) out += ' ';
+    if (hasMore && cmd.kind !== 'open' && cmd.kind !== 'hyphen' && cmd.kind !== 'line' && LETTER.test(rest[0])) out += ' ';
     else if (hasMore && cmd.kind === 'closer' && !/^[\s,.;:!?…)»]/.test(rest)) out += ' ';
     if (cmd.end) pending = 'upper';
     else if (modelEnded && cmd.kind !== 'closer') pending = 'lower';
@@ -312,7 +312,7 @@ export function applySpokenNumbers(text: string): string {
   let i = 0;
   let changed = false;
   while (i < toks.length) {
-    const tk = toks[i]!;
+    const tk = toks[i];
     const w = tk.word ? NUM.get(norm(tk.s)) : undefined;
     if (!w) {
       out += tk.s;
@@ -325,8 +325,8 @@ export function applySpokenNumbers(text: string): string {
     let j = i + 1;
     let end = i; // index of the last token in the number
     let suffix = '';
-    while (j + 1 < toks.length && /^ +$/.test(toks[j]!.s) && toks[j + 1]!.word) {
-      const word = norm(toks[j + 1]!.s);
+    while (j + 1 < toks.length && /^ +$/.test(toks[j].s) && toks[j + 1].word) {
+      const word = norm(toks[j + 1].s);
       const nw = NUM.get(word);
       if (nw && b.canTake(nw)) {
         b.take(nw);

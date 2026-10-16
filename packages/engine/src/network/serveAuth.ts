@@ -58,7 +58,7 @@ export function authorize(
 export function parseBearer(authorizationHeader: string | undefined): string | null {
   if (!authorizationHeader) return null;
   const m = /^Bearer\s+(\S+)\s*$/i.exec(authorizationHeader.trim());
-  return m ? m[1]! : null;
+  return m ? m[1] : null;
 }
 
 /** Token from CLI flag, else env. Empty string → null. */

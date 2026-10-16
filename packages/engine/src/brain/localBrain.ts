@@ -121,7 +121,7 @@ export function choiceLabel(kind: LocalBrainKind): string {
 export function safeGgufName(leaf: string): string {
   const chars: string[] = [];
   for (let i = 0; i < leaf.length; i++) {
-    const c = leaf[i]!;
+    const c = leaf[i];
     const ok =
       (c >= 'a' && c <= 'z') ||
       (c >= 'A' && c <= 'Z') ||
@@ -412,7 +412,7 @@ export async function downloadAsync(
     if (!have) {
       for (let i = 0; ; i++) {
         try {
-          await fetchResumable(spec.urls[i]!, part, spec.bytes, (r, tot) => onProgress({ received: r, total: tot, phase: 'download' }), signal, fetchOpts);
+          await fetchResumable(spec.urls[i], part, spec.bytes, (r, tot) => onProgress({ received: r, total: tot, phase: 'download' }), signal, fetchOpts);
           onProgress({ received: 0, total: 0, phase: 'verify' });
           try {
             if (spec.sha256 != null) await verifyShaAsync(part, spec.sha256, 'model', signal);

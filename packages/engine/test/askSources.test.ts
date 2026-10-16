@@ -25,9 +25,9 @@ describe('askSources', () => {
     const c = new Date(2026, 9, 14, 8, 0).getTime();
     const list = dictationSources([entry(c, 'третья'), entry(a, 'первая\nстрока'), entry(b, 'вторая'), entry(b + 1, '  ')], tr);
     expect(list.map((s) => s.title)).toEqual(['Диктовка 13.10', 'Диктовка 14.10']);
-    expect(list[0]!.text).toBe('[09:05] первая строка\n[18:30] вторая');
-    expect(list[0]!.kind).toBe('dictation');
-    expect(list[0]!.path).toBeNull();
+    expect(list[0].text).toBe('[09:05] первая строка\n[18:30] вторая');
+    expect(list[0].kind).toBe('dictation');
+    expect(list[0].path).toBeNull();
   });
 
   it('parseFolders: unique, trimmed, non-empty', () => {
@@ -60,7 +60,7 @@ describe('askSources', () => {
     expect(meetingFolders(d, '/override')).toEqual(['/override']);
     const all = loadSources({ history: [entry(Date.now(), 'фраза')], inputs: meetingFolders(d) }, tr);
     expect(all.map((s) => s.kind)).toEqual(['dictation', 'transcript']);
-    expect(all[1]!.title).toBe('m.txt');
+    expect(all[1].title).toBe('m.txt');
   });
 
   it('documentsFolder honours XDG_DOCUMENTS_DIR on Linux', () => {

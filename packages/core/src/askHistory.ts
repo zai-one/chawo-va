@@ -235,8 +235,8 @@ export function citedNumbers(answer: string, count: number): number[] {
     const inner = m[0].slice(1, -1);
     for (const piece of inner.split(',')) {
       const r = piece.split(/[-–]/).map((x) => Number(x.trim()));
-      const from = r[0]!;
-      const to = r.length > 1 ? r[1]! : from;
+      const from = r[0];
+      const to = r.length > 1 ? r[1] : from;
       for (let n = Math.min(from, to); n <= Math.max(from, to) && n - Math.min(from, to) < 30; n++) if (n >= 1 && n <= count) seen.add(n);
     }
   }

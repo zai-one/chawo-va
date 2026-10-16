@@ -11,7 +11,6 @@ export {
   Xiaomi,
   Custom,
   All,
-  DEEPSEEK,
   title as providerTitle,
   fromKey,
   fromUrl,

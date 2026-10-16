@@ -154,12 +154,11 @@ export async function runWithAsk(
   const cleaned: { start: number; text: string }[] = [];
   let keptAsIs = 0;
   let failed = 0;
-  let lastError: string | null = null;
 
   for (let i = 0; i < paragraphs.length; i++) {
     if (signal.aborted) throw abortError();
     status(t(`Мозг: абзац ${i + 1} из ${paragraphs.length}…`, `Brain: paragraph ${i + 1} of ${paragraphs.length}…`));
-    const { start, text } = paragraphs[i]!;
+    const { start, text } = paragraphs[i];
     let result = text;
     try {
       const answer = await askFn(CleanPrompt, text, maxTokensFor(text), status, signal);
@@ -170,7 +169,7 @@ export async function runWithAsk(
       // Match C#: BrainException / network / empty-payload failures keep the paragraph as-is.
       failed++;
       keptAsIs++;
-      lastError = ex instanceof Error ? ex.message : String(ex);
+      const lastError = ex instanceof Error ? ex.message : String(ex);
       Log.write(`file brain paragraph ${i + 1}: ${ex instanceof Error ? ex.name : 'Error'}: ${lastError}`);
       if (failed >= 3 && cleaned.length + 1 === failed) throw new BrainException(lastError);
     }
@@ -302,7 +301,7 @@ async function summarizeAsync(
         ? t('Мозг: пишу «Кратко»…', 'Brain: writing the summary…')
         : t(`Мозг: «Кратко», часть ${i + 1} из ${groups.length}…`, `Brain: summary, part ${i + 1} of ${groups.length}…`),
     );
-    const b = bullets(await askFn(SummaryPrompt, groups[i]!, 400, status, signal));
+    const b = bullets(await askFn(SummaryPrompt, groups[i], 400, status, signal));
     if (b.length > 0) partials.push(b);
   }
   if (partials.length === 0) throw new BrainException(t('нейросеть вернула пустой ответ', 'the model returned an empty answer'));

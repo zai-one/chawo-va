@@ -73,7 +73,7 @@ describe('HistoryStore', () => {
     const h = new HistoryStore(path.replace('sub/', ''), () => now);
     expect(h.prune('Forever')).toBe(5);
     expect(h.count()).toBe(MAX_ENTRIES);
-    expect(h.list('', 1)[0]!.final).toBe(`f${MAX_ENTRIES + 4}`);
+    expect(h.list('', 1)[0].final).toBe(`f${MAX_ENTRIES + 4}`);
   });
 
   it('search: every word, any case, ё = е, in the final text, the raw text or the command', () => {
@@ -88,7 +88,7 @@ describe('HistoryStore', () => {
     expect(h.list('   ')).toHaveLength(3);
     expect(h.count('отчет')).toBe(2);
     expect(fold('ЁЖ')).toBe('еж');
-    expect(matches(h.list()[0]!, '')).toBe(true);
+    expect(matches(h.list()[0], '')).toBe(true);
   });
 
   it('skips a broken or half-written line instead of failing', () => {

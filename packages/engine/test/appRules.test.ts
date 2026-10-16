@@ -179,9 +179,9 @@ describe('focus detection', () => {
   it('Windows: one hidden PowerShell call with the Win32 script', async () => {
     const { exec, calls } = fakeExec({ 'powershell.exe': '{"exe":"WINWORD.exe","title":"Doc - Word"}' });
     expect(await detectForeground({ platform: 'win32', exec, selfNames: ['Chawo Voice Assistant.exe'] })).toEqual({ exe: 'WINWORD.exe', title: 'Doc - Word' });
-    expect(calls[0]![0]).toBe('powershell.exe');
+    expect(calls[0][0]).toBe('powershell.exe');
     expect(calls[0]).toContain('-NoProfile');
-    expect(calls[0]!.join(' ')).toContain('GetForegroundWindow');
+    expect(calls[0].join(' ')).toContain('GetForegroundWindow');
     const self = fakeExec({ 'powershell.exe': '{"exe":"Chawo Voice Assistant.exe","title":"Chawo"}' });
     expect(await detectForeground({ platform: 'win32', exec: self.exec, selfNames: ['Chawo Voice Assistant.exe'] })).toBeNull();
   });
@@ -220,7 +220,7 @@ function server(answer: string) {
   const prompts: string[] = [];
   const fetch: typeof globalThis.fetch = async (_url, init) => {
     const body = JSON.parse(String(init?.body)) as { messages: { role: string; content: string }[] };
-    prompts.push(body.messages[0]!.content);
+    prompts.push(body.messages[0].content);
     return new Response(JSON.stringify({ choices: [{ message: { content: answer } }] }), { status: 200 });
   };
   return { prompts, fetch };
@@ -376,7 +376,7 @@ describe('«Мозг» page: per-app rules', () => {
     v = page.ctl.state().appRules;
     expect(v.last).toBe('Последняя программа при диктовке: telegram. Сработало правило 1.');
     expect(v.lastMatch).toBe('');
-    expect(v.rules[0]!.hit).toBe(true);
+    expect(v.rules[0].hit).toBe(true);
     page.setLast({ app: null, ruleIndex: null });
     expect(page.ctl.state().appRules.last).toBe('При последней диктовке в фокусе было окно Chawo, или программу определить не удалось.');
   });

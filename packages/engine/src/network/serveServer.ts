@@ -81,8 +81,8 @@ function readBody(req: IncomingMessage, length: number): Promise<Uint8Array> {
 
 function contentFilename(contentType: string, contentDisposition: string | undefined): string | null {
   if (contentDisposition) {
-    const m = /filename\*?=(?:UTF-8''|")?([^\";]+)/i.exec(contentDisposition);
-    if (m) return decodeURIComponent(m[1]!.replace(/"/g, '').trim());
+    const m = /filename\*?=(?:UTF-8''|")?([^";]+)/i.exec(contentDisposition);
+    if (m) return decodeURIComponent(m[1].replace(/"/g, '').trim());
   }
   if (contentType.toLowerCase().includes('audio/wav') || contentType.toLowerCase().includes('audio/wave')) return 'audio.wav';
   if (contentType.toLowerCase().includes('ogg') || contentType.toLowerCase().includes('opus')) return 'audio.ogg';
@@ -238,7 +238,7 @@ export class ServeServer {
 
       const jobMatch = /^\/(?:v1\/)?jobs\/([A-Za-z0-9_-]+)$/.exec(path);
       if (jobMatch) {
-        const id = jobMatch[1]!;
+        const id = jobMatch[1];
         if (method === 'GET') {
           req.resume();
           const rec = this.jobs.get(id);

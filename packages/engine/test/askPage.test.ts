@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -18,7 +18,7 @@ function setup(over: Partial<AskHooks> = {}, target: 'None' | 'Local' | 'Cloud' 
   const s: SettingsData = { ...defaults(), HistoryKeep: 'Forever' };
   const store = new HistoryStore(join(dir, 'history.jsonl'));
   const meet = join(dir, 'meet');
-  require('node:fs').mkdirSync(meet);
+  mkdirSync(meet);
   const asked: string[] = [];
   const saved: SettingsData[] = [];
   const opened: string[] = [];
@@ -49,8 +49,8 @@ describe('AskController', () => {
     store.add({ raw: 'позвонить Петрову', final: 'Позвонить Петрову завтра.', command: null, brain: false, brainFailed: false, seconds: 2 }, 'Forever');
     const st = await ctl.ask('Что обещали Иванову?');
     expect(st.answer).toBe('Обещали скидку 10% [1].');
-    expect(st.excerpts[0]!.title).toBe('встреча.txt');
-    expect(st.excerpts[0]!.cited).toBe(true);
+    expect(st.excerpts[0].title).toBe('встреча.txt');
+    expect(st.excerpts[0].cited).toBe(true);
     expect(asked[0]).toContain('Иванову обещали');
     expect(asked[0]).not.toContain('Петрову');
     expect(st.brainLine).toContain('на этом компьютере');
@@ -91,13 +91,13 @@ describe('AskController', () => {
 
   it('folders are saved in AskFolders and searched', async () => {
     const extra = join(dir, 'extra');
-    require('node:fs').mkdirSync(extra);
+    mkdirSync(extra);
     writeFileSync(join(extra, 'z.txt'), 'бюджет проекта сорок тысяч');
     const { ctl, s } = setup({ pickFolder: async () => extra });
     await ctl.addFolder();
     await ctl.addFolder();
     expect(s.AskFolders).toBe(extra);
-    expect((await ctl.ask('бюджет')).excerpts[0]!.title).toBe('z.txt');
+    expect((await ctl.ask('бюджет')).excerpts[0].title).toBe('z.txt');
     ctl.removeFolder(extra);
     expect(s.AskFolders).toBe('');
   });

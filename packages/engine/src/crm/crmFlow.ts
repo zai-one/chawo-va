@@ -90,7 +90,7 @@ const resolveAll: Resolve = (h) => lookup(h, { all: true });
  * exactly those addresses, so a second answer from DNS cannot point the request somewhere else.
  */
 export function pinnedLookup(rules: UrlRules = crmRules(), resolve: Resolve = resolveAll): LookupFunction {
-  return ((hostname: string, options: { all?: boolean }, cb: (err: NodeJS.ErrnoException | null, address: string | { address: string; family: number }[], family?: number) => void) => {
+  return (hostname: string, options: { all?: boolean }, cb: (err: NodeJS.ErrnoException | null, address: string | { address: string; family: number }[], family?: number) => void) => {
     resolve(hostname).then(
       (addrs) => {
         const bad = addrs.find((a) => !addressAllowed(a.address, rules));
@@ -100,11 +100,11 @@ export function pinnedLookup(rules: UrlRules = crmRules(), resolve: Resolve = re
           return cb(err, '', 0);
         }
         if (options?.all) cb(null, addrs);
-        else cb(null, addrs[0]!.address, addrs[0]!.family);
+        else cb(null, addrs[0].address, addrs[0].family);
       },
       (e: NodeJS.ErrnoException) => cb(e, '', 0),
     );
-  }) as unknown as LookupFunction;
+  };
 }
 
 /** Up to 64 KB of the answer is kept: only the status, a created id and an error text are used. */

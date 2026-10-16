@@ -187,6 +187,7 @@ async function downloadV3(
 function rethrowDownload(e: unknown): never {
   if (e instanceof ModelDownloadException) throw e;
   if (e instanceof Error && e.name === 'AbortError') throw e;
+  // eslint-disable-next-line @typescript-eslint/only-throw-error -- an abort is passed on exactly as it came
   if (typeof e === 'object' && e && (e as { code?: string }).code === 'ABORT_ERR') throw e;
   const msg = e instanceof Error ? e.message : String(e);
   if (/ENOSPC|no space|only \d+ MB free/i.test(msg)) {
@@ -276,7 +277,7 @@ export async function fetchFile(
 
     mkdirSync(dirname(dest), { recursive: true });
     const file = createWriteStream(dest);
-    const reader = res.body.getReader();
+    const reader: ReadableStreamDefaultReader<Uint8Array> = res.body.getReader();
     let received = 0;
     let lastReport = 0;
     try {
@@ -327,7 +328,6 @@ export function verifySha(path: string, expected: string): void {
   try {
     const buf = Buffer.alloc(READ_BUFFER);
     let n: number;
-    // eslint-disable-next-line no-constant-condition
     while (true) {
       n = readSync(fd, buf, 0, buf.length, null);
       if (n <= 0) break;
@@ -465,7 +465,7 @@ export async function fetchResumable(
     const out = (file = createWriteStream(path, { flags: have > 0 ? 'a' : 'w' }));
     const failed = new Promise<never>((_, reject) => out.once('error', reject));
     failed.catch(() => undefined);
-    const reader = res.body.getReader();
+    const reader: ReadableStreamDefaultReader<Uint8Array> = res.body.getReader();
     let received = have;
     let lastReport = 0;
     for (;;) {

@@ -26,13 +26,13 @@ describe('ICS TZID', () => {
   });
   it('parseIcsEvents applies DTSTART/DTEND TZID; a meeting in Moscow is "now" at the right instant', () => {
     const [e] = parseIcsEvents(ics('DTSTART;TZID=Europe/Moscow:20261014T100000', 'DTEND;TZID=Europe/Moscow:20261014T110000'));
-    expect(e!.startMs).toBe(Date.UTC(2026, 9, 14, 7));
-    expect(e!.endMs).toBe(Date.UTC(2026, 9, 14, 8));
-    expect(activeCalendarHits([e!], Date.UTC(2026, 9, 14, 7, 30))[0]?.kind).toBe('now');
-    expect(activeCalendarHits([e!], Date.UTC(2026, 9, 14, 10, 30))).toEqual([]);
+    expect(e.startMs).toBe(Date.UTC(2026, 9, 14, 7));
+    expect(e.endMs).toBe(Date.UTC(2026, 9, 14, 8));
+    expect(activeCalendarHits([e], Date.UTC(2026, 9, 14, 7, 30))[0]?.kind).toBe('now');
+    expect(activeCalendarHits([e], Date.UTC(2026, 9, 14, 10, 30))).toEqual([]);
     const [z] = parseIcsEvents(ics('DTSTART:20261014T070000Z', 'DTEND:20261014T080000Z'));
-    expect([z!.startMs, z!.endMs]).toEqual([e!.startMs, e!.endMs]);
+    expect([z.startMs, z.endMs]).toEqual([e.startMs, e.endMs]);
     const [w] = parseIcsEvents(ics('DTSTART;TZID="Russian Standard Time":20261014T100000', 'DTEND;TZID="Russian Standard Time":20261014T110000'));
-    expect(w!.startMs).toBe(e!.startMs);
+    expect(w.startMs).toBe(e.startMs);
   });
 });

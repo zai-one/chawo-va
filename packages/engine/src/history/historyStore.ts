@@ -159,7 +159,7 @@ export class HistoryStore {
     const out: HistoryEntry[] = [];
     const list = this.load();
     for (let i = list.length - 1; i >= 0 && out.length < limit; i--) {
-      if (matches(list[i]!, query)) out.push(list[i]!);
+      if (matches(list[i], query)) out.push(list[i]);
     }
     return out;
   }

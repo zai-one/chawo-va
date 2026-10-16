@@ -69,12 +69,12 @@ export type SessionFactory = (path: string) => Promise<VadSessionLike & { releas
 async function ortSession(path: string): Promise<VadSessionLike & { release?: () => Promise<void> }> {
   disableOrtTelemetry();
   const ort = await import('onnxruntime-node');
-  return (await ort.InferenceSession.create(path, {
+  return await ort.InferenceSession.create(path, {
     executionProviders: ['cpu'],
     intraOpNumThreads: 1,
     interOpNumThreads: 1,
     logSeverityLevel: 3,
-  })) as unknown as VadSessionLike & { release?: () => Promise<void> };
+  });
 }
 
 /**

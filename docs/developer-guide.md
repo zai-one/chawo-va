@@ -34,6 +34,9 @@ tools/            Telegram-бот для Hermes
 ```bash
 pnpm install               # из корня; бинарник Electron скачается при первом запуске
 pnpm typecheck             # tsc по всем пакетам, включая тесты
+pnpm lint                  # ESLint с проверкой по типам (необработанные промисы и т.п.)
+pnpm knip                  # неиспользуемые файлы, экспорты, зависимости
+pnpm check                 # всё сразу: типы, линтер, Knip, тесты
 pnpm dev                   # electron-vite dev: интерфейс с горячей перезагрузкой
 pnpm build                 # electron-vite build → apps/desktop/out
 pnpm start                 # build + запуск Electron
@@ -87,7 +90,7 @@ pnpm cli transcribe a.wav --server http://127.0.0.1:17899 -f txt,srt,vtt,json,md
 
 | Workflow | Когда | Что |
 |----------|-------|-----|
-| `ts-e2e.yml` | push в `main`, `ts-port`, `ts/**`; PR в `main`/`ts-port` (пути `apps/**`, `packages/**`, …) | типы, юнит-тесты, e2e под xvfb |
+| `ts-e2e.yml` | push в `main`, `ts-port`, `ts/**`; PR в `main`/`ts-port` (пути `apps/**`, `packages/**`, …) | типы, ESLint, Knip, юнит-тесты, e2e под xvfb |
 | `ts-windows.yml` | push в `main`, `ts-port`, `ts/**`, теги `v*`, PR | Windows-пакет, смоук пакета; на теге — вложения релиза |
 | `legacy-wpf-installer.yml`, `legacy-wpf-zip.yml` | вручную | старая WPF-сборка |
 

@@ -22,7 +22,7 @@ function parse(args: readonly string[]): Parsed | string {
   const bools = new Set<string>();
   const files: string[] = [];
   for (let i = 1; i < args.length; i++) {
-    let a = args[i]!;
+    let a = args[i];
     let v: string | undefined;
     const eq = a.indexOf('=');
     if (a.startsWith('--') && eq > 0) { v = a.slice(eq + 1); a = a.slice(0, eq); }

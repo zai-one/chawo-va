@@ -24,11 +24,11 @@ describe('built-in templates', () => {
     const b = builtinTemplates();
     expect(b.map((x) => x.id)).toEqual(['standard', 'sales-call', 'minutes', 'summary']);
     expect(b.map((x) => x.name)).toEqual(['Кратко и задачи (стандарт)', 'Разбор звонка продаж', 'Протокол встречи', 'Краткое резюме']);
-    expect(b[0]!.instruction).toBe(defaultInstruction());
-    expect(b[1]!.instruction).toContain('Возражения');
-    expect(b[2]!.instruction).toContain('Поручения');
+    expect(b[0].instruction).toBe(defaultInstruction());
+    expect(b[1].instruction).toContain('Возражения');
+    expect(b[2].instruction).toContain('Поручения');
     applyLanguage('English');
-    expect(builtinTemplates()[1]!.name).toBe('Sales call review');
+    expect(builtinTemplates()[1].name).toBe('Sales call review');
     applyLanguage('Russian');
   });
   it('find by id, alias (ru/en), shown name, custom name; ё = е', () => {

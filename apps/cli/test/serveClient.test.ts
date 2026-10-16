@@ -10,7 +10,7 @@ const DEFAULTS = { model: 'v3_e2e_rnnt', device: 'cpu', threads: 'auto', script:
 
 function opts(argv: string[]): CliOptions {
   const r = parseArgs(argv) as unknown as { ok: boolean; options?: CliOptions; opts?: CliOptions } & CliOptions;
-  return (r.options ?? r.opts ?? r) as CliOptions;
+  return (r.options ?? r.opts ?? r);
 }
 
 function setup(segments: unknown) {

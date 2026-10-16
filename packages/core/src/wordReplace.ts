@@ -50,7 +50,7 @@ export function formatRules(rows: Iterable<ReplacePair>): string {
   return out;
 }
 
-const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\\/-]/g, '\\$&');
+const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\/-]/g, '\\$&');
 
 let cachedRules: string | null = null;
 let cached: { re: RegExp; to: string }[] = [];

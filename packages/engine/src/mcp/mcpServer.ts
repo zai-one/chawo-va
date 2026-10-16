@@ -25,12 +25,12 @@ const TRANSCRIPT_EXT = new Set(['.txt', '.md', '.srt', '.vtt']);
 export interface McpDeps {
   version: string;
   /** Allowed folders / files (meetings folder, AskFolders, --in). */
-  roots(): string[];
+  roots: () => string[];
   /** Dictation phrases within «Хранить»; [] when history is off or excluded. */
-  history(): HistoryEntry[];
+  history: () => HistoryEntry[];
   /** Settings CallTrackers text ('' = built-in trackers). */
-  trackers(): string;
-  t(ru: string, en: string): string;
+  trackers: () => string;
+  t: (ru: string, en: string) => string;
   platform?: string;
 }
 
@@ -278,7 +278,7 @@ export class McpServer {
         const args = params.arguments && typeof params.arguments === 'object' && !Array.isArray(params.arguments) ? (params.arguments as Record<string, unknown>) : {};
         if (!TOOLS.some((x) => x.name === name)) throw new RpcError(-32602, `Unknown tool: ${name}`);
         try {
-          return (await this.call(name, args)) as unknown as Json;
+          return await this.call(name, args);
         } catch (e) {
           // Tool problems are results with isError (the model can read them), not protocol errors.
           const m = e instanceof ToolError ? e.message : 'the tool failed';

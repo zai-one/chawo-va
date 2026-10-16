@@ -20,6 +20,7 @@ export interface BrainContextInput {
 /** Collapses control characters, trims, cuts to max characters (on a code point, with an ellipsis). */
 export function clip(s: string | null | undefined, max: number): string {
   if (!s) return '';
+  // eslint-disable-next-line no-control-regex -- stripping control characters is the point
   const clean = s.replace(/\r\n?/g, '\n').replace(/[\u0000-\u0008\u000b-\u001f\u007f]/g, ' ').trim();
   const cps = [...clean];
   return cps.length <= max ? clean : cps.slice(0, max).join('').trimEnd() + '…';

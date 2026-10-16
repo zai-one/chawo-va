@@ -168,15 +168,15 @@ END:VEVENT
 END:VCALENDAR`;
     const events = parseIcsEvents(ics);
     expect(events).toHaveLength(2);
-    expect(events[0]!.summary).toBe('Созвон с клиентом');
+    expect(events[0].summary).toBe('Созвон с клиентом');
     const now = new Date(2026, 9, 14, 10, 30, 0).getTime();
     const hits = activeCalendarHits(events, now, 10 * 60_000);
     expect(hits.map((h) => h.summary)).toEqual(['Созвон с клиентом']);
     const later = new Date(2026, 9, 14, 12, 0, 0).getTime();
     const soon = activeCalendarHits(events, later, 10 * 60_000);
     expect(soon).toHaveLength(1);
-    expect(soon[0]!.kind).toBe('soon');
-    expect(soon[0]!.summary).toBe('Soon');
+    expect(soon[0].kind).toBe('soon');
+    expect(soon[0].summary).toBe('Soon');
   });
 
   it('loads a folder of .ics', () => {
@@ -224,7 +224,7 @@ describe('meetingDetect combine + poller', () => {
     expect(on.active).toBe(true);
     expect(on.appsSupported).toBe(true);
     expect(on.apps.map((a) => a.app).sort()).toEqual(['Google Meet', 'Zoom']);
-    expect(on.calendar[0]!.summary).toBe('Standup');
+    expect(on.calendar[0].summary).toBe('Standup');
 
     const linux = await detectMeeting(
       { MeetingAutoDetect: true, MeetingAutoDetectApps: true, MeetingAutoDetectCalendar: '' },
@@ -373,14 +373,14 @@ END:VCALENDAR`;
     expect(events.length).toBeGreaterThanOrEqual(1);
     const hits = activeCalendarHits(events, now, lead);
     expect(hits).toHaveLength(1);
-    expect(hits[0]!.kind).toBe('now');
-    expect(hits[0]!.summary).toBe('Стендап');
+    expect(hits[0].kind).toBe('now');
+    expect(hits[0].summary).toBe('Стендап');
 
     const before = new Date(2026, 9, 14, 9, 55).getTime();
     const soonEvents = parseIcsEvents(ics, undefined, { nowMs: before, leadMs: lead });
     const soon = activeCalendarHits(soonEvents, before, lead);
     expect(soon).toHaveLength(1);
-    expect(soon[0]!.kind).toBe('soon');
+    expect(soon[0].kind).toBe('soon');
   });
 
   it('EXDATE removes an occurrence', () => {
@@ -467,8 +467,8 @@ END:VCALENDAR`;
     const events = parseIcsEvents(ics, undefined, { nowMs: now, leadMs: lead });
     const hits = activeCalendarHits(events, now, lead);
     expect(hits).toHaveLength(1);
-    expect(hits[0]!.kind).toBe('now');
-    expect(hits[0]!.startMs).toBe(Date.UTC(2026, 9, 14, 7, 0, 0));
+    expect(hits[0].kind).toBe('now');
+    expect(hits[0].startMs).toBe(Date.UTC(2026, 9, 14, 7, 0, 0));
   });
 
   it('missing DTSTART yields nothing; MONTHLY day-of-month works', () => {

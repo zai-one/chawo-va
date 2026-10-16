@@ -316,21 +316,24 @@ export interface SendOptions {
   checkHost?: (url: string) => Promise<string>;
 }
 
+/** A string or a number from a CRM answer as text; an object or null is no value (not "[object Object]"). */
+function scalarText(v: unknown): string | null {
+  return typeof v === 'string' || typeof v === 'number' ? String(v) : null;
+}
+
 function createdIdOf(target: CrmTarget, body: string): string | null {
   try {
     const j = JSON.parse(body) as Record<string, unknown>;
     if (target === 'amocrm') {
       const notes = (j._embedded as { notes?: { id?: unknown }[] } | undefined)?.notes;
-      return notes?.[0]?.id != null ? String(notes[0].id) : null;
+      return scalarText(notes?.[0]?.id);
     }
     if (target === 'bitrix') {
-      const r = j.result as unknown;
+      const r = j.result;
       if (typeof r === 'number' || typeof r === 'string') return String(r);
-      const task = (r as { task?: { id?: unknown } } | undefined)?.task;
-      return task?.id != null ? String(task.id) : null;
+      return scalarText((r as { task?: { id?: unknown } } | undefined)?.task?.id);
     }
-    if (target === 'hubspot') return j.id != null ? String(j.id) : null;
-    return j.id != null ? String(j.id) : null;
+    return scalarText(j.id);
   } catch {
     return null;
   }
@@ -341,7 +344,11 @@ function bodyError(target: CrmTarget, body: string): string | null {
   if (target !== 'bitrix') return null;
   try {
     const j = JSON.parse(body) as { error?: unknown; error_description?: unknown };
-    return j.error ? `${String(j.error)}${j.error_description ? ': ' + String(j.error_description) : ''}` : null;
+    if (!j.error) return null;
+    // Any truthy "error" is a failure; an object one is shown as JSON rather than "[object Object]".
+    const error = scalarText(j.error) ?? JSON.stringify(j.error).slice(0, 200);
+    const detail = scalarText(j.error_description);
+    return `${error}${detail ? ': ' + detail : ''}`;
   } catch {
     return null;
   }
@@ -415,7 +422,7 @@ export interface SentEntry { key: string; target: CrmTarget; id: string; ts: num
 
 export function cleanSent(raw: unknown): SentEntry[] {
   if (!Array.isArray(raw)) return [];
-  return raw.filter((x): x is SentEntry => !!x && typeof x.key === 'string' && typeof x.target === 'string' && (CRM_TARGETS as readonly string[]).includes(x.target) && typeof x.id === 'string' && typeof x.ts === 'number')
+  return (raw as Partial<SentEntry>[]).filter((x): x is SentEntry => !!x && typeof x.key === 'string' && typeof x.target === 'string' && (CRM_TARGETS as readonly string[]).includes(x.target) && typeof x.id === 'string' && typeof x.ts === 'number')
     .map((x) => ({ key: x.key, target: x.target, id: x.id, ts: x.ts, createdId: typeof x.createdId === 'string' ? x.createdId : null, ...(x.uncertain ? { uncertain: true } : {}) }))
     .slice(-500);
 }

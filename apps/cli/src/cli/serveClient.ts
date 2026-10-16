@@ -202,7 +202,7 @@ export async function transcribeViaServer(
 
   for (let i = 0; i < files.length; i++) {
     if (d.signal.aborted) break;
-    const src = files[i]!;
+    const src = files[i];
     const prefix = files.length > 1 ? `[${i + 1}/${files.length}] ` : '';
     say(prefix + src);
     try {
@@ -237,7 +237,7 @@ export async function transcribeViaServer(
           }
           const extras = formats.filter((f): f is 'vtt' | 'json' | 'md' | 'docx' => f === 'vtt' || f === 'json' || f === 'md' || f === 'docx');
           if (extras.length > 0) {
-            const dur = result.seconds ?? (segs.length ? segs[segs.length - 1]!.end : 0);
+            const dur = result.seconds ?? (segs.length ? segs[segs.length - 1].end : 0);
             const res = writeExtras(txt, src, segs, dur, extras, timestamps, (p, data) => d.writeFile(p, data));
             written.push(...res.written);
             for (const f of res.failed) fail(prefix + t(`Ошибка: ${f}`, `Error: ${f}`));

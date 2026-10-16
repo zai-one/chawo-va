@@ -7,10 +7,10 @@ name: TS E2E
 on:
   push:
     branches: ['main', 'ts-port', 'ts/**']
-    paths: ['apps/**', 'packages/**', 'fixtures/**', 'docs/openapi.yaml', 'package.json', 'pnpm-lock.yaml', 'pnpm-workspace.yaml', 'tsconfig.base.json', 'vitest.config.ts', '.github/workflows/ts-e2e.yml']
+    paths: ['apps/**', 'packages/**', 'fixtures/**', 'docs/openapi.yaml', 'package.json', 'pnpm-lock.yaml', 'pnpm-workspace.yaml', 'tsconfig.base.json', 'vitest.config.ts', 'eslint.config.js', 'knip.config.ts', '.github/workflows/ts-e2e.yml']
   pull_request:
     branches: ['main', 'ts-port']
-    paths: ['apps/**', 'packages/**', 'fixtures/**', 'docs/openapi.yaml', 'package.json', 'pnpm-lock.yaml', 'pnpm-workspace.yaml', 'tsconfig.base.json', 'vitest.config.ts', '.github/workflows/ts-e2e.yml']
+    paths: ['apps/**', 'packages/**', 'fixtures/**', 'docs/openapi.yaml', 'package.json', 'pnpm-lock.yaml', 'pnpm-workspace.yaml', 'tsconfig.base.json', 'vitest.config.ts', 'eslint.config.js', 'knip.config.ts', '.github/workflows/ts-e2e.yml']
   workflow_dispatch:
 
 permissions:
@@ -43,6 +43,12 @@ jobs:
 
       - name: Typecheck
         run: pnpm typecheck
+
+      - name: Lint (ESLint, type-aware)
+        run: pnpm lint
+
+      - name: Unused files, exports and dependencies (Knip)
+        run: pnpm knip
 
       - name: Unit tests
         run: pnpm test

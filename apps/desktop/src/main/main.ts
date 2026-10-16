@@ -257,6 +257,9 @@ if (!app.requestSingleInstanceLock()) {
       tray?.setImage(trayImage(trayState));
     });
     void network.start();
+  }).catch((e: unknown) => {
+    // A startup failure must not vanish as an unhandled rejection: it goes to the log the user can send.
+    Log.write(`startup failed: ${e instanceof Error ? e.stack ?? e.message : String(e)}`);
   });
   app.on('window-all-closed', () => {
     /* stay in tray */

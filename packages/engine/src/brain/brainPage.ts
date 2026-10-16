@@ -367,7 +367,7 @@ export class BrainController {
     const s = this.s();
     if (index <= 0 || index >= s.AppRules.length) return;
     const list = [...s.AppRules];
-    [list[index - 1], list[index]] = [list[index]!, list[index - 1]!];
+    [list[index - 1], list[index]] = [list[index], list[index - 1]];
     s.AppRules = list;
     this.persist();
   }
@@ -554,7 +554,7 @@ export class BrainController {
     this.key = s.ProviderKeys[next.id] ?? '';
     this.models = [];
     const savedModel = s.ProviderModels[next.id] ?? '';
-    this.model = savedModel.length > 0 ? savedModel : !next.isCustom && next.preferredModels.length > 0 ? next.preferredModels[0]! : '';
+    this.model = savedModel.length > 0 ? savedModel : !next.isCustom && next.preferredModels.length > 0 ? next.preferredModels[0] : '';
     this.serverStatus = '';
     if (!next.isCustom && this.key.length > 0) void this.loadModels(savedModel.length === 0);
   }

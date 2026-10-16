@@ -47,7 +47,6 @@ describe('oggOpus readPackets', () => {
     // One packet of 300 bytes: first segment 255, second 45.
     const body = new Uint8Array(300);
     for (let i = 0; i < 300; i++) body[i] = i & 0xff;
-    const segs = [255, 45];
     const header = new Uint8Array(27 + 2 + 300);
     header[0] = 0x4f;
     header[1] = 0x67;

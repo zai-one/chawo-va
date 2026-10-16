@@ -115,7 +115,7 @@ export function resolveInstruction(selected: string, ownInstruction: string, cus
     if (tpl) return { id: tpl.id, instruction: tpl.instruction };
   }
   const own = (ownInstruction ?? '').trim();
-  return { id: OWN, instruction: own || builtinTemplates()[0]!.instruction };
+  return { id: OWN, instruction: own || builtinTemplates()[0].instruction };
 }
 
 export function upsertCustom(list: readonly CustomTemplate[], tpl: CustomTemplate): CustomTemplate[] {

@@ -82,7 +82,7 @@ export function resolveLanguage(input: string | null | undefined): TranslateLang
   if (raw.length === 0) return null;
   const words = raw.match(/[\p{L}\p{N}-]+/gu) ?? [];
   if (words.length === 1) {
-    const c = byCode(words[0]!);
+    const c = byCode(words[0]);
     if (c) return strip(c);
   }
   for (const w of words) {
@@ -128,7 +128,7 @@ export function parseTranslateCommand(command: string | null | undefined): Trans
   let target: TranslateLang | null = null;
   const used = new Set<number>();
   for (let i = 0; i < words.length; i++) {
-    const w = words[i]!.toLowerCase();
+    const w = words[i].toLowerCase();
     if (VERB.test(w)) {
       verb = true;
       used.add(i);
@@ -143,10 +143,10 @@ export function parseTranslateCommand(command: string | null | undefined): Trans
     if (l) {
       target = strip(l);
       used.add(i);
-      if (i > 0 && PREPS.has(words[i - 1]!.toLowerCase())) used.add(i - 1);
+      if (i > 0 && PREPS.has(words[i - 1].toLowerCase())) used.add(i - 1);
       continue;
     }
-    if (i > 0 && PREPS.has(words[i - 1]!.toLowerCase())) {
+    if (i > 0 && PREPS.has(words[i - 1].toLowerCase())) {
       const c = byCode(w);
       if (c) {
         target = strip(c);
@@ -159,8 +159,8 @@ export function parseTranslateCommand(command: string | null | undefined): Trans
   if (verb && !target) {
     const firstVerb = words.findIndex((w) => VERB.test(w.toLowerCase()));
     for (let i = firstVerb + 1; i < words.length - 1; i++) {
-      if (used.has(i) || !FREE_PREPS.has(words[i]!.toLowerCase())) continue;
-      const lang = words[i + 1]!;
+      if (used.has(i) || !FREE_PREPS.has(words[i].toLowerCase())) continue;
+      const lang = words[i + 1];
       if (FILLER.has(lang.toLowerCase())) continue;
       target = { code: '', name: lang, ru: lang };
       used.add(i);

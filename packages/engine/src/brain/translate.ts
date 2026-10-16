@@ -34,7 +34,7 @@ export function outputPath(rawTxt: string): string {
  */
 export function pickTarget(explicit: string | TranslateLang | null | undefined, saved: string | null | undefined, text: string): TranslateLang {
   if (explicit && typeof explicit !== 'string') return explicit;
-  return resolveLanguage(explicit as string | null | undefined) ?? resolveLanguage(saved) ?? defaultTarget(text);
+  return resolveLanguage(explicit) ?? resolveLanguage(saved) ?? defaultTarget(text);
 }
 
 export interface TranslateResult {
@@ -110,7 +110,7 @@ export async function runTranslateAsync(opts: TranslateRunOpts): Promise<Transla
     );
     let answer: string;
     try {
-      answer = cleanAnswer(await askFn(prompt, pieces[i]!, maxTokensFor(pieces[i]!, targetKind), status, signal));
+      answer = cleanAnswer(await askFn(prompt, pieces[i], maxTokensFor(pieces[i], targetKind), status, signal));
     } catch (ex) {
       if (signal.aborted || (ex instanceof Error && ex.name === 'AbortError')) throw ex;
       const msg = ex instanceof Error ? ex.message : String(ex);

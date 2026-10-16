@@ -125,7 +125,7 @@ export function downloadsFolder(platform: string, home: string, userDirs: string
     for (const raw of userDirs.split('\n')) {
       const m = /^\s*XDG_DOWNLOAD_DIR\s*=\s*"([^"]*)"\s*$/.exec(raw);
       if (!m) continue;
-      const v = m[1]!.replace(/^\$HOME(?=\/|$)/, home);
+      const v = m[1].replace(/^\$HOME(?=\/|$)/, home);
       // «$HOME/» alone means the desktop is off for this folder; relative or odd values are ignored.
       if (v.startsWith('/') && v.replace(/\/+$/, '') !== home.replace(/\/+$/, '')) return v.replace(/\/+$/, '');
     }

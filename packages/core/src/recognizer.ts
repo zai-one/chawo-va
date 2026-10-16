@@ -344,7 +344,7 @@ export class Recognizer {
     if (pieces.length === 0) return [];
     if (pieces.length === 1) return [await this.transcribePiece(pieces[0])];
     if (!this.encoderAcceptsBatch) {
-      const one: string[] = new Array(pieces.length);
+      const one: string[] = new Array<string>(pieces.length);
       for (let i = 0; i < pieces.length; i++) {
         if (signal?.aborted) throw abortError();
         one[i] = await this.transcribePiece(pieces[i]);
@@ -587,7 +587,7 @@ export class Recognizer {
   private async decodeCtcBatch(pieces: Float32Array[], signal?: AbortSignal): Promise<string[]> {
     const nMels = this.cfg.features.nMels;
     const b = pieces.length;
-    const featsList: Float32Array[] = new Array(b);
+    const featsList: Float32Array[] = new Array<Float32Array>(b);
     const frames = new Int32Array(b);
     const sampleLens = new Int32Array(b);
     let maxFrames = 0;
@@ -605,14 +605,14 @@ export class Recognizer {
       sampleLens[i] = pieces[i].length;
       if (fr > maxFrames) maxFrames = fr;
     }
-    const texts: string[] = new Array(b);
+    const texts: string[] = new Array<string>(b);
     if (maxFrames === 0) {
       for (let i = 0; i < b; i++) texts[i] = '';
       return texts;
     }
 
     const packed = new Float32Array(b * nMels * maxFrames);
-    const lengths: number[] = new Array(b);
+    const lengths: number[] = new Array<number>(b);
     for (let i = 0; i < b; i++) {
       lengths[i] = frames[i] === 0 ? 0 : this.features.outLen(sampleLens[i]);
       const fr = frames[i];
@@ -691,7 +691,7 @@ export class Recognizer {
   private async decodeRnntBatch(pieces: Float32Array[], signal?: AbortSignal): Promise<string[]> {
     const nMels = this.cfg.features.nMels;
     const b = pieces.length;
-    const featsList: Float32Array[] = new Array(b);
+    const featsList: Float32Array[] = new Array<Float32Array>(b);
     const frames = new Int32Array(b);
     const sampleLens = new Int32Array(b);
     let maxFrames = 0;
@@ -709,14 +709,14 @@ export class Recognizer {
       sampleLens[i] = pieces[i].length;
       if (fr > maxFrames) maxFrames = fr;
     }
-    const texts: string[] = new Array(b);
+    const texts: string[] = new Array<string>(b);
     if (maxFrames === 0) {
       for (let i = 0; i < b; i++) texts[i] = '';
       return texts;
     }
 
     const packed = new Float32Array(b * nMels * maxFrames);
-    const lengths: number[] = new Array(b);
+    const lengths: number[] = new Array<number>(b);
     for (let i = 0; i < b; i++) {
       lengths[i] = frames[i] === 0 ? 0 : this.features.outLen(sampleLens[i]);
       const fr = frames[i];

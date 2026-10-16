@@ -108,9 +108,9 @@ export function isInsecureRemote(endpoint: string): boolean {
     const b = host.split('.').map((x) => Number(x));
     const privateV4 =
       b[0] === 10 ||
-      (b[0] === 172 && b[1]! >= 16 && b[1]! <= 31) ||
+      (b[0] === 172 && b[1] >= 16 && b[1] <= 31) ||
       (b[0] === 192 && b[1] === 168) ||
-      (b[0] === 100 && b[1]! >= 64 && b[1]! <= 127);
+      (b[0] === 100 && b[1] >= 64 && b[1] <= 127);
     return !privateV4;
   }
   // IPv6: link-local fe80::/10, unique local fc00::/7
@@ -151,7 +151,7 @@ export function tryGetCompletionsUrl(endpoint: string): string | null {
   if (base.protocol !== 'http:' && base.protocol !== 'https:') return null;
   if (base.search || base.hash || base.username || base.password) return null;
 
-  let path = base.pathname.replace(/\/+$/, '');
+  const path = base.pathname.replace(/\/+$/, '');
   if (path.toLowerCase().endsWith('/chat/completions')) {
     return `${base.origin}${path}`;
   }

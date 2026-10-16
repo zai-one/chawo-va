@@ -10,7 +10,7 @@ import { downmixTo16k, type PlatformDecoder } from '@chawo/engine/file/fileTrans
 import * as Log from '@chawo/engine/log';
 
 /** Above this the bytes are not copied over IPC; ffmpeg (streaming) takes the file instead. */
-export const MAX_CHROMIUM_BYTES = 400_000_000;
+const MAX_CHROMIUM_BYTES = 400_000_000;
 /** Hidden window is closed after this long without work, so its decode buffers are freed. */
 const IDLE_MS = 60_000;
 

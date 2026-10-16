@@ -50,15 +50,6 @@ function voice(seconds: number, amp = 0.3): Float32Array {
   for (let i = 0; i < n; i++) out[i] = amp * Math.sin(i * 0.2) * (0.6 + 0.4 * Math.sin(i / 400));
   return out;
 }
-function cat(...parts: Float32Array[]): Float32Array {
-  const out = new Float32Array(parts.reduce((a, p) => a + p.length, 0));
-  let at = 0;
-  for (const p of parts) {
-    out.set(p, at);
-    at += p.length;
-  }
-  return out;
-}
 function feed(push: (c: Float32Array) => void, x: Float32Array): void {
   for (let i = 0; i < x.length; i += 640) push(x.slice(i, i + 640));
 }

@@ -14,7 +14,7 @@ beforeAll(() => applyLanguage('Russian'));
 function fakeFetch(reply: (url: string, init?: RequestInit) => Response | Promise<Response>): FetchLike {
   return (async (input: Parameters<typeof fetch>[0], init?: RequestInit) => {
     return reply(String(input), init);
-  }) as FetchLike;
+  });
 }
 
 const json = (v: unknown, status = 200) =>

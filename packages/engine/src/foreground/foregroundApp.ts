@@ -17,6 +17,7 @@ export type ExecLike = (file: string, args: string[], timeoutMs: number) => Prom
 export const realExec: ExecLike = (file, args, timeoutMs) =>
   new Promise((resolve, reject) => {
     execFile(file, args, { timeout: timeoutMs, windowsHide: true, maxBuffer: 256 * 1024, encoding: 'utf8' }, (err, stdout) => {
+      // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors -- an ExecFileException is an Error (typed via Omit<>)
       if (err) reject(err);
       else resolve(stdout);
     });
@@ -91,15 +92,15 @@ export function parseWindowsOutput(out: string): ForegroundApp | null {
 /** `_NET_ACTIVE_WINDOW(WINDOW): window id # 0x3a00007` → "0x3a00007"; 0x0 (no window) → null. */
 export function parseActiveWindow(out: string): string | null {
   const m = /#\s*(0x[0-9a-f]+)/i.exec(out);
-  if (!m || /^0x0+$/i.test(m[1]!)) return null;
-  return m[1]!;
+  if (!m || /^0x0+$/i.test(m[1])) return null;
+  return m[1];
 }
 
 /** Decodes the C-escaped string xprop prints (UTF8_STRING: \" \\ and \ooo octal bytes). */
 function unescapeXprop(s: string): string {
   const bytes: number[] = [];
   for (let i = 0; i < s.length; i++) {
-    const c = s[i]!;
+    const c = s[i];
     if (c === '\\' && i + 1 < s.length) {
       const oct = /^[0-7]{1,3}/.exec(s.slice(i + 1));
       if (oct) {
@@ -108,7 +109,7 @@ function unescapeXprop(s: string): string {
         continue;
       }
       i++;
-      bytes.push(...Buffer.from(s[i]!, 'utf8'));
+      bytes.push(...Buffer.from(s[i], 'utf8'));
       continue;
     }
     bytes.push(...Buffer.from(c, 'utf8'));
@@ -126,11 +127,11 @@ export function parseWindowProps(out: string): XWindowInfo {
   const pidM = /_NET_WM_PID\(CARDINAL\)\s*=\s*(\d+)/.exec(out);
   const classM = /WM_CLASS\([^)]*\)\s*=\s*(.*)$/m.exec(out);
   const nameM = /_NET_WM_NAME\([^)]*\)\s*=\s*"(.*)"\s*$/m.exec(out) ?? /WM_NAME\([^)]*\)\s*=\s*"(.*)"\s*$/m.exec(out);
-  const wmClass = classM ? [...classM[1]!.matchAll(/"((?:[^"\\]|\\.)*)"/g)].map((m) => unescapeXprop(m[1]!)) : [];
+  const wmClass = classM ? [...classM[1].matchAll(/"((?:[^"\\]|\\.)*)"/g)].map((m) => unescapeXprop(m[1])) : [];
   return {
     pid: pidM ? Number(pidM[1]) : null,
     wmClass,
-    title: nameM ? unescapeXprop(nameM[1]!) : '',
+    title: nameM ? unescapeXprop(nameM[1]) : '',
   };
 }
 

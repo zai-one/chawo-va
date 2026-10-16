@@ -8,7 +8,7 @@ import * as Settings from '@chawo/engine/settings';
 import type { SettingsData } from '@chawo/engine/settings';
 import { configSnippet, launchFor } from '@chawo/engine/mcp/mcpServer';
 
-export interface McpStateDto {
+interface McpStateDto {
   enabled: boolean;
   snippet: string;
   copied: boolean;

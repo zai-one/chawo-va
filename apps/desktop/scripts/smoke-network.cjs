@@ -7,7 +7,7 @@
 //   electron --no-sandbox scripts/smoke-network.cjs <speech.wav> <file.wav> [shot-prefix]
 const { app, BrowserWindow, dialog } = require('electron');
 const { copyFileSync, existsSync, readFileSync, writeFileSync } = require('node:fs');
-const { join, dirname } = require('node:path');
+const { join } = require('node:path');
 const args = process.argv.slice(process.argv.findIndex((a) => a.endsWith('smoke-network.cjs')) + 1);
 const [micWav, fileWav, shot = ''] = args;
 app.commandLine.appendSwitch('use-fake-ui-for-media-stream');

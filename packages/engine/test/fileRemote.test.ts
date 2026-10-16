@@ -173,7 +173,7 @@ describe('file transcription in the Client role + Silero VAD', () => {
       return { cuts, lines };
     };
     try {
-      setVadRuntime(new VadRuntime(() => '/m/silero_vad.onnx', async () => fake as never));
+      setVadRuntime(new VadRuntime(() => '/m/silero_vad.onnx', async () => fake));
       const vad = await run();
       expect(vad.lines[0]).toBe('Ищу паузы в речи…');
       expect(vad.cuts[0]).toBeGreaterThan(21.5);

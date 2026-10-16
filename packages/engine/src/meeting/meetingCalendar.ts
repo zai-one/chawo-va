@@ -66,7 +66,7 @@ export function resolveTzid(tzid: string | undefined): string | null {
   let t = tzid.trim().replace(/^"|"$/g, '');
   const win = WINDOWS_TZ[t.toLowerCase()];
   if (win) t = win;
-  const candidates = [t, ...(/([A-Za-z_]+\/[A-Za-z_+\-]+(?:\/[A-Za-z_+\-]+)?)$/.exec(t)?.slice(1) ?? [])];
+  const candidates = [t, ...(/([A-Za-z_]+\/[A-Za-z_+-]+(?:\/[A-Za-z_+-]+)?)$/.exec(t)?.slice(1) ?? [])];
   for (const c of candidates) {
     try {
       new Intl.DateTimeFormat('en-US', { timeZone: c });

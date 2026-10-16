@@ -50,7 +50,7 @@ describe('askHistory passages and search', () => {
       src('c.txt', 'Скидка скидка скидка на всё, но без имён.', 1),
     ];
     const found = search('Что обещали клиенту Иванову про скидку?', sources);
-    expect(found[0]!.source.id).toBe('b.txt');
+    expect(found[0].source.id).toBe('b.txt');
     expect(found.map((f) => f.source.id)).not.toContain('a.txt');
   });
 
@@ -63,7 +63,7 @@ describe('askHistory passages and search', () => {
   it('ties go to the newer source; top limits the list', () => {
     const found = search('поставка', [src('old', 'поставка', 1), src('new', 'поставка', 9)], 1);
     expect(found).toHaveLength(1);
-    expect(found[0]!.source.id).toBe('new');
+    expect(found[0].source.id).toBe('new');
   });
 });
 
@@ -71,7 +71,7 @@ describe('askHistory prompt and answer', () => {
   it('excerpts respect the budget but always keep one', () => {
     const found = search('поставка', [src('a', 'поставка ' + 'x'.repeat(300), 2), src('b', 'поставка ' + 'y'.repeat(300), 1)]);
     expect(excerpts(found, 400)).toHaveLength(1);
-    expect(excerpts(found, 100)[0]!.text.length).toBe(100);
+    expect(excerpts(found, 100)[0].text.length).toBe(100);
     expect(excerpts(found, 10000).map((e) => e.n)).toEqual([1, 2]);
   });
 

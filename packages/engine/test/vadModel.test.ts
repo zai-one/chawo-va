@@ -53,7 +53,7 @@ function fakeSession(): VadSessionLike & { runs: number; released: number; relea
     },
     release: async () => void s.released++,
   };
-  return s as never;
+  return s;
 }
 
 describe('vadModel: paths and download', () => {

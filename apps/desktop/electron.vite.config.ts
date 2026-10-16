@@ -16,7 +16,7 @@ const repoRoot = resolve(__dirname, '../..');
  */
 function devCsp(): Plugin {
   const relax = (csp: string): string => {
-    const dirs = new Map(csp.split(';').map((d) => d.trim()).filter(Boolean).map((d) => [d.split(/\s+/)[0]!, d] as const));
+    const dirs = new Map(csp.split(';').map((d) => d.trim()).filter(Boolean).map((d) => [d.split(/\s+/)[0], d] as const));
     dirs.set('script-src', "script-src 'self' 'unsafe-inline'");
     dirs.set('style-src', "style-src 'self' 'unsafe-inline'");
     dirs.set('connect-src', "connect-src 'self' ws://localhost:* http://localhost:*");

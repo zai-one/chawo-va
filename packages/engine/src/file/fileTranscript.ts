@@ -129,6 +129,7 @@ export async function load16k(path: string, signal?: AbortSignal): Promise<Float
       throw new Error(
         'could not decode with the built-in decoder or ffmpeg: ' +
           (platformError?.message ?? '') + ' / ' + (e as Error).message,
+        { cause: e },
       );
     }
   }

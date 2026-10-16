@@ -100,13 +100,13 @@ describe('«Мозг» page', () => {
     expect(st.server.status).toBe('Похоже на ключ DeepSeek, выбрал его.');
     expect(calls.length).toBe(0);
     expect(t.jobs.length).toBe(1);
-    expect(t.jobs[0]!.ms).toBe(600);
+    expect(t.jobs[0].ms).toBe(600);
     t.fire();
     await new Promise((r) => setTimeout(r, 0));
     await ctl.loadModels(true); // settle: the same work again is idempotent
     st = ctl.state();
-    expect(calls[0]!.url).toBe('https://api.deepseek.com/v1/models');
-    expect(calls[0]!.auth).toBe(`Bearer ${DEEPSEEK_KEY}`);
+    expect(calls[0].url).toBe('https://api.deepseek.com/v1/models');
+    expect(calls[0].auth).toBe(`Bearer ${DEEPSEEK_KEY}`);
     expect(st.server.models).not.toContain('text-embedding-x');
     expect(s.CleanupEndpointUrl).toBe('https://api.deepseek.com/v1');
     expect(s.CleanupApiKey).toBe(DEEPSEEK_KEY);
@@ -261,7 +261,7 @@ describe('«Мозг» page: download card', () => {
     let st = ctl.state();
     expect(st.download).toBeNull();
     expect(st.local.rows.filter((r) => r.canDownload).map((r) => r.kind)).toEqual(['Qwen3', 'Qwen35', 'Custom']);
-    expect(st.local.rows[0]!.downloadLabel).toBe('Скачать');
+    expect(st.local.rows[0].downloadLabel).toBe('Скачать');
 
     const done = ctl.download('Qwen35');
     expect(s.BrainModel).toBe('Qwen35');
@@ -339,7 +339,7 @@ describe('«Мозг» page: download card', () => {
     const files = [{ path: `${dir}/${LocalBrain.ModelFile}`, label: 'Qwen3 4B' }];
     let ready = false;
     const { ctl } = make({ installed: () => files, isReady: () => ready, deviceNote: () => 'Видеокарта не поднялась, мозг считает на процессоре.' }, (x) => { x.Brain = 'Local'; x.BrainDevice = 'Gpu'; });
-    let row = ctl.state().local.rows[0]!;
+    let row = ctl.state().local.rows[0];
     expect(row).toMatchObject({ onDisk: true, canDownload: true, downloadLabel: 'Скачать движок' });
     ready = true;
     const st = ctl.state();

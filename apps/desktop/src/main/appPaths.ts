@@ -31,7 +31,7 @@ export function loadPage(w: BrowserWindow, page: Page): Promise<void> {
 }
 
 /** The dev server is only ever on this machine. */
-export function isDevServer(url: string): boolean {
+function isDevServer(url: string): boolean {
   try {
     const u = new URL(url);
     return u.protocol === 'http:' && (u.hostname === 'localhost' || u.hostname === '127.0.0.1');

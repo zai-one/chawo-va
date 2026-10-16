@@ -64,9 +64,6 @@ export const Custom = p('custom', '', '', [], '');
 
 export const All: readonly BrainProvider[] = [DeepSeek, OpenRouter, OpenAI, Groq, Gemini, Anthropic, Xiaomi, Custom];
 
-/** Alias used by settings migration before the full list lived here. */
-export const DEEPSEEK = DeepSeek;
-
 export function title(provider: BrainProvider): string {
   return provider.isCustom ? t('Свой сервер (LM Studio, Ollama…)', 'Own server (LM Studio, Ollama…)') : provider.name;
 }
@@ -98,7 +95,7 @@ export function fromUrl(url: string): BrainProvider {
 }
 
 export function providerIdFromUrl(url: string): string {
-  if (!url || !url.trim()) return DEEPSEEK.id;
+  if (!url || !url.trim()) return DeepSeek.id;
   return fromUrl(url).id;
 }
 
@@ -122,6 +119,6 @@ export function pickDefault(provider: BrainProvider, models: readonly string[]):
     const partial = models.find((m) => m.toLowerCase().includes(want.toLowerCase()));
     if (partial) return partial;
   }
-  if (models.length > 0) return models[0]!;
+  if (models.length > 0) return models[0];
   return provider.preferredModels[0] ?? null;
 }

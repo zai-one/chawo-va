@@ -167,6 +167,12 @@ describe('sendRequest', () => {
     expect(r).toMatchObject({ ok: false });
     expect(r.message).toContain('NOT_FOUND');
   });
+  it('Bitrix24 200 with an object "error" is a failure with readable text, not [object Object]', async () => {
+    const r = await sendRequest('bitrix', buildRequest('bitrix', cfg(), payload, '1'), { fetch: async () => res(200, '{"error":{"code":42}}'), sleep: noSleep });
+    expect(r).toMatchObject({ ok: false });
+    expect(r.message).toContain('{"code":42}');
+    expect(r.message).not.toContain('[object Object]');
+  });
 });
 
 describe('a real local HTTP mock (nodeFetch)', () => {

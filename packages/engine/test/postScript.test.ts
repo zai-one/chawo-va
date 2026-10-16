@@ -190,7 +190,7 @@ describe('dictation with «Свой скрипт»', () => {
     const inserted: string[] = [];
     const { sess, take } = session((s) => { s.PostScript = 'fix'; }, {
       postScript: async (r) => { seen.push(r); return { ok: false, reason: 'exit', detail: '1', ms: 2 }; },
-      inserter: () => ({ insert: async (x: string) => { inserted.push(x); return 'Done' as const; } }) as never,
+      inserter: () => ({ insert: async (x: string) => { inserted.push(x); return 'Done' as const; } }),
     });
     expect(await take('hello', 'hotkey')).toBe('hello');
     expect(inserted).toEqual(['hello']);

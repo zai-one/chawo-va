@@ -13,16 +13,24 @@
     "build": "pnpm --filter @chawo/desktop build",
     "start": "pnpm --filter @chawo/desktop start",
     "cli": "node apps/desktop/out/main/cli.js",
+    "typecheck": "pnpm -r --parallel typecheck",
+    "lint": "eslint .",
+    "knip": "knip",
     "test": "vitest run",
     "test:watch": "vitest",
-    "typecheck": "pnpm -r --parallel typecheck",
+    "check": "pnpm typecheck && pnpm lint && pnpm knip && pnpm test",
     "e2e": "pnpm --filter @chawo/desktop e2e",
     "dist:win": "pnpm --filter @chawo/desktop dist:win",
     "dist:dir": "pnpm --filter @chawo/desktop dist:dir"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
     "@types/node": "^24.10.0",
+    "eslint": "^10.12.0",
+    "globals": "^17.13.0",
+    "knip": "^6.41.0",
     "typescript": "~6.0.3",
+    "typescript-eslint": "^8.71.2",
     "vitest": "^5.0.4"
   }
 }

@@ -143,8 +143,8 @@ function countTerm(words: readonly string[], c: CompiledTerm): number {
   for (let i = 0; i + k <= words.length; i++) {
     let ok = true;
     for (let j = 0; j < k; j++) {
-      const w = words[i + j]!;
-      const want = c.words[j]!;
+      const w = words[i + j];
+      const want = c.words[j];
       const last = j === k - 1;
       if (last && c.prefix ? !w.startsWith(want) : w !== want) {
         ok = false;
@@ -235,7 +235,7 @@ export function computeCallStats(segments: readonly TranscriptSegment[], tracker
         first ??= c.term;
       }
       if (n === 0 || first === null) return;
-      const r = results[ti]!;
+      const r = results[ti];
       r.count += n;
       if (r.hits.length < MAX_HITS_PER_TRACKER) {
         const hit: TrackerHit = { start: s.start, term: first, text: s.text.trim() };

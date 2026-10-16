@@ -10,7 +10,7 @@ import { HERMES_PORT } from '@chawo/core/speechModels';
 import { DEFAULT_IDLE_UNLOAD_MINUTES, normalizeIdleMinutes } from '@chawo/core/idleTimer';
 import { write as logWrite } from './log';
 import { appDataDir, settingsPath } from './paths';
-import { providerIdFromUrl } from './brainProviders';
+import { providerIdFromUrl } from './brain/brainProviders';
 import { HISTORY_KEEPS, type HistoryKeep } from './history/historyStore';
 
 export type InsertMode = 'Type' | 'Paste';
