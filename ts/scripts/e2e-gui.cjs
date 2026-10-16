@@ -16,6 +16,19 @@ const [reportPath, work, audio = '', shots = ''] = args;
 const checks = [];
 const problems = [];
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+// A screenshot is a side artifact, never a check. Electron 44 under xvfb can refuse the first capture
+// (UnknownVizError) before the compositor has a frame: ask for a repaint and try again.
+async function capture(wc) {
+  for (let i = 0; ; i++) {
+    try {
+      return await wc.capturePage();
+    } catch (e) {
+      if (i >= 4) throw e;
+      wc.invalidate();
+      await sleep(400);
+    }
+  }
+}
 const check = (name, ok, detail = '') => {
   checks.push({ name, ok: Boolean(ok), detail: String(detail).slice(0, 600) });
   console.log(`[e2e-gui] ${ok ? 'ok  ' : 'FAIL'} ${name}`);
@@ -91,7 +104,7 @@ app.whenReady().then(async () => {
       await sleep(700);
       const info = await js(`(() => { const pg = document.getElementById('page'); const h1 = pg.querySelector('h1'); return { kids: pg.children.length, h1: h1 ? h1.textContent : '', stub: /в разработке|is in progress/.test(pg.textContent), active: document.querySelector('.nav button.active')?.dataset.page }; })()`);
       check(`gui: page «${p}» renders`, info.kids > 0 && info.h1 && !info.stub && info.active === p, JSON.stringify(info));
-      if (shots) writeFileSync(join(shots, `page-${p}.png`), (await w.webContents.capturePage()).toPNG());
+      if (shots) writeFileSync(join(shots, `page-${p}.png`), (await capture(w.webContents)).toPNG());
     }
 
     // Every *:state handler answers with an object.
@@ -122,7 +135,7 @@ app.whenReady().then(async () => {
       st = await call('brain:state');
       const on = st.context.clipboard && !st.context.app && st.context.warning === '';
       const after = await js(`document.getElementById('brain-context-clipboard')?.checked ?? null`);
-      if (shots) writeFileSync(join(shots, 'brain-context.png'), (await w.webContents.capturePage()).toPNG());
+      if (shots) writeFileSync(join(shots, 'brain-context.png'), (await capture(w.webContents)).toPNG());
       st = await call('brain:context', { clipboard: false });
       check('gui: «Контекст для Мозга» opt-in checkboxes', off && ui && !ui.c && !ui.a && on && after === true && !st.context.clipboard, JSON.stringify({ off, ui, on, after }));
     } catch (e) {
@@ -167,7 +180,7 @@ app.whenReady().then(async () => {
         ui = await js(`(() => ({ answer: document.querySelector('[data-ask="answer"]')?.textContent ?? '', sources: Array.from(document.querySelectorAll('.ask-ex summary')).map((s) => s.textContent), status: document.querySelector('[data-ask="status"]')?.textContent ?? '' }))()`);
         if (ui.answer) break;
       }
-      if (shots) writeFileSync(join(shots, 'history-ask.png'), (await w.webContents.capturePage()).toPNG());
+      if (shots) writeFileSync(join(shots, 'history-ask.png'), (await capture(w.webContents)).toPNG());
       check('gui: «Спросить историю» answers with a cited transcript', /скидку 10%/.test(ui.answer) && ui.sources.some((x) => x.includes('встреча-иванов.txt')), JSON.stringify(ui));
       const st = await call('ask:history', false);
       check('gui: ask state (dictation toggle, meetings folder)', st.useHistory === false && st.meetingFolders.length === 1, JSON.stringify({ u: st.useHistory, m: st.meetingFolders }));
@@ -195,7 +208,7 @@ app.whenReady().then(async () => {
       if (shots) {
         await js(`document.querySelector('[data-dict="learned"]').scrollIntoView({ block: 'center' }); true`);
         await sleep(300);
-        writeFileSync(join(shots, 'dictionary-learned.png'), (await w.webContents.capturePage()).toPNG());
+        writeFileSync(join(shots, 'dictionary-learned.png'), (await capture(w.webContents)).toPNG());
       }
       await js(`document.querySelector('[data-dict="learnAccept"]').click(); true`);
       await sleep(600);
@@ -228,7 +241,7 @@ app.whenReady().then(async () => {
       const ins = applySnippets('Спасибо, вставь подпись.', list).text;
       check('gui: «Сниппеты» on «Словарь» saves to snippets.json', list.some((x) => x.trigger === 'подпись') && ins.includes('E2E'), `${paths.snippetsPath()} ${JSON.stringify(list)} → ${JSON.stringify(ins)}`);
       await js(`document.querySelector('[data-dict="snippets"]').scrollIntoView(); true`);
-      if (shots) writeFileSync(join(shots, 'dictionary-snippets.png'), (await w.webContents.capturePage()).toPNG());
+      if (shots) writeFileSync(join(shots, 'dictionary-snippets.png'), (await capture(w.webContents)).toPNG());
     } catch (e) {
       check('gui: «Сниппеты» on «Словарь» saves to snippets.json', false, e.message);
     }
@@ -271,7 +284,7 @@ app.whenReady().then(async () => {
       if (shots) {
         await js(`(() => { document.querySelectorAll('.call-stats details').forEach((d) => { d.open = true; }); document.querySelector('.call-stats').scrollIntoView(); return true; })()`);
         await sleep(200);
-        writeFileSync(join(shots, 'file-call-stats.png'), (await w.webContents.capturePage()).toPNG());
+        writeFileSync(join(shots, 'file-call-stats.png'), (await capture(w.webContents)).toPNG());
       }
       st = await call('file:callTrackers', '');
       const okReset = st.callStats.trackers === st.callStats.defaultTrackers;
@@ -295,7 +308,7 @@ app.whenReady().then(async () => {
       if (shots) {
         await js(`document.querySelector('fieldset.meeting')?.scrollIntoView(); true`);
         await sleep(200);
-        writeFileSync(join(shots, 'file-meeting-detect.png'), (await w.webContents.capturePage()).toPNG());
+        writeFileSync(join(shots, 'file-meeting-detect.png'), (await capture(w.webContents)).toPNG());
       }
       st = await call('meeting:autoDetect', false);
       check('gui: meeting auto-detect opt-in (off by default, shows apps/calendar when on)', off && before && !before.checked && !before.appsShown && on && after && after.checked && after.appsShown && after.calShown && !st.autoDetect, JSON.stringify({ off, before, on, after }));
@@ -338,7 +351,7 @@ app.whenReady().then(async () => {
       await sleep(600);
       const pv = await js(`document.querySelector('[data-crm="previewText"]')?.textContent ?? ''`);
       check('gui: «В CRM» shows exactly what goes out (no secrets)', pv.includes('/hook') && pv.includes('"tasks"') && !pv.includes('SECRET') && shownSecret === '|false', pv.slice(0, 300));
-      if (shots) writeFileSync(join(shots, 'crm-preview.png'), (await w.webContents.capturePage()).toPNG());
+      if (shots) writeFileSync(join(shots, 'crm-preview.png'), (await capture(w.webContents)).toPNG());
       const before = await (await fetch(crmBase + '/__log')).json();
       await js(`document.querySelector('[data-crm="send"]').click(); true`);
       await sleep(1200);
@@ -363,7 +376,7 @@ app.whenReady().then(async () => {
       const okRun = existsSync(join(tx, 'meet.brief.txt'));
       if (shots) {
         await js(`document.querySelector('[data-brief="template"]').scrollIntoView(); true`);
-        writeFileSync(join(shots, 'file-brief-templates.png'), (await w.webContents.capturePage()).toPNG());
+        writeFileSync(join(shots, 'file-brief-templates.png'), (await capture(w.webContents)).toPNG());
       }
       st = await call('file:deleteBriefTemplate', 'GUI шаблон');
       const ok3 = st.brief.template === '' && !st.brief.templates.some((x) => x.name === 'GUI шаблон');
@@ -388,7 +401,7 @@ app.whenReady().then(async () => {
       let snip = null;
       try { snip = JSON.parse(await clipboard.readText()).mcpServers['chawo-va']; } catch { /* checked below */ }
       await clipboard.writeText(keep);
-      if (shots) writeFileSync(join(shots, 'network-mcp.png'), (await w.webContents.capturePage()).toPNG());
+      if (shots) writeFileSync(join(shots, 'network-mcp.png'), (await capture(w.webContents)).toPNG());
       const st1 = await call('mcp:enable', false);
       const dark = ui1 && /rgba?\((\d+), (\d+), (\d+)/.exec(ui1.bg);
       const isDark = dark && Number(dark[1]) + Number(dark[2]) + Number(dark[3]) < 200;
@@ -416,7 +429,7 @@ app.whenReady().then(async () => {
       if (shots) {
         await js(`(document.querySelector('.call-score .score-card') ?? document.querySelector('.call-score')).scrollIntoView({ block: 'end' }); true`);
         await sleep(400);
-        writeFileSync(join(shots, 'file-call-score.png'), (await w.webContents.capturePage()).toPNG());
+        writeFileSync(join(shots, 'file-call-score.png'), (await capture(w.webContents)).toPNG());
       }
       st = await call('file:deleteChecklist', 'GUI чек-лист');
       const ok3 = st.score.checklist === 'sales' && !st.score.checklists.some((x) => x.name === 'GUI чек-лист');
@@ -461,7 +474,7 @@ app.whenReady().then(async () => {
       // Every queue row keeps its actions (Показать / Слушать / ×) on one line.
       const rows = await js(`Array.from(document.querySelectorAll('.queue .item')).map((r) => { const b = r.getBoundingClientRect(); const acts = Array.from(r.querySelectorAll('button')).map((x) => Math.round(x.getBoundingClientRect().top)); return { h: Math.round(b.height), buttons: acts.length, tops: new Set(acts).size }; })`);
       check('gui: queue rows stay on one line', rows.length > 0 && rows.every((r) => r.h < 48 && r.tops <= 1 && r.buttons >= 1), JSON.stringify(rows));
-      if (shots) writeFileSync(join(shots, 'file-done.png'), (await w.webContents.capturePage()).toPNG());
+      if (shots) writeFileSync(join(shots, 'file-done.png'), (await capture(w.webContents)).toPNG());
     }
 
     check('gui: no renderer / main errors', problems.length === 0, problems.join(' | '));
