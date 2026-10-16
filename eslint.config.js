@@ -7,7 +7,7 @@ import tseslint from 'typescript-eslint';
 
 export default tseslint.config(
   {
-    ignores: ['**/node_modules/**', '**/out/**', '**/dist/**', '**/release/**', '**/e2e-shots/**', 'legacy/**', 'ts/**', 'apps/desktop/native/**'],
+    ignores: ['**/node_modules/**', '**/out/**', '**/dist/**', '**/release/**', '**/e2e-shots/**', 'ts/**', 'apps/desktop/native/**'],
   },
   js.configs.recommended,
   tseslint.configs.recommendedTypeChecked,

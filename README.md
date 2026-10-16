@@ -3,7 +3,7 @@
 Local voice assistant for Windows: dictation, file and meeting transcription, an optional Brain (summaries, checklist scoring, questions across past meetings), and a sales trial card.
 Speech stays on this computer by default. Executable `ChawoVoiceAssistant.exe`; releases ship an installer and a portable zip. The short form **Chawo VA** is used only where space is tight (tray tooltip with a status).
 
-**Current shipping app is 2.0** (Electron + TypeScript, a pnpm monorepo under `apps/` and `packages/`). Legacy WPF sources remain in `legacy/wpf/` for reference; they are not the product you install.
+**Current shipping app is 2.0** (Electron + TypeScript, a pnpm monorepo under `apps/` and `packages/`).
 
 This repository is a standalone public copy of work that began as a fork of
 [moznoazachem/giga-pisar-win](https://github.com/moznoazachem/giga-pisar-win)
@@ -108,9 +108,8 @@ packages/core/      @chawo/core — platform-neutral logic (no Electron)
 packages/engine/    @chawo/engine — Node services shared by the app and the CLI
 fixtures/           Test fixtures shared by the packages
 docs/               User / CLI / server / developer guides (RU), OpenAPI spec, modernization plan
-legacy/wpf/         Legacy WPF/.NET sources (1.x; not the installer)
 tools/              Telegram bot for Hermes
-.github/workflows/  CI: checks + e2e smoke, Windows package, legacy WPF builds (manual)
+.github/workflows/  CI: checks + e2e (smoke and Playwright), Windows package
 ```
 
 

@@ -41,25 +41,49 @@ export function database(path: string): DatabaseSync {
   const fresh = !existsSync(path);
   const db = new DatabaseSync(path);
   // secure_delete: a deleted phrase is overwritten in the file, not left in a free page.
-  db.exec('PRAGMA busy_timeout = 5000; PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON; PRAGMA secure_delete = ON;');
+  db.exec('PRAGMA busy_timeout = 5000; PRAGMA foreign_keys = ON; PRAGMA secure_delete = ON;');
+  whileLocked(() => {
+    db.exec('PRAGMA journal_mode = WAL');
+    migrate(db);
+  });
   if (fresh) {
     try {
       chmodSync(path, 0o600);
     } catch { /* Windows: the profile ACL protects it */ }
   }
-  migrate(db);
   open.set(path, db);
   return db;
 }
 
+/**
+ * Switching a new file to WAL takes an exclusive lock, and SQLite answers «locked» at once instead of
+ * waiting busy_timeout when another process is doing the same: try again for a few seconds.
+ */
+function whileLocked(fn: () => void): void {
+  const until = Date.now() + 5000;
+  for (;;) {
+    try {
+      return fn();
+    } catch (e) {
+      if (!/database is locked|SQLITE_BUSY/i.test(String((e as Error)?.message)) || Date.now() > until) throw e;
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 20 + Math.floor(Math.random() * 30));
+    }
+  }
+}
+
+/**
+ * Brings the schema up to date. The version is read under the write lock: the app and `chawo-va` may
+ * open a new file at the same moment, and the second one must see the first one's tables.
+ */
 function migrate(db: DatabaseSync): void {
-  const { user_version: version } = db.prepare('PRAGMA user_version').get() as { user_version: number };
-  for (let v = version; v < MIGRATIONS.length; v++) {
-    transaction(db, () => {
+  const version = () => (db.prepare('PRAGMA user_version').get() as { user_version: number }).user_version;
+  if (version() >= MIGRATIONS.length) return;
+  transaction(db, () => {
+    for (let v = version(); v < MIGRATIONS.length; v++) {
       db.exec(MIGRATIONS[v]);
       db.exec(`PRAGMA user_version = ${v + 1}`);
-    });
-  }
+    }
+  });
 }
 
 /** Runs fn in a write transaction (BEGIN IMMEDIATE: a second writer waits up to busy_timeout). */

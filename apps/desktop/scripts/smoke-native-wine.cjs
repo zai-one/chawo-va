@@ -4,7 +4,7 @@
 // Checks: ready with the hook installed, Type and Paste into a focused text box (Cyrillic, emoji, newline),
 // the previous clipboard comes back after Paste, Ctrl+C selection read with the clipboard restored,
 // the foreground process name, keep-phrase mode leaves the phrase when history is off.
-// The hold key itself needs a real keyboard (the hook ignores injected keys): see PORTING.md.
+// The hold key itself needs a real keyboard (the hook ignores injected keys), so it is checked by hand on Windows.
 const { spawn, execFileSync } = require('node:child_process');
 const { existsSync, readFileSync, writeFileSync, rmSync, mkdtempSync } = require('node:fs');
 const { join } = require('node:path');

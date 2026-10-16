@@ -1,7 +1,7 @@
 # Руководство разработчика
 
 Поставляемое приложение 2.0 — Electron + TypeScript (pnpm-монорепозиторий: `apps/`, `packages/`).
-Старые исходники WPF/.NET (1.x) лежат в `legacy/wpf/` только для справки. План модернизации —
+Старое WPF-приложение (1.x) удалено, оно есть в истории git. План модернизации —
 [MODERNIZATION.md](MODERNIZATION.md).
 
 ## Структура
@@ -20,7 +20,6 @@ packages/ipc/     @chawo/ipc — контракт IPC окна и главног
 packages/ui/      @chawo/ui — CSS-токены (только тёмная тема) и компоненты React
 fixtures/         общие тестовые файлы (транскрипты, фейковые сервер Мозга и помощник ChawoNative)
 docs/             документация, openapi.yaml, план модернизации
-legacy/wpf/       старое приложение WPF/.NET (1.x), только для справки
 tools/            Telegram-бот для Hermes
 ```
 
@@ -188,7 +187,6 @@ pnpm cli transcribe a.wav --server http://127.0.0.1:17899 -f txt,srt,vtt,json,md
 |----------|-------|-----|
 | `ts-e2e.yml` | push в `main`, `ts-port`, `ts/**`; PR в `main`/`ts-port` (пути `apps/**`, `packages/**`, …) | типы, ESLint, Knip, юнит-тесты, e2e-смоук и сценарии Playwright под xvfb |
 | `ts-windows.yml` | push в `main`, `ts-port`, `ts/**`, теги `v*`, PR | Windows-пакет, подпись (если настроена), fuses, смоук пакета и его окна; на теге — вложения релиза |
-| `legacy-wpf-installer.yml`, `legacy-wpf-zip.yml` | вручную | старая WPF-сборка |
 
 Dependabot (`.github/dependabot.yml`) раз в неделю предлагает обновления npm-пакетов и actions —
 группами (Electron, React, инструменты, прочее), минорные и патчи; мажорные — по одному. Релиз
@@ -219,4 +217,3 @@ variables → Actions); в репозитории ключей нет. `scripts/
 ## Правила
 
 Только тёмная тема, без телеметрии, ключей в репозитории нет, локально по умолчанию, короткие меню.
-Подробная карта переноса с WPF: [`PORTING.md`](PORTING.md).

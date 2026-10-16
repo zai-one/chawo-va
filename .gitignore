@@ -10,12 +10,11 @@ playwright-report/
 .env
 .env.*
 
-# Legacy WPF build (legacy/wpf)
+# .NET build of ChawoNative (apps/desktop/native/win)
 .vs/
 bin/
 obj/
 *.user
-build.local
 
 *.log
 *.wav
