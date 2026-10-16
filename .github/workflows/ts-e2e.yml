@@ -55,11 +55,13 @@ jobs:
         run: pnpm test
 
       - name: End-to-end smoke (CLI + GUI under xvfb)
+        id: smoke
         run: pnpm e2e --shots e2e-shots
 
-      # The app is already built by the step above. Traces and screenshots of failed tests go to the report.
+      # The app is built by the step above: run also when the smoke failed, not when it never ran.
+      # Traces and screenshots of failed tests go to the report.
       - name: End-to-end UI scenarios (Playwright, under xvfb)
-        if: success() || failure()
+        if: (success() || failure()) && steps.smoke.outcome != 'skipped'
         working-directory: apps/desktop
         run: xvfb-run -a -s '-screen 0 1280x800x24' pnpm exec playwright test
 

@@ -31,6 +31,10 @@ updates:
       # TypeScript 7 waits for typescript-eslint support (docs/MODERNIZATION.md).
       - dependency-name: typescript
         versions: ['>=7']
+      # Types follow the Node the app runs on: Node 24 inside Electron 44 (engines: >=24). A newer
+      # major comes together with the Electron that ships that Node.
+      - dependency-name: '@types/node'
+        update-types: ['version-update:semver-major']
 
   - package-ecosystem: github-actions
     directory: /
