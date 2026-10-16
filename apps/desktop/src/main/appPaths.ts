@@ -1,11 +1,15 @@
 // Where the built app keeps its parts (electron-vite layout). The app root is the folder with
 // package.json: apps/desktop in development, resources/app.asar in the package.
 //   out/main/main.js      entry (also out/main/cli.js)      out/preload/<name>.js
-//   out/renderer/<page>.html                                  resources/iconset/...
+//   out/renderer/<page>.html (served as chawo-app://bundle/<page>.html)  resources/iconset/...
 // Modules are emitted one file per source module, so only the entry knows its own place: main.ts
 // calls init(__dirname) first thing.
 import { join } from 'node:path';
 import type { BrowserWindow } from 'electron';
+
+/** The scheme the built app serves its pages from (appProtocol.ts). */
+export const APP_SCHEME = 'chawo-app';
+const APP_ORIGIN = `${APP_SCHEME}://bundle`;
 
 let appRoot = '';
 
@@ -19,15 +23,16 @@ export function root(): string {
 }
 
 export const preload = (name: 'preload' | 'overlayPreload' | 'salesCardPreload' | 'decoderPreload'): string => join(root(), 'out', 'preload', `${name}.js`);
+export const rendererDir = (): string => join(root(), 'out', 'renderer');
 export const resource = (...parts: string[]): string => join(root(), 'resources', ...parts);
 
 export type Page = 'index' | 'overlay' | 'salesCard' | 'decoder';
 
-/** `electron-vite dev` serves the pages with hot reload; the built app loads the files. */
+/** `electron-vite dev` serves the pages with hot reload; the built app loads them from its own scheme. */
 export function loadPage(w: BrowserWindow, page: Page): Promise<void> {
   const dev = process.env.ELECTRON_RENDERER_URL;
   if (dev && isDevServer(dev)) return w.loadURL(`${dev}/${page}.html`);
-  return w.loadFile(join(root(), 'out', 'renderer', `${page}.html`));
+  return w.loadURL(`${APP_ORIGIN}/${page}.html`);
 }
 
 /** The dev server is only ever on this machine. */

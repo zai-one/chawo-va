@@ -12,6 +12,7 @@ const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')) as {
     asarUnpack: string[];
     extraResources: { from: string; to: string; filter: string[] }[];
     npmRebuild: boolean;
+    electronFuses: Record<string, boolean>;
     win: { target: { target: string }[]; extraFiles: { from: string; to: string }[]; icon: string };
   };
 };
@@ -42,5 +43,27 @@ describe('Windows packaging config', () => {
     expect(pkg.build.asarUnpack).toContain('node_modules/onnxruntime-node/**');
     expect(pkg.build.asarUnpack.some((x) => x.includes('sherpa-onnx'))).toBe(true);
     expect(pkg.build.npmRebuild).toBe(false); // N-API modules, no rebuild against Electron
+  });
+});
+
+describe('hardened runtime (Electron fuses)', () => {
+  it('keeps RunAsNode for chawo-va.cmd and turns off the rest of the Node entry points', () => {
+    expect(pkg.build.electronFuses).toEqual({
+      runAsNode: true,
+      enableCookieEncryption: true,
+      enableNodeOptionsEnvironmentVariable: false,
+      enableNodeCliInspectArguments: false,
+      enableEmbeddedAsarIntegrityValidation: true,
+      onlyLoadAppFromAsar: true,
+      loadBrowserProcessSpecificV8Snapshot: false,
+      grantFileProtocolExtraPrivileges: false,
+    });
+  });
+
+  it('serves the pages from chawo-app://, which works without file:// privileges', () => {
+    const appPaths = readFileSync(join(root, 'src', 'main', 'appPaths.ts'), 'utf8');
+    expect(appPaths).not.toMatch(/loadFile\(/);
+    expect(appPaths).toContain("APP_ORIGIN = `${APP_SCHEME}://bundle`");
+    expect(appPaths).toContain('w.loadURL(`${APP_ORIGIN}/${page}.html`)');
   });
 });

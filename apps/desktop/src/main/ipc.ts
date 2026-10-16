@@ -1,9 +1,7 @@
 // Typed ipcMain for the main window, after the contract in @chawo/ipc. Every handler checks that the
-// call comes from the app's own page (the bundled index.html, or the dev server in `pnpm dev`): a
+// call comes from the app's own page (chawo-app://bundle/index.html, or the dev server in `pnpm dev`): a
 // frame that navigated elsewhere, a devtools snippet in another page or a stray window gets refused.
 // Arguments stay `unknown` here on purpose — they cross a trust boundary and each handler checks them.
-import { fileURLToPath } from 'node:url';
-import { join } from 'node:path';
 import { ipcMain, type IpcMainEvent, type IpcMainInvokeEvent, type WebContents } from 'electron';
 import type { EventChannel, EventMap, InvokeChannel, InvokeResult, SendChannel } from '@chawo/ipc/contract';
 import * as Log from '@chawo/engine/log';
@@ -11,11 +9,12 @@ import * as AppPaths from './appPaths';
 
 type Sender = { senderFrame?: { url: string } | null };
 
-/** The main window's page: out/renderer/index.html of this app, or index.html on the dev server. */
-export function isAppPage(url: string, appRoot: string, devOrigin: string | null): boolean {
+/** The main window's page: chawo-app://bundle/index.html, or index.html on the dev server. */
+export function isAppPage(url: string, devOrigin: string | null): boolean {
   try {
     const u = new URL(url);
-    if (u.protocol === 'file:') return fileURLToPath(u) === join(appRoot, 'out', 'renderer', 'index.html');
+    // URL.origin is 'null' for a custom scheme: compare its parts.
+    if (u.protocol === `${AppPaths.APP_SCHEME}:`) return u.host === 'bundle' && u.pathname === '/index.html' && !u.username && !u.port;
     return devOrigin !== null && u.origin === devOrigin && (u.pathname === '/index.html' || u.pathname === '/');
   } catch {
     return false;
@@ -24,7 +23,7 @@ export function isAppPage(url: string, appRoot: string, devOrigin: string | null
 
 function trusted(e: Sender, channel: string): boolean {
   const url = e.senderFrame?.url ?? '';
-  if (isAppPage(url, AppPaths.root(), AppPaths.devOrigin())) return true;
+  if (isAppPage(url, AppPaths.devOrigin())) return true;
   Log.write(`ipc ${channel}: refused a call from ${url || 'a frame that is gone'}`);
   return false;
 }

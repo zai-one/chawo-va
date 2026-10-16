@@ -68,7 +68,7 @@ test('the page is isolated: no Node, no Electron, only the contract API', async 
   });
   expect(unknownChannel).not.toBe('answered');
   const prefs = await app.evaluate(({ BrowserWindow }) => {
-    const w = BrowserWindow.getAllWindows().find((x) => x.webContents.getURL().endsWith('/renderer/index.html'));
+    const w = BrowserWindow.getAllWindows().find((x) => x.webContents.getURL() === 'chawo-app://bundle/index.html');
     // Not in Electron's typings, but present: the preferences the page actually runs with.
     const p = (
       w?.webContents as unknown as { getLastWebPreferences(): Electron.WebPreferences | null } | undefined

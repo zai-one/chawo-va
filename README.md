@@ -129,12 +129,12 @@ pnpm dist:win      # Setup.exe + portable zip (Windows CI / Windows host)
 
 Details: [docs/developer-guide.md](docs/developer-guide.md).
 
-GitHub Actions: `.github/workflows/ts-windows.yml` builds on `main`, `ts-port`, `ts/**` and on `v*` tags; tag builds attach Setup.exe and the portable zip to the GitHub Release. No model weights in the artifacts. Unsigned.
+GitHub Actions: `.github/workflows/ts-windows.yml` builds on `main`, `ts-port`, `ts/**` and on `v*` tags; tag builds attach Setup.exe and the portable zip to the GitHub Release. No model weights in the artifacts. The package is hardened with Electron fuses (checked in CI); it is signed once the repository has signing secrets (see the developer guide).
 
 
 ## Code signing policy
 
-Builds are unsigned. Windows SmartScreen may warn on first run; that is expected until a certificate is configured.
+Builds are unsigned until a certificate (or Azure Trusted Signing) is configured in the CI secrets. Until then Windows SmartScreen may warn on first run; that is expected.
 
 
 ## Privacy

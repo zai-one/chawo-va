@@ -111,7 +111,9 @@ export async function launch(profile: Profile): Promise<{ app: ElectronApplicati
   for (const [k, v] of Object.entries(process.env)) if (v !== undefined && !k.startsWith('CHAWO_') && !k.startsWith('PISAR_')) env[k] = v;
   Object.assign(env, profile.env);
   delete env.ELECTRON_RUN_AS_NODE;
-  const app = await electron.launch({ args: ['--no-sandbox', join(outMain, 'main.js')], env, timeout: 30_000 });
+  // CHAWO_E2E_ELECTRON: another Electron binary, e.g. a copy with the package's fuses flipped.
+  const executablePath = process.env.CHAWO_E2E_ELECTRON || undefined;
+  const app = await electron.launch({ executablePath, args: ['--no-sandbox', join(outMain, 'main.js')], env, timeout: 30_000 });
   const problems: string[] = [];
   const watch = (p: Page) => {
     p.on('console', (m) => {
@@ -122,7 +124,7 @@ export async function launch(profile: Profile): Promise<{ app: ElectronApplicati
   };
   app.windows().forEach(watch);
   app.on('window', watch);
-  const isMain = (p: Page) => p.url().endsWith('/renderer/index.html');
+  const isMain = (p: Page) => p.url() === 'chawo-app://bundle/index.html';
   const win = app.windows().find(isMain) ?? (await app.waitForEvent('window', { predicate: isMain }));
   await win.waitForLoadState('domcontentloaded');
   await expect(win.locator('.nav button').first()).toBeVisible();

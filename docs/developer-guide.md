@@ -46,12 +46,38 @@ pnpm cli --help            # CLI из сборки (node apps/desktop/out/main/c
 pnpm --filter @chawo/desktop build:native   # ChawoNative.exe (нужен .NET SDK)
 pnpm dist:win              # Setup.exe + портативный zip (Windows)
 pnpm dist:dir              # распакованная сборка без установщика
+pnpm --filter @chawo/desktop check:fuses release/win-unpacked/ChawoVoiceAssistant.exe
+node apps/desktop/scripts/check-packaged.mjs <exe>      # окно собранного пакета (Playwright по CDP)
 ```
 
 Сборка (`apps/desktop/electron.vite.config.ts`): main и CLI — CommonJS, один файл на исходный модуль
 (`out/main/<путь в репозитории>.js`, точки входа — `out/main/main.js` и `out/main/cli.js`); четыре
 sandbox-preload — по одному файлу; страницы интерфейса — `out/renderer/*.html`. Версия приложения
 (`__CHAWO_VERSION__`) подставляется при сборке из `apps/desktop/package.json`.
+
+Страницы открываются не с `file://`, а со своей схемы `chawo-app://bundle/<страница>.html`
+(`src/main/appProtocol.ts`): отдаются только файлы из `out/renderer`, у страниц настоящий origin
+(`'self'` в CSP — ровно сборка) и защищённый контекст (микрофон, AudioWorklet). В `pnpm dev` — по-прежнему
+dev-сервер на localhost.
+
+### Fuses
+
+В пакете выключено всё, чем можно запустить в приложении чужой код (`build.electronFuses` в
+`apps/desktop/package.json`, ставит electron-builder):
+
+| Fuse | | Зачем |
+|---|---|---|
+| `RunAsNode` | вкл. | `chawo-va.cmd` запускает CLI тем же exe (`ELECTRON_RUN_AS_NODE`) |
+| `EnableNodeOptionsEnvironmentVariable` | выкл. | `NODE_OPTIONS` не подмешивает модули |
+| `EnableNodeCliInspectArguments` | выкл. | нет `--inspect` (поэтому Playwright `_electron` не запускает пакет — для него `check-packaged.mjs` по CDP) |
+| `EnableEmbeddedAsarIntegrityValidation`, `OnlyLoadAppFromAsar` | вкл. | код только из `app.asar`, подмена файла в нём ломает запуск |
+| `GrantFileProtocolExtraPrivileges` | выкл. | у `file://` нет лишних прав (страницы и так на `chawo-app://`) |
+| `EnableCookieEncryption` | вкл. | cookies на диске шифруются |
+
+CI (`ts-windows.yml`) сверяет fuses собранного exe (`scripts/check-fuses.mjs`) и запускает его окно
+(`scripts/check-packaged.mjs`). Сценарии Playwright можно прогнать на Electron с теми же fuses:
+`CHAWO_E2E_ELECTRON=<копия electron с перевёрнутыми fuses> pnpm exec playwright test` (кроме
+`OnlyLoadAppFromAsar` и `--inspect`, без которых несобранное приложение не запустить).
 
 pnpm ставит релиз пакета, только когда ему исполнилось сутки (`minimumReleaseAge`), а install-скрипты
 разрешены явно (`allowBuilds` в `pnpm-workspace.yaml`).
@@ -161,8 +187,12 @@ pnpm cli transcribe a.wav --server http://127.0.0.1:17899 -f txt,srt,vtt,json,md
 | Workflow | Когда | Что |
 |----------|-------|-----|
 | `ts-e2e.yml` | push в `main`, `ts-port`, `ts/**`; PR в `main`/`ts-port` (пути `apps/**`, `packages/**`, …) | типы, ESLint, Knip, юнит-тесты, e2e-смоук и сценарии Playwright под xvfb |
-| `ts-windows.yml` | push в `main`, `ts-port`, `ts/**`, теги `v*`, PR | Windows-пакет, смоук пакета; на теге — вложения релиза |
+| `ts-windows.yml` | push в `main`, `ts-port`, `ts/**`, теги `v*`, PR | Windows-пакет, подпись (если настроена), fuses, смоук пакета и его окна; на теге — вложения релиза |
 | `legacy-wpf-installer.yml`, `legacy-wpf-zip.yml` | вручную | старая WPF-сборка |
+
+Dependabot (`.github/dependabot.yml`) раз в неделю предлагает обновления npm-пакетов и actions —
+группами (Electron, React, инструменты, прочее), минорные и патчи; мажорные — по одному. Релиз
+должен быть не моложе трёх дней. TypeScript 7 не предлагается, пока его не поддержит typescript-eslint.
 
 ## Релиз
 
@@ -170,7 +200,21 @@ pnpm cli transcribe a.wav --server http://127.0.0.1:17899 -f txt,srt,vtt,json,md
 2. PR в `main`, дождитесь зелёного CI, merge commit.
 3. `git tag vX.Y.Z && git push origin vX.Y.Z` — `ts-windows.yml` соберёт
    `ChawoVoiceAssistant-X.Y.Z-Setup.exe` и `…-win-x64.zip` и приложит к GitHub Release.
-4. Веса моделей в артефакты не входят; сборки не подписаны.
+4. Веса моделей в артефакты не входят.
+
+### Подпись
+
+Сборка подписывается сама, как только в репозитории появятся данные для подписи (Settings → Secrets and
+variables → Actions); в репозитории ключей нет. `scripts/signing-config.mjs` выбирает способ:
+
+- **Azure Trusted Signing** — secrets `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET` и
+  variables `AZURE_SIGN_ENDPOINT`, `AZURE_SIGN_ACCOUNT`, `AZURE_SIGN_PROFILE`, `AZURE_SIGN_PUBLISHER`;
+- **сертификат .pfx** — secrets `WIN_CSC_LINK` (base64 файла) и `WIN_CSC_KEY_PASSWORD`; SHA-256 и
+  метка времени RFC 3161;
+- ничего не задано — сборка без подписи, как раньше.
+
+При включённой подписи CI проверяет подписи `Setup.exe` и `ChawoVoiceAssistant.exe`. Автообновление
+(`electron-updater`) имеет смысл включать только после подписи.
 
 ## Правила
 

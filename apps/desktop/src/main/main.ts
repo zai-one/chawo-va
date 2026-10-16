@@ -3,7 +3,8 @@
 
 import '@chawo/core/ortPrivacy';
 import { app, BrowserWindow, Menu, Tray, nativeImage, nativeTheme, safeStorage, session } from 'electron';
-import { handleMediaProtocol, registerMediaScheme } from './localMediaProtocol';
+import { handleMediaProtocol } from './localMediaProtocol';
+import { handleAppProtocol, registerSchemes } from './appProtocol';
 import * as AppPaths from './appPaths';
 import { registerFileIpc } from './fileIpc';
 import { registerSpeechIpc } from './speechIpc';
@@ -145,7 +146,7 @@ function quit(): void {
   app.quit();
 }
 
-registerMediaScheme();
+registerSchemes();
 
 if (!app.requestSingleInstanceLock()) {
   app.quit();
@@ -153,12 +154,13 @@ if (!app.requestSingleInstanceLock()) {
   app.on('second-instance', () => showWindow());
   app.whenReady().then(() => {
     nativeTheme.themeSource = 'dark';
+    handleAppProtocol(AppPaths.rendererDir());
     handleMediaProtocol();
-    // Local by default: block any renderer request that is not a bundled file.
+    // Local by default: block any renderer request that is not a bundled page or an allowed local audio.
     // `electron-vite dev` serves the pages from localhost; the built app never sets that.
     const dev = AppPaths.devOrigin();
     session.defaultSession.webRequest.onBeforeRequest((details, cb) => {
-      const local = details.url.startsWith('file://') || details.url.startsWith('devtools://') || details.url.startsWith('chawo-media://');
+      const local = details.url.startsWith(`${AppPaths.APP_SCHEME}://`) || details.url.startsWith('devtools://') || details.url.startsWith('chawo-media://');
       cb({ cancel: !local && !(dev !== null && (details.url.startsWith(dev + '/') || details.url.startsWith(dev.replace(/^http/, 'ws') + '/'))) });
     });
     session.defaultSession.setPermissionRequestHandler((_wc, permission, cb) => cb(permission === 'media'));

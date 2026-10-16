@@ -1,0 +1,44 @@
+# Dependency updates: npm packages of the pnpm workspace and the GitHub Actions of the workflows.
+# Weekly, grouped so a week brings a few PRs, not dozens. A release must be a few days old first
+# (pnpm-workspace.yaml already refuses anything younger than a day). Majors come one by one: they
+# usually need code changes (Electron, React, TypeScript, Vite).
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    cooldown:
+      default-days: 3
+    open-pull-requests-limit: 10
+    versioning-strategy: increase
+    groups:
+      electron:
+        patterns: ['electron', 'electron-builder', 'electron-vite', '@electron/*']
+        update-types: [minor, patch]
+      react:
+        patterns: ['react', 'react-dom', '@types/react', '@types/react-dom', 'babel-plugin-react-compiler', 'eslint-plugin-react-hooks', '@vitejs/plugin-react']
+        update-types: [minor, patch]
+      tooling:
+        patterns: ['typescript', 'typescript-eslint', 'eslint', '@eslint/*', 'vite', 'vitest', 'knip', '@playwright/test', '@types/node', 'globals', '@babel/*', '@rolldown/*']
+        update-types: [minor, patch]
+      runtime:
+        patterns: ['*']
+        exclude-patterns: ['electron', 'electron-builder', 'electron-vite', '@electron/*', 'react', 'react-dom']
+        update-types: [minor, patch]
+    ignore:
+      # TypeScript 7 waits for typescript-eslint support (docs/MODERNIZATION.md).
+      - dependency-name: typescript
+        versions: ['>=7']
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    cooldown:
+      default-days: 3
+    groups:
+      actions:
+        patterns: ['*']

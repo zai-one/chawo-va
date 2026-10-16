@@ -1,5 +1,5 @@
 // Privileged chawo-media:// scheme so the sandboxed renderer can seek/play a known local audio file.
-// registerSchemesAsPrivileged must run before app.ready; handle() after ready.
+// The scheme is registered (before app.ready) with the app's own in appProtocol.ts; handle() after ready.
 // Chromium only seeks when the response speaks HTTP Range (Accept-Ranges / 206) — net.fetch(file)
 // alone is not enough for a custom scheme, so we serve bytes ourselves.
 
@@ -27,23 +27,6 @@ const MIME: Record<string, string> = {
 
 function key(p: string): string {
   return resolve(p);
-}
-
-/** Call once at module load, before app.whenReady(). */
-export function registerMediaScheme(): void {
-  protocol.registerSchemesAsPrivileged([
-    {
-      scheme: MEDIA_SCHEME,
-      privileges: {
-        standard: true,
-        secure: true,
-        supportFetchAPI: true,
-        stream: true,
-        bypassCSP: false,
-        corsEnabled: true,
-      },
-    },
-  ]);
 }
 
 /** Allow-list a queue audio path (or clear with empty). Only these are served. */

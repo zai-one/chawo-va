@@ -1,6 +1,13 @@
 # Windows build of the Electron app (apps/desktop): an installer (NSIS, per-user, folder can be changed)
 # and a portable zip. Both carry the chawo-va CLI (chawo-va.cmd next to the exe). No speech or Brain
-# weights inside: the app downloads them on first use. Unsigned. Built only from this repository's source.
+# weights inside: the app downloads them on first use. Built only from this repository's source.
+# Hardened: Electron fuses (no NODE_OPTIONS, no --inspect, app only from app.asar with integrity check,
+# no extra file:// privileges; RunAsNode stays on for chawo-va.cmd) — checked on the built exe.
+# Signing turns on by itself once the repository has it (Settings → Secrets and variables → Actions):
+#   Azure Trusted Signing — secrets AZURE_TENANT_ID, AZURE_CLIENT_ID, AZURE_CLIENT_SECRET and variables
+#     AZURE_SIGN_ENDPOINT, AZURE_SIGN_ACCOUNT, AZURE_SIGN_PROFILE, AZURE_SIGN_PUBLISHER;
+#   or a .pfx — secrets WIN_CSC_LINK (base64 of the file) and WIN_CSC_KEY_PASSWORD.
+# Without either the build is unsigned, as before.
 # On a v* tag the same artifacts are attached to the GitHub Release for that tag.
 name: TS Windows
 
@@ -31,6 +38,15 @@ jobs:
         working-directory: apps/desktop
     env:
       CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+      CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
+      CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
+      AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+      AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+      AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+      AZURE_SIGN_ENDPOINT: ${{ vars.AZURE_SIGN_ENDPOINT }}
+      AZURE_SIGN_ACCOUNT: ${{ vars.AZURE_SIGN_ACCOUNT }}
+      AZURE_SIGN_PROFILE: ${{ vars.AZURE_SIGN_PROFILE }}
+      AZURE_SIGN_PUBLISHER: ${{ vars.AZURE_SIGN_PUBLISHER }}
     steps:
       - uses: actions/checkout@v7
 
@@ -49,8 +65,25 @@ jobs:
       - name: Install
         run: pnpm install --frozen-lockfile
 
+      - name: Signing
+        id: sign
+        run: node scripts/signing-config.mjs "$env:RUNNER_TEMP/builder.json"
+
       - name: Build and package
-        run: pnpm dist:win
+        run: |
+          pnpm build
+          pnpm package:win --config "$env:RUNNER_TEMP/builder.json"
+
+      - name: Fuses
+        run: node scripts/check-fuses.mjs release/win-unpacked/ChawoVoiceAssistant.exe
+
+      - name: Signatures
+        if: steps.sign.outputs.signing != 'none'
+        shell: pwsh
+        run: |
+          $bad = Get-ChildItem release/*.exe, release/win-unpacked/ChawoVoiceAssistant.exe | Get-AuthenticodeSignature | Where-Object Status -ne 'Valid'
+          if ($bad) { $bad | Format-Table Status, Path -AutoSize; Write-Error 'unsigned or invalid signature'; exit 1 }
+          Get-ChildItem release/*.exe | Get-AuthenticodeSignature | Format-Table Status, SignerCertificate, Path -AutoSize
 
       - name: Smoke-test the packaged app
         shell: pwsh
@@ -93,6 +126,10 @@ jobs:
           Get-Process ChawoVoiceAssistant, ChawoNative -ErrorAction SilentlyContinue | Format-Table Name, Id
           if (-not (Get-Process ChawoNative -ErrorAction SilentlyContinue)) { Fail 'ChawoNative.exe did not start' }
           Get-Process ChawoVoiceAssistant, ChawoNative -ErrorAction SilentlyContinue | Stop-Process -Force
+
+      # 6. The window of the packaged (fused) app: chawo-app:// from app.asar, every page, no console errors.
+      - name: Smoke-test the packaged window (Playwright over CDP)
+        run: node scripts/check-packaged.mjs release/win-unpacked/ChawoVoiceAssistant.exe
 
       - name: Checksums
         shell: pwsh
