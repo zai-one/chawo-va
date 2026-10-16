@@ -7,7 +7,7 @@
 //   xvfb-run -a node scripts/check-packaged.mjs release/linux-unpacked/ChawoVoiceAssistant   (Linux)
 /* global document, getComputedStyle, isSecureContext -- the page.evaluate() callback runs in the window */
 import { spawn } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { chromium } from '@playwright/test';
@@ -21,19 +21,12 @@ const port = 9500 + Math.floor(Math.random() * 400);
 const dir = mkdtempSync(join(tmpdir(), 'chawo-pkg-'));
 const home = join(dir, 'home');
 mkdirSync(home, { recursive: true });
-const env = {
-  ...process.env,
-  CHAWO_APPDATA: join(dir, 'roaming'),
-  CHAWO_LOCALAPPDATA: join(dir, 'local'),
-  CHAWO_SECRETS: 'file',
-  HOME: home,
-  USERPROFILE: home,
-  XDG_CONFIG_HOME: join(home, '.config'),
-  XDG_DATA_HOME: join(home, '.local', 'share'),
-  APPDATA: join(home, 'AppData', 'Roaming'),
-};
+// The app's own data goes to the temp profile through CHAWO_*; Chromium's profile through --user-data-dir
+// (the OS profile variables stay as they are: Windows resolves its folders without them).
+const env = { ...process.env, CHAWO_APPDATA: join(dir, 'roaming'), CHAWO_LOCALAPPDATA: join(dir, 'local'), CHAWO_SECRETS: 'file' };
+if (process.platform !== 'win32') Object.assign(env, { HOME: home, XDG_CONFIG_HOME: join(home, '.config'), XDG_DATA_HOME: join(home, '.local', 'share') });
 delete env.ELECTRON_RUN_AS_NODE;
-const args = [`--remote-debugging-port=${port}`, ...(process.platform === 'linux' ? ['--no-sandbox'] : [])];
+const args = [`--user-data-dir=${join(dir, 'chromium')}`, `--remote-debugging-port=${port}`, ...(process.platform === 'linux' ? ['--no-sandbox'] : [])];
 const app = spawn(exe, args, { env, stdio: ['ignore', 'pipe', 'pipe'] });
 let log = '';
 app.stdout.on('data', (c) => (log += c));
@@ -55,7 +48,12 @@ try {
       await sleep(500);
     }
   }
-  if (!browser) throw new Error(`no DevTools endpoint (exit ${app.exitCode}); log: ${log.slice(-800)}`);
+  if (!browser) {
+    const code = app.exitCode === null ? 'still running' : `exit 0x${(app.exitCode >>> 0).toString(16)}`;
+    const appLog = join(dir, 'local', 'ChawoVoiceAssistant', 'chawo-va.log');
+    const tail = existsSync(appLog) ? readFileSync(appLog, 'utf8').slice(-1500) : '(no app log)';
+    throw new Error(`no DevTools endpoint (${code}); output: ${log.slice(-800)}; app log: ${tail}`);
+  }
   let page;
   for (let i = 0; i < 60 && !page; i++) {
     page = browser.contexts().flatMap((c) => c.pages()).find((p) => p.url().startsWith('chawo-app://bundle/index.html'));
