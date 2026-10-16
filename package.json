@@ -2,7 +2,7 @@
   "name": "chawo-va-workspace",
   "private": true,
   "description": "Chawo Voice Assistant monorepo: the Electron app, the CLI and shared packages.",
-  "license": "MIT",
+  "license": "LicenseRef-ZAI-ONE",
   "type": "module",
   "packageManager": "pnpm@12.11.2",
   "engines": {

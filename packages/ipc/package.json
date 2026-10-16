@@ -3,7 +3,7 @@
   "version": "2.1.0",
   "private": true,
   "description": "The IPC contract of Chawo VA: every channel between the window and the main process, its arguments, result and pushed payloads. Types plus the channel allowlists; no Electron.",
-  "license": "MIT",
+  "license": "LicenseRef-ZAI-ONE",
   "type": "module",
   "exports": {
     "./*": "./src/*.ts"

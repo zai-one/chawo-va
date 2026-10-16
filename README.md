@@ -7,7 +7,7 @@ Speech stays on this computer by default. Executable `ChawoVoiceAssistant.exe`; 
 
 This repository is a standalone public copy of work that began as a fork of
 [moznoazachem/giga-pisar-win](https://github.com/moznoazachem/giga-pisar-win)
-(upstream tip used: 1.0.7). Upstream license: **MIT** (see `LICENSE`). Copyright (c) 2026 giga-pisar contributors; original authors [@moznoazachem](https://github.com/moznoazachem). GigaAM model weights remain under their own MIT notice in that file.
+(upstream tip used: 1.0.7). Upstream license: **MIT**; its notice and the GigaAM model notice are kept in [`NOTICE`](NOTICE). Copyright (c) 2026 giga-pisar contributors; original authors [@moznoazachem](https://github.com/moznoazachem).
 
 Brand colors, mark and icon come from [chawo.ai](https://chawo.ai) (`/icon.svg` and site CSS). The site font **DIN Pro** is not bundled; the UI uses **Arial** then Segoe UI.
 
@@ -147,10 +147,17 @@ Builds are unsigned until a certificate (or Azure Trusted Signing) is configured
 
 ## License
 
-MIT.
+[LicenseRef-ZAI-ONE 2.0](LICENSE) — source-available, not open source. You may install, run and
+modify your own copy for personal or internal business use (including work for your own clients).
+Without written permission from ZAI.ONE you may not copy the code into other projects, redistribute
+or sell it, embed it into other products or your own services, or offer it as a hosted service.
+Ask via https://t.me/zai_one or a GitHub issue.
+
+Releases up to v2.0.0 were published under MIT and keep those terms. Third-party notices and the
+license history: [`NOTICE`](NOTICE).
 
 
 ## Attribution
 
-Based on [moznoazachem/giga-pisar-win](https://github.com/moznoazachem/giga-pisar-win), MIT License.
+Based on [moznoazachem/giga-pisar-win](https://github.com/moznoazachem/giga-pisar-win), MIT License (notice in [`NOTICE`](NOTICE)).
 Copyright (c) 2026 giga-pisar contributors. Original work by [@moznoazachem](https://github.com/moznoazachem).

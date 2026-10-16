@@ -3,7 +3,7 @@
   "version": "2.1.0",
   "private": true,
   "description": "Platform-neutral logic of Chawo VA: recognition, text, formats. No Electron.",
-  "license": "MIT",
+  "license": "LicenseRef-ZAI-ONE",
   "type": "module",
   "exports": {
     "./*": "./src/*.ts"
