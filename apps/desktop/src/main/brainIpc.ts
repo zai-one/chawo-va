@@ -3,10 +3,11 @@
 // back to the renderer.
 
 import { BrowserWindow, dialog, shell } from 'electron';
+import { mkdirSync } from 'node:fs';
 import { basename } from 'node:path';
 import { t } from '@chawo/core/strings';
 import * as Settings from '@chawo/engine/settings';
-import type { SettingsData } from '@chawo/engine/settings';
+import type { LocalBrainKind, SettingsData } from '@chawo/engine/settings';
 import { BrainController, LOCAL_KINDS, type AppRulePatch, type LastApp } from '@chawo/engine/brain/brainPage';
 import * as LocalBrain from '@chawo/engine/brain/localBrain';
 import { emit, handle } from './ipc';
@@ -78,6 +79,47 @@ export function registerBrainIpc(
     ctl.setCustomUrl(str(v));
     return ctl.state();
   });
+  // Only a path from the page's own list; any other file comes through the dialog below.
+  handle('brain:localFile', (_e, v: unknown) => {
+    ctl.selectLocalFile(str(v));
+    return ctl.state();
+  });
+  handle('brain:pickFile', async () => {
+    const w = getWindow();
+    const opts = {
+      title: t('Файл модели Мозга', 'Brain model file'),
+      defaultPath: LocalBrain.modelsDir(settings.get()),
+      properties: ['openFile' as const],
+      filters: [{ name: 'GGUF', extensions: ['gguf'] }],
+    };
+    const r = w ? await dialog.showOpenDialog(w, opts) : await dialog.showOpenDialog(opts);
+    if (!r.canceled && r.filePaths[0]) ctl.pickFile(r.filePaths[0]);
+    return ctl.state();
+  });
+  handle('brain:pickFolder', async () => {
+    const w = getWindow();
+    const opts = {
+      title: t('Папка для моделей Мозга', 'Folder for Brain models'),
+      defaultPath: LocalBrain.modelsDir(settings.get()),
+      properties: ['openDirectory' as const, 'createDirectory' as const],
+    };
+    const r = w ? await dialog.showOpenDialog(w, opts) : await dialog.showOpenDialog(opts);
+    if (!r.canceled && r.filePaths[0]) ctl.setModelsDir(r.filePaths[0]);
+    return ctl.state();
+  });
+  handle('brain:resetFolder', () => {
+    ctl.setModelsDir('');
+    return ctl.state();
+  });
+  handle('brain:openFolder', async () => {
+    const d = LocalBrain.modelsDir(settings.get());
+    try {
+      mkdirSync(d, { recursive: true });
+    } catch {
+      return false;
+    }
+    return (await shell.openPath(d)) === '';
+  });
   handle('brain:provider', (_e, v: unknown) => {
     ctl.setProvider(str(v));
     return ctl.state();
@@ -106,7 +148,7 @@ export function registerBrainIpc(
   });
   // Only on the user's click; the kind is checked against the fixed list.
   handle('brain:download', (_e, v: unknown) => {
-    if (typeof v === 'string' && (LOCAL_KINDS as readonly string[]).includes(v)) void ctl.download(v as (typeof LOCAL_KINDS)[number]);
+    if (typeof v === 'string' && ([...LOCAL_KINDS, 'File'] as readonly string[]).includes(v)) void ctl.download(v as LocalBrainKind);
     return ctl.state();
   });
   handle('brain:cancelDownload', () => {
@@ -136,7 +178,7 @@ export function registerBrainIpc(
     const r = w ? await dialog.showMessageBox(w, box) : await dialog.showMessageBox(box);
     if (r.response !== 0) return ctl.state();
     try {
-      LocalBrain.deleteGguf(path);
+      LocalBrain.deleteGguf(path, settings.get());
     } catch (e) {
       const msg = { type: 'warning' as const, title: box.title, message: e instanceof Error ? e.message : String(e) };
       if (w) await dialog.showMessageBox(w, msg);

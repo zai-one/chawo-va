@@ -1,4 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { applyLanguage } from '@chawo/core/strings';
 import * as Settings from '../src/settings';
 import { BrainController, brainFileFor, type BrainPageHooks, type TimerLike } from '../src/brain/brainPage';
@@ -183,7 +186,7 @@ describe('«Мозг» page', () => {
       ['Qwen3', true],
       ['Qwen35', false],
       ['Custom', false],
-      [null, true],
+      ['File', true],
     ]);
     expect(st.local.fileStatus).toBe("Файла ещё нет. Нажмите кнопку, сама модель не скачивается.");
     ctl.selectLocalModel('Custom');
@@ -199,6 +202,56 @@ describe('«Мозг» page', () => {
     expect(stops()).toBe(before + 1);
     expect(ctl.deletablePath(`${dir}/stray.gguf`)).toBe(`${dir}/stray.gguf`);
     expect(ctl.deletablePath('/etc/passwd')).toBeNull();
+  });
+
+  it('any .gguf on disk can be the model: from the list, or picked anywhere (checked by its header)', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'chawo-gguf-'));
+    try {
+      const gguf = (name: string, bytes = 4096) => {
+        const p = join(dir, name);
+        writeFileSync(p, Buffer.concat([Buffer.from('GGUF'), Buffer.alloc(bytes - 4)]));
+        return p;
+      };
+      const listed = gguf('Qwen3.5-9B-Q4_K_M.gguf');
+      const elsewhere = gguf('mistral.gguf');
+      const notModel = join(dir, 'fake.gguf');
+      writeFileSync(notModel, Buffer.alloc(4096, 1));
+      const { s, ctl, stops } = make({ installed: () => [{ path: listed, label: 'Qwen3.5-9B-Q4_K_M.gguf' }] }, (x) => (x.Brain = 'Local'));
+      ctl.selectLocalFile(listed);
+      expect([s.BrainModel, s.BrainModelFile]).toEqual(['File', listed]);
+      expect(stops()).toBe(1);
+      let row = ctl.state().local.rows.find((r) => r.kind === 'File')!;
+      expect(row).toMatchObject({ selected: true, onDisk: true, deletable: true, canDownload: true, downloadLabel: 'Скачать движок' });
+      expect(ctl.state().local.fileStatus).toMatch(/Скачать движок/);
+      // Only files from the list can be chosen by path; anything else goes through the file dialog check.
+      ctl.selectLocalFile('/etc/passwd');
+      expect(s.BrainModelFile).toBe(listed);
+      expect(ctl.pickFile(notModel)).toMatch(/не модель GGUF/);
+      expect(ctl.state().local.fileStatus).toMatch(/не модель GGUF/);
+      expect(ctl.pickFile(join(dir, 'model.bin'))).toMatch(/\.gguf/);
+      expect(ctl.pickFile(elsewhere)).toBe('');
+      row = ctl.state().local.rows.find((r) => r.selected)!;
+      expect(row).toMatchObject({ kind: 'File', path: elsewhere, deletable: false });
+      expect(row.label).toContain('mistral.gguf');
+      ctl.selectLocalModel('Qwen3');
+      expect(ctl.state().local.rows.filter((r) => r.kind === 'File')).toHaveLength(1);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('models folder: chosen once, shown, and the usual folder comes back', () => {
+    const { s, ctl, stops } = make({}, (x) => (x.Brain = 'Local'));
+    expect(ctl.state().local).toMatchObject({ modelsDir: LocalBrain.dir(), modelsDirCustom: false });
+    const chosen = join(tmpdir(), 'Models');
+    ctl.setModelsDir(chosen);
+    expect(s.BrainModelsDir).toBe(chosen);
+    expect(ctl.state().local).toMatchObject({ modelsDir: chosen, modelsDirCustom: true });
+    expect(stops()).toBe(1);
+    ctl.setModelsDir('relative/path');
+    expect(s.BrainModelsDir).toBe(chosen);
+    ctl.setModelsDir('');
+    expect(ctl.state().local.modelsDirCustom).toBe(false);
   });
 
   it('brainFileFor never gives a built-in file to the custom row first', () => {

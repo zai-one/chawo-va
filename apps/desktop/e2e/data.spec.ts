@@ -1,6 +1,7 @@
 // What the user types is kept: the dictionary survives a restart, history search and delete work on
 // chawo.db (and a deleted take is gone from the file).
-import { readFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { expect, launch, openPage, test } from './fixtures';
 
@@ -79,5 +80,25 @@ test.describe('Brain', () => {
     await openPage(win, 'Диктовка');
     await openPage(win, 'Мозг');
     await expect(clip).toBeChecked();
+  });
+});
+
+test.describe('Brain on this computer', () => {
+  test.use({ seed: { settings: { Brain: 'Local' } } });
+
+  test('any .gguf in the models folder is a choice of its own; the engine is fetched only by its button', async ({ profile, win }) => {
+    const brain = join(profile.env.CHAWO_LOCALAPPDATA, 'ChawoVoiceAssistant', 'brain');
+    const model = join(brain, 'Qwen3.5-9B-Q4_K_M.gguf');
+    mkdirSync(brain, { recursive: true });
+    writeFileSync(model, Buffer.concat([Buffer.from('GGUF'), Buffer.alloc(4092)]));
+    await openPage(win, 'Мозг');
+    const row = win.locator('[data-brain-row="File"]');
+    await expect(row).toContainText('Qwen3.5-9B-Q4_K_M.gguf');
+    await expect(win.locator('[data-brain="modelsDir"]')).toHaveText(brain);
+    await row.getByRole('radio').check();
+    const saved = () => profile.use(() => JSON.parse(readFileSync(profile.settingsPath, 'utf8')) as Record<string, unknown>);
+    await expect.poll(() => saved().BrainModel).toBe('File');
+    expect(saved().BrainModelFile).toBe(model);
+    await expect(row.getByRole('button', { name: 'Скачать движок' })).toBeVisible();
   });
 });

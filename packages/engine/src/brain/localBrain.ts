@@ -22,7 +22,7 @@ import {
   type WriteStream,
 } from 'node:fs';
 import { createServer } from 'node:net';
-import { basename, isAbsolute, join, relative, resolve, sep } from 'node:path';
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { t } from '@chawo/core/strings';
 import { PROGRAM_EXE_NAMES } from '../dataMigration';
 import { extractZipTree } from '../file/zip';
@@ -79,6 +79,29 @@ export function dir(): string {
   return join(localDataDir(), 'brain');
 }
 
+/** The settings that say which model file the Brain runs. */
+export type ModelChoice = Pick<SettingsData, 'BrainModel' | 'BrainCustomUrl' | 'BrainModelFile' | 'BrainModelsDir'>;
+
+/** Where models are downloaded and looked for: the folder the user chose, or the brain folder. */
+export function modelsDir(s: Pick<SettingsData, 'BrainModelsDir'>): string {
+  const chosen = s.BrainModelsDir.trim();
+  return chosen && isAbsolute(chosen) ? chosen : dir();
+}
+
+const samePath = (a: string, b: string) => resolve(a).toLowerCase() === resolve(b).toLowerCase();
+
+/** The chosen folder first, then the brain folder: models downloaded before the choice stay usable. */
+function modelDirs(s: Pick<SettingsData, 'BrainModelsDir'>): string[] {
+  const chosen = modelsDir(s);
+  return samePath(chosen, dir()) ? [chosen] : [chosen, dir()];
+}
+
+/** The file where it already is, else where a download puts it. */
+function located(s: Pick<SettingsData, 'BrainModelsDir'>, name: string): string {
+  for (const d of modelDirs(s)) if (existsSync(join(d, name))) return join(d, name);
+  return join(modelsDir(s), name);
+}
+
 export function logPath(): string {
   return join(localDataDir(), 'brain.log');
 }
@@ -96,12 +119,14 @@ export function serverExeFor(kind: BrainDeviceKind): string {
   return join(engineDirFor(kind), serverExeName());
 }
 
-export function title(s: Pick<SettingsData, 'BrainModel'>): string {
+export function title(s: Pick<SettingsData, 'BrainModel' | 'BrainModelFile'>): string {
   switch (s.BrainModel) {
     case 'Qwen35':
       return 'Qwen3.5 4B';
     case 'Custom':
       return t('Своя модель', 'Custom model');
+    case 'File':
+      return basename(s.BrainModelFile.trim()).replace(/\.gguf$/i, '') || t('Файл модели', 'Model file');
     default:
       return ModelTitle;
   }
@@ -172,19 +197,22 @@ export function tryParseCustomUrl(raw: string | null | undefined): { ok: true; u
   return { ok: true, url: uri.href, fileName };
 }
 
-export function modelPath(s: Pick<SettingsData, 'BrainModel' | 'BrainCustomUrl'>): string {
+/** The .gguf the Brain runs: a file picked on disk as is; a built-in or linked model in the models folder (or the brain folder, if it is there already). */
+export function modelPath(s: ModelChoice): string {
+  if (s.BrainModel === 'File') return s.BrainModelFile.trim();
   if (s.BrainModel === 'Custom') {
     const parsed = tryParseCustomUrl(s.BrainCustomUrl);
-    if (!parsed.ok) return join(dir(), 'custom.gguf');
-    return join(dir(), parsed.fileName);
+    if (!parsed.ok) return join(modelsDir(s), 'custom.gguf');
+    return located(s, parsed.fileName);
   }
-  return join(dir(), s.BrainModel === 'Qwen35' ? Qwen35File : ModelFile);
+  return located(s, s.BrainModel === 'Qwen35' ? Qwen35File : ModelFile);
 }
 
-export function weightBytes(s: Pick<SettingsData, 'BrainModel' | 'BrainCustomUrl'>): number {
+export function weightBytes(s: ModelChoice): number {
   switch (s.BrainModel) {
     case 'Qwen35':
       return Qwen35Bytes;
+    case 'File':
     case 'Custom': {
       const path = modelPath(s);
       try {
@@ -214,9 +242,9 @@ export function hasGgufMagic(path: string): boolean {
 }
 
 /** Engine plus the selected GGUF, checked by size (built-in) or by the GGUF header (custom). */
-export function isReady(s: Pick<SettingsData, 'BrainModel' | 'BrainCustomUrl' | 'BrainDevice'>): boolean {
+export function isReady(s: ModelChoice & Pick<SettingsData, 'BrainDevice'>): boolean {
   const path = modelPath(s);
-  if (!existsSync(serverExeFor(s.BrainDevice)) || !existsSync(path)) return false;
+  if (!path || !existsSync(serverExeFor(s.BrainDevice)) || !existsSync(path)) return false;
   let len: number;
   try {
     len = statSync(path).size;
@@ -244,7 +272,7 @@ export function hasAnything(): boolean {
   }
 }
 
-export function memoryNeeded(s: Pick<SettingsData, 'BrainModel' | 'BrainCustomUrl'>): number {
+export function memoryNeeded(s: ModelChoice): number {
   return weightBytes(s) + 600 * 2 ** 20;
 }
 
@@ -257,9 +285,14 @@ export interface InstalledGguf {
   label: string;
 }
 
-/** GGUF files in the brain folder. The llama.cpp engine and the app are not included. */
-export function installedGgufs(): InstalledGguf[] {
-  const d = dir();
+/** GGUF files in the models folder and the brain folder. The llama.cpp engine and the app are not included. */
+export function installedGgufs(s: Pick<SettingsData, 'BrainModelsDir'> = { BrainModelsDir: '' }): InstalledGguf[] {
+  const list: InstalledGguf[] = [];
+  for (const d of modelDirs(s)) list.push(...ggufsIn(d));
+  return list;
+}
+
+function ggufsIn(d: string): InstalledGguf[] {
   if (!existsSync(d)) return [];
   const list: InstalledGguf[] = [];
   let names: string[];
@@ -346,6 +379,7 @@ export interface ModelSpec {
 
 /** Where the selected GGUF comes from. Throws ModelDownloadException('rejected') for a bad custom link. */
 export function modelSpecFor(s: Pick<SettingsData, 'BrainModel' | 'BrainCustomUrl'>): ModelSpec {
+  if (s.BrainModel === 'File') return { urls: [], sha256: null, bytes: 0 };
   if (s.BrainModel === 'Custom') {
     const parsed = tryParseCustomUrl(s.BrainCustomUrl);
     if (!parsed.ok) throw new ModelDownloadException('rejected', parsed.error);
@@ -390,13 +424,19 @@ export async function downloadAsync(
 ): Promise<void> {
   const spec = (deps.modelSpec ?? modelSpecFor)(s);
   const dest = modelPath(s);
+  // A file picked on disk is never downloaded: only the engine is fetched for it.
+  const onDisk = s.BrainModel === 'File';
+  if (onDisk && !(dest && existsSync(dest) && hasGgufMagic(dest))) {
+    throw new ModelDownloadException('rejected', t(`Файл модели не найден: ${dest}`, `The model file is not found: ${dest}`));
+  }
 
   stop();
-  const d = dir();
+  mkdirSync(dir(), { recursive: true });
+  const d = onDisk ? dir() : dirname(dest);
   mkdirSync(d, { recursive: true });
-  let need = (spec.bytes > 0 ? spec.bytes : 3 * 2 ** 30) + 200 * 2 ** 20;
+  let need = onDisk ? 200 * 2 ** 20 : (spec.bytes > 0 ? spec.bytes : 3 * 2 ** 30) + 200 * 2 ** 20;
   const part = dest + '.part';
-  if (existsSync(part)) need -= statSync(part).size;
+  if (!onDisk && existsSync(part)) need -= statSync(part).size;
   const free = (deps.freeBytes ?? availableBytes)(d);
   if (free !== null && free < need) {
     throw new ModelDownloadException('noSpace', `only ${Math.floor(free / 2 ** 20)} MB free, need ${Math.floor(need / 2 ** 20)}`);
@@ -542,13 +582,17 @@ export function pruneOldEngines(): string[] {
 
 // ── delete ───────────────────────────────────────────────────
 
-/** Deletes one GGUF under the brain folder. Stops llama-server first. Does not delete the engine or the app. */
-export function deleteGguf(path: string): void {
+/** Deletes one GGUF in the models folder or the brain folder. Stops llama-server first. Does not delete the engine or the app. */
+export function deleteGguf(path: string, s: Pick<SettingsData, 'BrainModelsDir'> = { BrainModelsDir: '' }): void {
   const full = resolve(path);
-  const root = resolve(dir());
-  const rel = relative(root, full);
-  if (rel === '' || rel === '..' || rel.startsWith('..' + sep) || rel.startsWith('../') || isAbsolute(rel)) {
-    throw new Error(t('файл не в папке мозга', 'the file is not in the Brain folder'));
+  const root = modelDirs(s)
+    .map((d) => resolve(d))
+    .find((r) => {
+      const rel = relative(r, full);
+      return !(rel === '' || rel === '..' || rel.startsWith('..' + sep) || rel.startsWith('../') || isAbsolute(rel));
+    });
+  if (!root) {
+    throw new Error(t('файл не в папке моделей мозга', 'the file is not in a Brain models folder'));
   }
   if (!full.toLowerCase().endsWith('.gguf')) throw new Error(t('это не файл модели', 'this is not a model file'));
   if (PROGRAM_EXE_NAMES.some((n) => existsSync(join(root, n)))) {
