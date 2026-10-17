@@ -87,13 +87,17 @@ export const OpenRouter: TtsProvider = {
   kind: 'speech',
   baseUrl: 'https://openrouter.ai/api/v1',
   editableUrl: false,
-  models: ['openai/gpt-4o-mini-tts-2025-12-15', 'mistralai/voxtral-mini-tts-2603'],
+  models: ['openai/gpt-4o-mini-tts-2025-12-15', 'fish-audio/s2.1-pro-free:free', 'mistralai/voxtral-mini-tts-2603'],
   voices: OPENAI_VOICES,
   format: 'mp3',
   maxChars: 4000,
   keysUrl: 'https://openrouter.ai/keys',
   needsKey: true,
-  note: () => t('Модели OpenAI и других; язык зависит от модели. Ключ тот же, что у Мозга (sk-or-…).', 'OpenAI and other models; the language depends on the model. Same key as the Brain (sk-or-…).'),
+  note: () =>
+    t(
+      'Модели OpenAI и других; язык зависит от модели. Ключ тот же, что у Мозга (sk-or-…). Бесплатно и по-русски — fish-audio/s2.1-pro-free:free с пустым голосом; для бесплатных моделей OpenRouter просит разрешить в настройках приватности бесплатные эндпоинты, которые могут сохранять текст.',
+      'OpenAI and other models; the language depends on the model. Same key as the Brain (sk-or-…). Free and Russian: fish-audio/s2.1-pro-free:free with an empty voice; for free models OpenRouter asks to allow, in its privacy settings, free endpoints that may keep the text.',
+    ),
 };
 
 export const OmniRoute: TtsProvider = {

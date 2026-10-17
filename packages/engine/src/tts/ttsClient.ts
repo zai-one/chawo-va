@@ -5,7 +5,7 @@
 import { t } from '@chawo/core/strings';
 import * as Log from '../log';
 import { describeFailure, serverMessage, withTimeout, type FetchLike } from '../brain/speechCleanup';
-import { speechInput, splitForSpeech } from './speechText';
+import { speechInput, splitByScript, splitForSpeech } from './speechText';
 import type { TtsProvider } from './ttsProviders';
 
 export class TtsException extends Error {
@@ -64,7 +64,7 @@ export async function synthesize(target: TtsTarget, text: string, options: Synth
   if (!target.baseUrl.trim()) throw new TtsException(t('не указан адрес сервера', 'the server address is not set'));
   if (!target.model.trim()) throw new TtsException(t('не выбрана модель', 'no model is chosen'));
   if (target.provider.needsKey && !target.key.trim()) throw new TtsException(t('нет ключа сервиса', 'the service key is missing'));
-  const pieces = splitForSpeech(input, target.provider.maxChars);
+  const pieces = splitByScript(input).flatMap((part) => splitForSpeech(part, target.provider.maxChars));
   const outer = options.signal ?? new AbortController().signal;
   const fetchImpl = options.fetch ?? fetch;
   const timeoutMs = options.timeoutMs ?? 90_000;

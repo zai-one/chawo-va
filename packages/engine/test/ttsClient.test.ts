@@ -86,6 +86,14 @@ describe('TTS client', () => {
     expect((f.calls[0].body.audio as Record<string, unknown>).voice).toBeUndefined();
   });
 
+  it('Russian and English parts are read by separate requests and joined', async () => {
+    const f = fakeFetch(() => new Response(new Uint8Array([0xff, 0xfb, 1])));
+    const target: TtsTarget = { provider: OpenAI, baseUrl: OpenAI.baseUrl, key: 'sk-1', model: 'tts-1', voice: '' };
+    const speech = await synthesize(target, 'Hello team, the build is green now. Привет, всё работает.', { fetch: f.fetch });
+    expect(f.calls.map((c) => c.body.input)).toEqual(['Hello team, the build is green now.', 'Привет, всё работает.']);
+    expect(speech).toEqual({ audio: new Uint8Array([0xff, 0xfb, 1, 0xff, 0xfb, 1]), mime: 'audio/mpeg', pieces: 2 });
+  });
+
   it('joins MP3 pieces byte after byte and merges streamed WAVs', () => {
     expect(joinSounds([new Uint8Array([0xff, 0xfb, 1]), new Uint8Array([0xff, 0xfb, 2])])).toEqual({
       audio: new Uint8Array([0xff, 0xfb, 1, 0xff, 0xfb, 2]),

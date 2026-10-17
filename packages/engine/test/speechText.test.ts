@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { MAX_SPEECH_CHARS, speechInput, splitForSpeech } from '../src/tts/speechText';
+import { MAX_SPEECH_CHARS, speechInput, splitByScript, splitForSpeech } from '../src/tts/speechText';
 
 describe('text for reading aloud', () => {
   it('folds whitespace, drops invisible characters, caps the length', () => {
@@ -24,5 +24,29 @@ describe('text for reading aloud', () => {
     expect(parts.join(' ').replace(/\s+/g, ' ')).toBe(commas);
     expect(splitForSpeech('x'.repeat(250), 100)).toEqual(['x'.repeat(100), 'x'.repeat(100), 'x'.repeat(50)]);
     expect(splitForSpeech('коротко', 100)).toEqual(['коротко']);
+  });
+
+  it('one language comes back whole; a few foreign words stay inside their sentence', () => {
+    expect(splitByScript('Привет, мир. Как дела?')).toEqual(['Привет, мир. Как дела?']);
+    expect(splitByScript('Hello world. How are you?')).toEqual(['Hello world. How are you?']);
+    expect(splitByScript('Запусти команду npm run build и подожди.')).toEqual(['Запусти команду npm run build и подожди.']);
+    expect(splitByScript('Docker Compose поднимает все сервисы, README.md лежит рядом.')).toHaveLength(1);
+    expect(splitByScript('2026')).toEqual(['2026']);
+  });
+
+  it('Russian and English parts go apart: paragraphs, short sentences, a long quote', () => {
+    expect(splitByScript('Hello team, the build is green now.\n\nПривет, всё работает.')).toEqual([
+      'Hello team, the build is green now.',
+      'Привет, всё работает.',
+    ]);
+    expect(splitByScript('Спасибо! Thanks a lot! Пока.')).toEqual(['Спасибо!', 'Thanks a lot!', 'Пока.']);
+    const quote = 'Он прочитал вслух всю фразу the quick brown fox jumps over the lazy dog и потом долго смеялся над ней.';
+    expect(splitByScript(quote)).toEqual([
+      'Он прочитал вслух всю фразу',
+      'the quick brown fox jumps over the lazy dog',
+      'и потом долго смеялся над ней.',
+    ]);
+    const words = (s: string) => s.split(/\s+/).filter(Boolean);
+    expect(words(splitByScript(quote).join(' '))).toEqual(words(quote));
   });
 });
