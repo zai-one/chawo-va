@@ -364,7 +364,7 @@ export interface DownloadDeps {
   idleMs?: number;
 }
 
-const USER_AGENT = `ChawoVoiceAssistant/2.1.0 (${process.platform})`;
+const USER_AGENT = `ChawoVoiceAssistant/2.2.0 (${process.platform})`;
 
 const isAbort = (e: unknown) =>
   (e instanceof Error && e.name === 'AbortError') ||
