@@ -212,9 +212,16 @@ export function BrainPage() {
           <Hint>{s.everyTake.hint}</Hint>
         </>
       )}
+      {s.style.visible && (
+        <>
+          <label className="block">{L('Как править', 'How to edit')}</label>
+          <Select options={s.style.choices} value={s.style.value} onChange={(v) => void invoke('brain:style', v).then(applyBrain)} />
+          <Hint>{s.style.hint}</Hint>
+        </>
+      )}
       {s.instruction.visible && (
         <>
-          <label className="block">{L('Как переписывать', 'How to rewrite')}</label>
+          <label className="block">{L('Своя инструкция', 'Own instruction')}</label>
           <TextArea value={s.instruction.text} spellCheck={false} rows={4} onCommit={(text) => void invoke('brain:instruction', text).then(applyBrain)} />
           <Hint>{s.instruction.hint}</Hint>
         </>

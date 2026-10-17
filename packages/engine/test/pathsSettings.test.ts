@@ -110,6 +110,10 @@ describe('settings', () => {
     expect(fromJsonObject(obj).settings).toMatchObject({ VadEnabled: false, VadAutoStopMs: 1500 });
     expect(fromJsonObject({ VadAutoStopMs: -5 }).settings.VadAutoStopMs).toBe(0);
     expect(fromJsonObject({ VadAutoStopMs: 1e9 }).settings.VadAutoStopMs).toBe(60000);
+    // «Как править»: a written instruction from before the ready styles stays in use; otherwise «Только чистка».
+    expect(fromJsonObject({ BrainInstruction: 'Пиши официально' }).settings.BrainStyle).toBe('Custom');
+    expect(fromJsonObject({}).settings.BrainStyle).toBe('Clean');
+    expect(fromJsonObject({ BrainInstruction: 'x', BrainStyle: 'Format' }).settings.BrainStyle).toBe('Format');
     expect(fromJsonObject({ VadEnabled: 'yes' }).settings.VadEnabled).toBe(true);
   });
 

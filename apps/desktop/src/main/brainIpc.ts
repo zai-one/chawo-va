@@ -53,6 +53,10 @@ export function registerBrainIpc(
     ctl.setInstruction(str(v));
     return ctl.state();
   });
+  handle('brain:style', (_e, v: unknown) => {
+    if (v === 'Clean' || v === 'Edit' || v === 'Format' || v === 'Custom') ctl.setStyle(v);
+    return ctl.state();
+  });
   handle('brain:selection', (_e, v: unknown) => {
     if (typeof v === 'boolean') ctl.setSelection(v);
     return ctl.state();
@@ -178,7 +182,7 @@ export function registerBrainIpc(
     const r = w ? await dialog.showMessageBox(w, box) : await dialog.showMessageBox(box);
     if (r.response !== 0) return ctl.state();
     try {
-      LocalBrain.deleteGguf(path, settings.get());
+      await LocalBrain.deleteGguf(path, settings.get());
     } catch (e) {
       const msg = { type: 'warning' as const, title: box.title, message: e instanceof Error ? e.message : String(e) };
       if (w) await dialog.showMessageBox(w, msg);
