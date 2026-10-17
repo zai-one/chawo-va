@@ -48,8 +48,8 @@ test('the page list folds to a rail of icons and back (button, Ctrl+B), and stay
   await expect(nav).toHaveClass(/collapsed/);
   // Folded: icons only, but every page keeps its name for screen readers, tests and the tooltip.
   await expect(nav.locator('button[data-page="history"]')).toHaveAttribute('data-tip', 'История');
-  const width = await nav.evaluate((el) => el.getBoundingClientRect().width);
-  expect(width).toBeLessThan(80);
+  // The width animates (--motion-base): wait for where it settles, not a frame of the way there.
+  await expect.poll(() => nav.evaluate((el) => el.getBoundingClientRect().width)).toBeLessThan(80);
   await openPage(win, 'Мозг');
   await expect(win.locator('.nav button[aria-current="page"]')).toHaveAttribute('data-page', 'brain');
   // The choice belongs to this computer: a reload keeps it.
