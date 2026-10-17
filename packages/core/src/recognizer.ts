@@ -407,7 +407,7 @@ export class Recognizer {
       this.disarmTerminate();
       if (owned) this.ownedRun = 1;
       try {
-        return await this.transcribeCore(samples, rate);
+        return await this.transcribeCore(samples, rate, seen);
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
         if (owned && (this.kill !== seen || this.terminateSet || isTerminateMessage(msg))) return '';
@@ -423,7 +423,12 @@ export class Recognizer {
     this.terminateSet = false;
   }
 
-  private async transcribeCore(samples: Float32Array, rate: number): Promise<string> {
+  /**
+   * `seen` is the cancel counter when this pass was queued: only a cancel AFTER it stops the pass between
+   * pieces. (Comparing with zero stopped every long take for good after the first cancelled live draft:
+   * the take came back empty — «Не разобрал».)
+   */
+  private async transcribeCore(samples: Float32Array, rate: number, seen: number): Promise<string> {
     if (rate !== this.sampleRate) samples = resample(samples, rate, this.sampleRate);
     const total = samples.length / this.sampleRate;
     if (total <= MAX_CHUNK_SECONDS + 1) return this.transcribeChunk(samples);
@@ -431,7 +436,7 @@ export class Recognizer {
     const bounds = chunkBounds(total, silences(samples, this.sampleRate), MAX_CHUNK_SECONDS);
     const parts: string[] = [];
     for (const [a, b] of bounds) {
-      if (this.terminateSet || this.kill) break;
+      if (this.terminateSet || this.kill !== seen) break;
       const from = Math.min(samples.length, Math.trunc(a * this.sampleRate));
       const to = Math.min(samples.length, Math.trunc(b * this.sampleRate));
       if (to > from) {

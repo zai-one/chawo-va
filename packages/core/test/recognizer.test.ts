@@ -83,3 +83,41 @@ describe('Recognizer.splitRanges / pieceRanges', () => {
     expect(ranges[0].to).toBeLessThanOrEqual(24 * rate);
   });
 });
+
+describe('Recognizer: a cancelled live draft does not empty the next long take', () => {
+  // The live draft of a long take is still running when the key is released; dictation cancels it
+  // (cancelOwned) and recognizes the whole take. A take over 25 s goes in pieces, which used to stop
+  // at the first one whenever any cancel had ever happened: the result was empty («Не разобрал»).
+  function fake(): { rec: Recognizer; pieces: number[] } {
+    const pieces: number[] = [];
+    const Ctor = Recognizer as unknown as new (...a: unknown[]) => Recognizer;
+    const rec = new Ctor('/m', 'v3_e2e_rnnt', { features: { sampleRate: 16000, winLength: 400 } }, {}, false);
+    (rec as unknown as { transcribeChunk: (w: Float32Array) => Promise<string> }).transcribeChunk = async (w) => {
+      pieces.push(w.length);
+      await new Promise((r) => setTimeout(r, 1));
+      return `кусок${pieces.length}`;
+    };
+    return { rec, pieces };
+  }
+  const long = () => new Float32Array(16000 * 60).fill(0.1);
+
+  it('recognizes every piece of a 60 s take after a draft was cancelled', async () => {
+    const { rec, pieces } = fake();
+    (rec as unknown as { ownedRun: number }).ownedRun = 1;
+    rec.cancelOwned();
+    (rec as unknown as { ownedRun: number }).ownedRun = 0;
+    const text = await rec.transcribeCancelable(long(), 16000, () => true);
+    expect(pieces.length).toBeGreaterThanOrEqual(3);
+    expect(text.split(' ')).toHaveLength(pieces.length);
+  });
+
+  it('a cancel during the pass still stops it between pieces', async () => {
+    const { rec, pieces } = fake();
+    const run = rec.transcribeCancelable(long(), 16000, () => true);
+    await new Promise((r) => setTimeout(r, 0));
+    rec.cancelOwned();
+    const text = await run;
+    expect(pieces.length).toBe(1);
+    expect(text).toBe('кусок1');
+  });
+});

@@ -279,6 +279,30 @@ describe('DictationSession', () => {
     expect(await sess.stopTake()).toBe('черновик 2');
   });
 
+  it('an empty final pass keeps the live draft the pill showed (a long take is not lost)', async () => {
+    const partials: string[] = [];
+    const overlay = {
+      showListening() {}, showRecognizing() {}, showStatus() {}, showHint() {}, showCaption() {}, hideNow() {},
+      showPartial(text: string) { partials.push(text); },
+    };
+    const { sess, recs, copied } = make({ partialMs: 0, overlay }, (x) => { x.ShowOverlay = true; });
+    sess.startTake();
+    await sess.ensureLoaded();
+    feed(sess, speech(1));
+    recs[0].reply = 'длинная фраза почти целиком';
+    await sess.partialTick();
+    expect(partials).toEqual(['длинная фраза почти целиком']);
+    recs[0].reply = '';
+    expect(await sess.stopTake()).toBe('длинная фраза почти целиком');
+    expect(copied).toEqual(['длинная фраза почти целиком']);
+    expect(sess.view().status).not.toMatch(/Не разобрал/);
+    // The draft belongs to that take only.
+    sess.startTake();
+    feed(sess, speech(1));
+    expect(await sess.stopTake()).toBeNull();
+    expect(sess.view().status).toMatch(/Не разобрал/);
+  });
+
   it('a second press while listening or recognizing is ignored', async () => {
     const { sess, recs } = make();
     sess.startTake();

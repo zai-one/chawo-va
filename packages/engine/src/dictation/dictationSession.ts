@@ -197,6 +197,8 @@ export class DictationSession {
   private partialEpoch = 0;
   private partialBusy = false;
   private partialTask: Promise<void> | null = null;
+  /** The last live draft of this take: kept if the final pass comes back empty, so a long take is not lost. */
+  private lastDraft = '';
   private partialAbort: AbortController | null = null;
   /** Text selected when the key went down (read in the background); a take with a selection is a command on it. */
   private selectionAtPress: Promise<string | null> | null = null;
@@ -317,6 +319,7 @@ export class DictationSession {
     }
     this.abandon = false;
     this.status = '';
+    this.lastDraft = '';
     this.fgTask = this.askForeground();
     this.clipAtPress = this.readClipboardContext();
     // A hands-free take has no key to release: it always ends on a pause.
@@ -522,6 +525,12 @@ export class DictationSession {
           Log.write('recognize cancelled');
           return null;
         }
+        if (text.length === 0 && this.lastDraft.length > 0) {
+          // The pill already showed words: an empty final pass must not throw them away.
+          Log.write(`final pass empty, the live draft goes in (${this.lastDraft.length} chars)`);
+          text = this.lastDraft;
+        }
+        this.lastDraft = '';
         if (text.length > 0) this.showSales(text);
         // Dictionary on the finished recognition only, before the Brain sees the phrase. Not the live draft.
         if (text.length > 0) {
@@ -843,6 +852,7 @@ export class DictationSession {
     try {
       const text = await run;
       if (wanted() && this.buf.isRecording && text.length > 0) {
+        this.lastDraft = text;
         this.overlay?.showPartial(text);
         this.showSales(text);
       }
