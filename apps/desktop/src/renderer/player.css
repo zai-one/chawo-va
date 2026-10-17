@@ -1,0 +1,32 @@
+/* TTS player: a dark floating card. The window is transparent; the card has the shadow. */
+html, body { margin: 0; background: transparent; overflow: hidden; user-select: none; }
+body { font: 13px/1.35 "Segoe UI", system-ui, sans-serif; color: #FFF3E2; }
+.card {
+  margin: 14px; padding: 10px 12px 8px; width: 340px; box-sizing: border-box;
+  background: #0A0A0A; border: 1px solid rgba(254, 233, 206, 0.24); border-radius: 14px;
+  box-shadow: 0 4px 22px rgba(0, 0, 0, 0.45);
+  animation: pop 120ms ease-out;
+}
+@keyframes pop { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+.head { display: flex; align-items: center; gap: 8px; -webkit-app-region: drag; }
+.mark { width: 18px; height: 18px; flex: none; fill: #FF8A3D; stroke: #FF8A3D; stroke-width: 0; }
+.mark .wave { fill: none; stroke-width: 1.8; stroke-linecap: round; }
+.title { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 600; }
+button, select, input { -webkit-app-region: no-drag; font: inherit; color: inherit; }
+.icon { width: 24px; height: 24px; padding: 3px; border: 0; border-radius: 6px; background: transparent; cursor: pointer; flex: none; }
+.icon svg { width: 18px; height: 18px; stroke: rgba(254, 233, 206, 0.7); stroke-width: 2; stroke-linecap: round; fill: none; }
+.icon:hover { background: #222222; }
+.icon:focus-visible, .play:focus-visible, .rate:focus-visible, .seek:focus-visible, .link:focus-visible { outline: 2px solid #FF8A3D; outline-offset: 1px; }
+.message { margin: 8px 0 2px; color: rgba(254, 233, 206, 0.75); white-space: pre-wrap; overflow-wrap: anywhere; }
+.message.error { color: #FF9C8A; }
+.controls { display: flex; align-items: center; gap: 8px; margin-top: 10px; }
+.play { width: 34px; height: 34px; flex: none; border: 0; border-radius: 50%; background: #FF8A3D; cursor: pointer; display: grid; place-items: center; }
+.play svg { width: 18px; height: 18px; fill: #0A0A0A; }
+.play:hover { background: #FFA060; }
+.time { font-variant-numeric: tabular-nums; font-size: 12px; color: rgba(254, 233, 206, 0.75); flex: none; }
+.seek { flex: 1; min-width: 60px; accent-color: #FF8A3D; height: 4px; cursor: pointer; }
+.rate { flex: none; background: #1A1A1A; border: 1px solid rgba(254, 233, 206, 0.24); border-radius: 6px; padding: 2px 4px; cursor: pointer; }
+.foot { display: flex; justify-content: flex-end; margin-top: 6px; }
+.link { border: 0; background: none; padding: 0; color: rgba(254, 233, 206, 0.6); font-size: 11.5px; cursor: pointer; }
+.link:hover { color: #FFF3E2; text-decoration: underline; }
+[hidden] { display: none !important; }

@@ -12,6 +12,7 @@ import { TITLES } from '../app/pages';
 import { applyAsk, applyHistory, historyStore } from '../app/state';
 import { useStore } from '../app/store';
 import { AskBox } from './AskBox';
+import { SpeakButton } from './SpeakButton';
 
 export function HistoryPage() {
   const L = useL();
@@ -111,6 +112,7 @@ function HistoryItem({ s, r, editing, setEditing }: { s: HistoryStateDto; r: His
       ) : (
         <Row className="hist-acts">
           <Button onClick={() => copy('final')}>{s.labels.copy}</Button>
+          <SpeakButton text={r.final} />
           {r.raw && (
             <Button variant="link" onClick={() => copy('raw')}>
               {s.labels.copyRaw}

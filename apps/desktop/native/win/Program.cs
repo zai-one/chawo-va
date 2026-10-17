@@ -2,10 +2,11 @@
 // one line per message, fields split by single spaces, text as base64 UTF-8. Exits when stdin closes,
 // so it never outlives the app.
 //
-// app → helper:  hotkey <vk> | arm <0|1> | insert <id> <Paste|Type> <keep 0|1> <restore 0|1> <b64>
-//                copysel <id> | selread <id> | fg <id> | ping <id>
-// helper → app:  ready <protocol> | hookfail <b64> | down | up | esc | ok <id> <Done|Blocked>
-//                sel <id> <b64|-> | fg <id> <b64> | pong <id> | err <id> <reason> | log <b64>
+// app → helper:  hotkey <vk> | arm <0|1> | ttskey <vk> | selwatch <0|1>
+//                insert <id> <Paste|Type> <keep 0|1> <restore 0|1> <b64>
+//                copysel <id> | selread <id> | selprobe <id> | fg <id> | ping <id>
+// helper → app:  ready <protocol> | hookfail <b64> | down | up | esc | tts | mup <x> <y>
+//                ok <id> <Done|Blocked> | sel <id> <b64|-> | fg <id> <b64> | pong <id> | err <id> <reason> | log <b64>
 //
 // Nothing is logged to disk here and no text is ever written to the log: log lines carry only events.
 
@@ -67,6 +68,12 @@ internal static class Program
                     break;
                 case "arm" when parts.Length >= 2:
                     hook.ArmCancel = parts[1] == "1";
+                    break;
+                case "ttskey" when parts.Length >= 2 && int.TryParse(parts[1], out var t):
+                    hook.TtsVk = t;
+                    break;
+                case "selwatch" when parts.Length >= 2:
+                    hook.WatchSelection = parts[1] == "1";
                     break;
                 case "quit":
                     line = null;

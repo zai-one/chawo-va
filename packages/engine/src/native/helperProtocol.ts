@@ -10,6 +10,12 @@ export type InsertResult = 'Done' | 'Blocked';
 export type HelperCommand =
   | { kind: 'hotkey'; vk: number }
   | { kind: 'arm'; on: boolean }
+  /** «Озвучить» key (0 = off): "tts" on each press, the key swallowed. */
+  | { kind: 'ttskey'; vk: number }
+  /** Selection watching: "mup x y" after a drag or a double click with the left button. */
+  | { kind: 'selwatch'; on: boolean }
+  /** The selection via UI Automation only (no Ctrl+C). */
+  | { kind: 'selprobe'; id: number }
   | { kind: 'insert'; id: number; mode: InsertMode; keep: boolean; restore: boolean; text: string }
   | { kind: 'copysel'; id: number }
   | { kind: 'selread'; id: number }
@@ -24,6 +30,9 @@ export type HelperEvent =
   | { kind: 'down' }
   | { kind: 'up' }
   | { kind: 'esc' }
+  | { kind: 'tts' }
+  /** Left button released after a drag or a double click, physical screen pixels. */
+  | { kind: 'mup'; x: number; y: number }
   | { kind: 'ok'; id: number; result: InsertResult }
   | { kind: 'sel'; id: number; text: string | null }
   | { kind: 'fg'; id: number; process: string }
@@ -39,6 +48,9 @@ export function encode(c: HelperCommand): string {
   switch (c.kind) {
     case 'hotkey': return `hotkey ${Math.trunc(c.vk)}\n`;
     case 'arm': return `arm ${bit(c.on)}\n`;
+    case 'ttskey': return `ttskey ${Math.trunc(c.vk)}\n`;
+    case 'selwatch': return `selwatch ${bit(c.on)}\n`;
+    case 'selprobe': return `selprobe ${c.id}\n`;
     case 'insert': return `insert ${c.id} ${c.mode} ${bit(c.keep)} ${bit(c.restore)} ${toB64(c.text)}\n`;
     case 'copysel': return `copysel ${c.id}\n`;
     case 'selread': return `selread ${c.id}\n`;
@@ -56,7 +68,12 @@ export function parse(line: string): HelperEvent | null {
   switch (p[0]) {
     case 'ready': return { kind: 'ready', protocol: Number(p[1]) || 0 };
     case 'hookfail': return { kind: 'hookfail', reason: fromB64(p[1] ?? '') };
-    case 'down': case 'up': case 'esc': return { kind: p[0] };
+    case 'down': case 'up': case 'esc': case 'tts': return { kind: p[0] };
+    case 'mup': {
+      const x = Number(p[1]);
+      const y = Number(p[2]);
+      return Number.isInteger(x) && Number.isInteger(y) ? { kind: 'mup', x, y } : null;
+    }
     case 'ok':
       return hasId && (p[2] === 'Done' || p[2] === 'Blocked') ? { kind: 'ok', id, result: p[2] } : null;
     case 'sel':

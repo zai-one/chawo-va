@@ -17,6 +17,9 @@ describe('native helper protocol', () => {
     expect(encode({ kind: 'selread', id: 9 })).toBe('selread 9\n');
     expect(encode({ kind: 'fg', id: 3 })).toBe('fg 3\n');
     expect(encode({ kind: 'quit' })).toBe('quit\n');
+    expect(encode({ kind: 'ttskey', vk: 0x91 })).toBe('ttskey 145\n');
+    expect(encode({ kind: 'selwatch', on: true })).toBe('selwatch 1\n');
+    expect(encode({ kind: 'selprobe', id: 4 })).toBe('selprobe 4\n');
   });
 
   it('parses every helper event and ignores junk', () => {
@@ -24,6 +27,10 @@ describe('native helper protocol', () => {
     expect(parse('down')).toEqual({ kind: 'down' });
     expect(parse('up')).toEqual({ kind: 'up' });
     expect(parse('esc')).toEqual({ kind: 'esc' });
+    expect(parse('tts')).toEqual({ kind: 'tts' });
+    expect(parse('mup 1920 -40')).toEqual({ kind: 'mup', x: 1920, y: -40 });
+    expect(parse('mup 1.5 2')).toBeNull();
+    expect(parse('mup 10')).toBeNull();
     expect(parse('ok 5 Done')).toEqual({ kind: 'ok', id: 5, result: 'Done' });
     expect(parse('ok 5 Blocked')).toEqual({ kind: 'ok', id: 5, result: 'Blocked' });
     expect(parse('ok 5 Maybe')).toBeNull();

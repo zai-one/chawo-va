@@ -60,6 +60,8 @@ export default defineConfig({
           preload: resolve(__dirname, 'src/preload/preload.ts'),
           overlayPreload: resolve(__dirname, 'src/preload/overlayPreload.ts'),
           salesCardPreload: resolve(__dirname, 'src/preload/salesCardPreload.ts'),
+          playerPreload: resolve(__dirname, 'src/preload/playerPreload.ts'),
+          pillPreload: resolve(__dirname, 'src/preload/pillPreload.ts'),
           decoderPreload: resolve(__dirname, 'src/preload/decoderPreload.ts'),
         },
         // Sandboxed preloads: one CommonJS file each, nothing but 'electron' required at runtime.
@@ -80,6 +82,8 @@ export default defineConfig({
           index: resolve(__dirname, 'src/renderer/index.html'),
           overlay: resolve(__dirname, 'src/renderer/overlay.html'),
           salesCard: resolve(__dirname, 'src/renderer/salesCard.html'),
+          player: resolve(__dirname, 'src/renderer/player.html'),
+          pill: resolve(__dirname, 'src/renderer/pill.html'),
           decoder: resolve(__dirname, 'src/renderer/decoder.html'),
         },
       },

@@ -133,3 +133,5 @@ button.hold.busy { border-color: var(--accent); color: var(--accent); }
 .meeting .meeting-offer .offer-title { margin: 0 0 4px; font-weight: 600; }
 .meeting .cal-row { margin: 6px 0; gap: 8px; align-items: center; }
 .meeting .cal-row input.grow { flex: 1; min-width: 0; font: inherit; background: var(--bg); color: var(--fg); border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; }
+/* «Голос»: the «Проверить» button below the service form. */
+.voice-test { margin-top: var(--space-3); }

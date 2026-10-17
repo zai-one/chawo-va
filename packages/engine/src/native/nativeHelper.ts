@@ -47,6 +47,10 @@ export interface NativeHelperOptions {
   onDown?: () => void;
   onUp?: () => void;
   onEscape?: () => void;
+  /** The «Озвучить» key was pressed. */
+  onTts?: () => void;
+  /** The left button was released after a drag or a double click (while selection watching is on). */
+  onMouseUp?: (x: number, y: number) => void;
   /** Ready or failed changed (the page says whether the key works). */
   onState?: () => void;
   log?: (line: string) => void;
@@ -183,6 +187,8 @@ export class NativeHelper implements TextInserterLike, SelectionReaderLike {
         const vk = this.o.hotkey();
         if (vk !== this.sentVk) this.send({ kind: 'hotkey', vk });
         if (this.armed) this.send({ kind: 'arm', on: true });
+        if (this.ttsVk) this.send({ kind: 'ttskey', vk: this.ttsVk });
+        if (this.watching) this.send({ kind: 'selwatch', on: true });
         this.setState('ready');
         this.log(`native helper ready, hook ${this._hookOk ? 'on' : 'off'}`);
         const w = this.readyWaiters.splice(0);
@@ -205,6 +211,12 @@ export class NativeHelper implements TextInserterLike, SelectionReaderLike {
         break;
       case 'esc':
         this.o.onEscape?.();
+        break;
+      case 'tts':
+        this.o.onTts?.();
+        break;
+      case 'mup':
+        this.o.onMouseUp?.(ev.x, ev.y);
         break;
       case 'log':
         this.log(`native helper: ${ev.text}`);
@@ -286,6 +298,36 @@ export class NativeHelper implements TextInserterLike, SelectionReaderLike {
   setHotkey(vk: number): void {
     if (vk === this.sentVk) return;
     if (this.send({ kind: 'hotkey', vk })) this.sentVk = vk;
+  }
+
+  private ttsVk = 0;
+  private watching = false;
+
+  /** The «Озвучить» key (0 = none). Sent again after a helper restart. */
+  setTtsKey(vk: number): void {
+    if (vk === this.ttsVk) return;
+    this.ttsVk = vk;
+    this.send({ kind: 'ttskey', vk });
+  }
+
+  /** Report mouse selections ("mup") or not. Sent again after a helper restart. */
+  watchSelection(on: boolean): void {
+    if (on === this.watching) return;
+    this.watching = on;
+    this.send({ kind: 'selwatch', on });
+  }
+
+  /**
+   * The selection after a mouse selection: UI Automation only, never Ctrl+C (it would run on every drag).
+   * Null when nothing is selected, the app does not say, or it takes longer than timeoutMs.
+   */
+  async probeSelection(timeoutMs = 1200): Promise<string | null> {
+    try {
+      const ev = await this.request((id) => ({ kind: 'selprobe', id }), timeoutMs);
+      return ev.kind === 'sel' && ev.text !== null && ev.text.trim().length > 0 ? ev.text : null;
+    } catch {
+      return null;
+    }
   }
 
   /** While a take listens or recognizes, Escape is swallowed and cancels it (KeyboardHook.ArmCancel). */

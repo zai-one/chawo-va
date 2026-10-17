@@ -20,6 +20,7 @@ import { registerNetworkIpc } from './networkIpc';
 import { registerMeetingIpc } from './meetingIpc';
 import { registerHistoryIpc } from './historyIpc';
 import { registerSalesIpc } from './salesIpc';
+import { registerVoiceIpc } from './voiceIpc';
 import { makeHermesTranscribe } from '@chawo/engine/network/hermesTranscribe';
 import * as KeepAwake from './network/keepAwake';
 import { OverlayWindow } from './overlay/overlayWindow';
@@ -49,6 +50,7 @@ let destroySalesCard: (() => void) | null = null;
 let disposeNetwork: (() => Promise<void>) | null = null;
 let disposeMeeting: (() => void) | null = null;
 let nativeHelper: NativeHelper | null = null;
+let disposeVoice: (() => void) | null = null;
 
 function iconPath(set: 'app' | 'tray-dark' | 'tray-light', size: number): string {
   return AppPaths.resource('iconset', set, `icon_${size}.png`);
@@ -141,6 +143,15 @@ function showWindow(): void {
   win.focus();
 }
 
+/** Shows the window on a page (once the page has loaded, if the window was just made). */
+function showPage(page: string): void {
+  showWindow();
+  const w = win;
+  if (!w) return;
+  if (w.webContents.isLoading()) w.webContents.once('did-finish-load', () => emit(w, 'app:page', page));
+  else emit(w, 'app:page', page);
+}
+
 let quitting = false;
 function quit(): void {
   quitting = true;
@@ -208,6 +219,9 @@ if (!app.requestSingleInstanceLock()) {
     });
     // The local Brain follows the same «Выгружать модели при простое» delay.
     LocalBrain.setIdleSource(() => settings.IdleUnloadMinutes * 60_000);
+    // «Голос»: reading text aloud through the speech service the user picked (off until then).
+    const voice = registerVoiceIpc(() => win, { get: () => settings }, { helper: () => nativeHelper, showPage });
+    disposeVoice = () => voice.dispose();
     // Windows: the global hold key and inserting into other apps (KeyboardHook / TextInserter) live in a
     // small helper exe. Elsewhere the in-window hold button is the way to dictate for now.
     if (process.platform === 'win32') {
@@ -220,8 +234,11 @@ if (!app.requestSingleInstanceLock()) {
           onUp: () => dictation.hotUp(),
           onEscape: () => dictation.hotEscape(),
           onState: () => dictation.keysChanged(),
+          onTts: () => voice.speakSelection(),
+          onMouseUp: () => voice.mouseUp(),
           log: (line) => Log.write(line),
         });
+        voice.applyHelper();
         void nativeHelper.start();
       } else Log.write('native helper: ChawoNative.exe not found, hold key off');
     }
@@ -288,6 +305,7 @@ if (!app.requestSingleInstanceLock()) {
     void getVadRuntime().release();
     destroyOverlay?.();
     destroySalesCard?.();
+    disposeVoice?.();
     tray?.destroy();
   });
 }

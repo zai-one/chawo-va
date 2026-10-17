@@ -40,6 +40,8 @@ function make(env: Record<string, string> = {}, over: Partial<NativeHelperOption
     onDown: () => events.push('down'),
     onUp: () => events.push('up'),
     onEscape: () => events.push('esc'),
+    onTts: () => events.push('tts'),
+    onMouseUp: (x, y) => events.push(`mup ${x},${y}`),
     onState: () => events.push('state:' + h.state),
     log: (l) => logs.push(l),
     restartDelayMs: 20,
@@ -135,6 +137,33 @@ describe('NativeHelper', () => {
     raw('emit up');
     await until(() => events.includes('up'));
     expect(events.filter((e) => !e.startsWith('state:'))).toEqual(['down', 'esc', 'up']);
+  });
+
+  it('«Озвучить»: key presses and mouse selections reach the app; key and watching survive a restart', async () => {
+    const { h, logs, raw, events } = make({ FAKE_SEL: 'выделено мышью' });
+    await h.start();
+    h.setTtsKey(0x91);
+    h.watchSelection(true);
+    h.watchSelection(true);
+    await until(() => logs.some((l) => l.includes('got selwatch 1')));
+    expect(logs.filter((l) => l.includes('got selwatch'))).toHaveLength(1);
+    raw('emit tts');
+    raw('emit mup 640 480');
+    await until(() => events.includes('mup 640,480'));
+    expect(events.filter((e) => !e.startsWith('state:'))).toEqual(['tts', 'mup 640,480']);
+    expect(await h.probeSelection()).toBe('выделено мышью');
+    logs.length = 0;
+    raw('die');
+    await until(() => logs.some((l) => l.includes('got ttskey 145')));
+    await until(() => logs.some((l) => l.includes('got selwatch 1')));
+  });
+
+  it('probeSelection: nothing selected or no helper → null, never throws', async () => {
+    const a = make();
+    await a.h.start();
+    expect(await a.h.probeSelection()).toBeNull();
+    const b = make();
+    expect(await b.h.probeSelection()).toBeNull();
   });
 
   it('hotkey and Escape arming are sent once per change and re-sent after a restart', async () => {

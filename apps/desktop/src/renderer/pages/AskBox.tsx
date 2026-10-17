@@ -7,6 +7,7 @@ import { TextField } from '@chawo/ui/TextField';
 import { invoke } from '../bridge';
 import { applyAsk, askStore } from '../app/state';
 import { useStore } from '../app/store';
+import { SpeakButton } from './SpeakButton';
 
 /** What is typed in the question box, kept while the page is closed (as before React). */
 let askDraft: string | null = null;
@@ -79,6 +80,7 @@ export function AskBox() {
                 <Button variant="link" onClick={() => void invoke('ask:copy').then(applyAsk)}>
                   {a.labels.copy}
                 </Button>
+                <SpeakButton text={a.answer} />
               </Row>
             </>
           )}

@@ -2,7 +2,8 @@
 import { on } from '../bridge';
 import { initDictation } from './dictation';
 import { applyMeeting } from './meeting';
-import { applyAsk, applyBrain, applyCrm, applyFile, applyHistory, applyNetwork, applySpeech, fileStore } from './state';
+import { isPage, showPage } from './pages';
+import { applyAsk, applyBrain, applyCrm, applyFile, applyHistory, applyNetwork, applySpeech, applyVoice, fileStore } from './state';
 
 export function initEvents(): void {
   on('file:state', applyFile);
@@ -17,5 +18,9 @@ export function initEvents(): void {
   on('history:state', applyHistory);
   on('ask:state', applyAsk);
   on('crm:state', applyCrm);
+  on('voice:state', applyVoice);
+  on('app:page', (page) => {
+    if (isPage(page)) showPage(page);
+  });
   initDictation();
 }

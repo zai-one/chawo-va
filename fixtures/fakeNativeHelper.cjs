@@ -37,6 +37,7 @@ process.stdin.on('data', (c) => {
         else reply();
         break;
       }
+      case 'selprobe': out(`sel ${p[1]} ${process.env.FAKE_SEL ? b64(process.env.FAKE_SEL) : '-'}`); break;
       case 'fg': out(`fg ${p[1]} ${b64('notepad')}`); break;
       case 'ping': out(`pong ${p[1]}`); break;
       case 'emit': out(p.slice(1).join(' ')); break;

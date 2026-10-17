@@ -158,7 +158,7 @@ export function tryGetCompletionsUrl(endpoint: string): string | null {
   return `${base.origin}${path}/chat/completions`;
 }
 
-function withTimeout(outer: AbortSignal, ms: number): { signal: AbortSignal; clear: () => void; timedOut: () => boolean } {
+export function withTimeout(outer: AbortSignal, ms: number): { signal: AbortSignal; clear: () => void; timedOut: () => boolean } {
   const ctrl = new AbortController();
   let timed = false;
   const onOuter = () => ctrl.abort();

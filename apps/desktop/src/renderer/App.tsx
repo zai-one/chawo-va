@@ -13,6 +13,7 @@ import { HistoryPage } from './pages/HistoryPage';
 import { NetworkPage } from './pages/NetworkPage';
 import { SalesPage } from './pages/SalesPage';
 import { SpeechPage } from './pages/SpeechPage';
+import { VoicePage } from './pages/VoicePage';
 
 const VIEWS: Record<PageName, () => ReactElement> = {
   dictation: DictationPage,
@@ -22,6 +23,7 @@ const VIEWS: Record<PageName, () => ReactElement> = {
   dictionary: DictionaryPage,
   sales: SalesPage,
   brain: BrainPage,
+  voice: VoicePage,
   network: NetworkPage,
 };
 
