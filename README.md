@@ -9,7 +9,7 @@ This repository is a standalone public copy of work that began as a fork of
 [moznoazachem/giga-pisar-win](https://github.com/moznoazachem/giga-pisar-win)
 (upstream tip used: 1.0.7). Upstream license: **MIT**; its notice and the GigaAM model notice are kept in [`NOTICE`](NOTICE). Copyright (c) 2026 giga-pisar contributors; original authors [@moznoazachem](https://github.com/moznoazachem).
 
-Brand colors, mark and icon come from [chawo.ai](https://chawo.ai) (`/icon.svg` and site CSS). The site font **DIN Pro** is not bundled; the UI uses **Arial** then Segoe UI.
+Brand colors, mark and icon come from [chawo.ai](https://chawo.ai) (`/icon.svg` and site CSS). Colours, type and the collapsible page list follow the ZAI brand system (Product UI Core, dark). The brand font **DIN Pro** is not bundled (its licence for redistribution is not confirmed): the UI uses it when installed, otherwise Segoe UI and the system font.
 
 On startup the settings window opens. Models are **not** downloaded on startup.
 Closing the window hides it; the app stays in the tray until **Quit**.

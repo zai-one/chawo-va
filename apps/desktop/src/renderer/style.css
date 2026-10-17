@@ -7,7 +7,7 @@
 .nav.collapsed { width: var(--nav-rail); align-items: center; }
 .brand { display: flex; align-items: center; height: 40px; padding: 0 10px 8px; color: var(--text); }
 .nav.collapsed .brand { padding: 0 0 8px; justify-content: center; }
-.nav button { all: unset; box-sizing: border-box; position: relative; display: flex; align-items: center; gap: 10px; height: 36px; padding: 0 10px; border-radius: var(--radius-lg); cursor: pointer; color: var(--text-2); white-space: nowrap; }
+.nav button { all: unset; box-sizing: border-box; position: relative; display: flex; align-items: center; gap: 10px; height: 36px; padding: 0 10px; border-radius: var(--radius); cursor: pointer; color: var(--text-2); white-space: nowrap; }
 .nav button svg { flex: none; }
 .nav button:hover { background: var(--panel-hover); color: var(--text); }
 .nav button.active { background: var(--selected); color: var(--text); }
@@ -21,7 +21,7 @@
 /* Tooltip of a folded item: its title (and the shortcut), on hover and keyboard focus. */
 .nav.collapsed button[data-tip]:hover::after, .nav.collapsed button[data-tip]:focus-visible::after {
   content: attr(data-tip); position: absolute; left: calc(100% + 10px); top: 50%; transform: translateY(-50%);
-  padding: 6px 10px; border: 1px solid var(--line-strong); border-radius: var(--radius-lg); background: var(--overlay);
+  padding: 6px 10px; border: 1px solid var(--line-strong); border-radius: var(--radius); background: var(--overlay);
   color: var(--text); font-size: var(--text-sm); line-height: 16px; white-space: nowrap; pointer-events: none; box-shadow: var(--shadow-overlay);
 }
 @media (prefers-reduced-motion: reduce) { .nav { transition: none; } }

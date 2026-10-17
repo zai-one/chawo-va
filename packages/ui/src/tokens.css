@@ -13,10 +13,10 @@
   --raised: #1c1e21;
   --overlay: #202226;
   --selected: #202226;
-  /* hairlines between areas (--pui-border, --pui-border-strong) and the boundary of a control */
+  /* hairlines between areas (--pui-border, --pui-border-strong); a control's edge holds 3:1 (--pui-control-border) */
   --line: #292b2f;
   --line-strong: #41444a;
-  --control-border: #5c5f66;
+  --control-border: #76716a;
 
   /* text: --pui-text, -secondary, -muted */
   --text: #f5f1eb;

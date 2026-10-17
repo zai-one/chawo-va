@@ -3,7 +3,7 @@ html, body { margin: 0; background: transparent; overflow: hidden; user-select: 
 body { padding: 6px; font: 12.5px/1 "DIN Pro", "Segoe UI", system-ui, sans-serif; }
 .pill {
   display: inline-flex; align-items: center; gap: 6px; padding: 6px 10px 6px 8px;
-  background: #202226; color: #F5F1EB; border: 1px solid #5C5F66; border-radius: 999px;
+  background: #202226; color: #F5F1EB; border: 1px solid #76716A; border-radius: 999px;
   box-shadow: 0 16px 42px rgba(0, 0, 0, 0.42); cursor: pointer; font: inherit; white-space: nowrap;
   animation: pop 100ms ease-out;
 }
