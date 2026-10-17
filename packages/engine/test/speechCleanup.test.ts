@@ -43,6 +43,12 @@ describe('SpeechCleanup helpers', () => {
     expect(isDefaultPrompt(DefaultPromptEn)).toBe(true);
     expect(isDefaultPrompt(LegacyPromptStart + ' rest')).toBe(true);
     expect(isDefaultPrompt('my own rules')).toBe(false);
+    // The 2.2.0 default, kept by a user who never edited it, reads as the default: they get the new one.
+    const before = DefaultPromptRu.replace(/- Удаляй звуки-заминки[^\n]*/, '- Удаляй слова-паразиты, запинки, ложные начала и случайные повторы.')
+      .replace(/- Исправляй орфографию[^\n]*/, '- Исправляй орфографию, грамматику, пунктуацию и очевидные ошибки распознавания.')
+      .replace(/- Мат и грубые слова[^\n]*/, '- Мат сохраняй как есть. Не цензурируй и не заменяй смысл.');
+    expect(isDefaultPrompt(before)).toBe(true);
+    expect(DefaultPromptRu).toContain('«яичка» → «ИИшка»');
   });
 
   it('DescribeFailure maps status and body keywords', () => {

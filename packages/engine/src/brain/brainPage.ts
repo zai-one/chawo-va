@@ -4,7 +4,8 @@
 // and a fake timer. The saved API key never goes to the renderer: the page only learns whether one is
 // saved. Nothing goes over the network until the user picks a service and pastes a key (or an address).
 
-import { basename } from 'node:path';
+import { existsSync, statSync } from 'node:fs';
+import { basename, dirname, isAbsolute } from 'node:path';
 import { isRussian, t } from '@chawo/core/strings';
 import * as Log from '../log';
 import {
@@ -30,12 +31,14 @@ import { getModelsAsync, hostOf, isLoopbackEndpoint, isInsecureRemote, probeAsyn
 export const LOCAL_KINDS: readonly LocalBrainKind[] = ['Qwen3', 'Qwen35', 'Custom'];
 
 export interface BrainModelRowDto {
-  /** Built-in or custom choice; null for a stray .gguf in the brain folder. */
-  kind: LocalBrainKind | null;
+  /** Built-in, a link, or 'File': a .gguf on disk (in the models folder or picked with «Выбрать файл»). */
+  kind: LocalBrainKind;
   label: string;
   selected: boolean;
   onDisk: boolean;
   path: string | null;
+  /** «Удалить»: only files in the models folder or the brain folder, never a file picked elsewhere. */
+  deletable: boolean;
   /** «Скачать» on the row: the file is missing, or it is selected and the engine for the device is not. */
   canDownload: boolean;
   downloadLabel: string;
@@ -83,6 +86,9 @@ export interface BrainStateDto {
     customUrlVisible: boolean;
     customUrl: string;
     fileStatus: string;
+    /** Where models are downloaded and looked for; custom: the user chose it (a «usual folder» link shows). */
+    modelsDir: string;
+    modelsDirCustom: boolean;
   };
   everyTake: { visible: boolean; on: boolean; hint: string };
   instruction: { visible: boolean; text: string; hint: string };
@@ -196,6 +202,21 @@ export function brainFileFor(kind: LocalBrainKind, customUrl: string, files: rea
   return null;
 }
 
+/** Why a picked file cannot be a Brain model; '' when it can. Reads only the size and the first bytes. */
+export function ggufProblem(path: string): string {
+  if (!isAbsolute(path) || !path.toLowerCase().endsWith('.gguf')) return t('Нужен файл модели .gguf.', 'A .gguf model file is needed.');
+  let size: number;
+  try {
+    size = statSync(path).size;
+  } catch {
+    return t(`Файл не найден: ${path}`, `The file is not found: ${path}`);
+  }
+  if (size <= 1024 || size > LocalBrain.MaxCustomBytes || !LocalBrain.hasGgufMagic(path)) {
+    return t('Это не модель GGUF или она больше 16 ГБ.', 'This is not a GGUF model or it is over 16 GB.');
+  }
+  return '';
+}
+
 export function notOnDiskNote(): string {
   return t('Файла ещё нет. Нажмите кнопку, сама модель не скачивается.', 'Not on disk yet. Press the button. It does not download by itself.');
 }
@@ -225,6 +246,8 @@ export class BrainController {
   private abort: AbortController | null = null;
   private dlAbort: AbortController | null = null;
   private dl: BrainDownloadDto | null = null;
+  /** Why the last picked file was refused; cleared by the next choice. */
+  private fileNote = '';
   private readonly timer: TimerLike;
 
   constructor(private readonly h: BrainPageHooks) {
@@ -431,6 +454,7 @@ export class BrainController {
 
   selectLocalModel(kind: LocalBrainKind): void {
     const s = this.s();
+    this.fileNote = '';
     if (kind === s.BrainModel) return;
     s.BrainModel = kind;
     this.h.stopLocal?.();
@@ -474,7 +498,7 @@ export class BrainController {
    * and the GGUF with progress on the page. Resolves when it ends (done, failed or cancelled).
    */
   async download(kind: LocalBrainKind): Promise<void> {
-    if (!LOCAL_KINDS.includes(kind) || this.downloading) return;
+    if (!(LOCAL_KINDS.includes(kind) || kind === 'File') || this.downloading) return;
     this.selectLocalModel(kind);
     const s = this.s();
     if (kind === 'Custom') {
@@ -532,10 +556,54 @@ export class BrainController {
     this.h.push?.();
   }
 
-  /** A .gguf the page may delete: only files listed in the brain folder. */
+  /** A .gguf the page may delete: only files listed in the models folder or the brain folder. */
   deletablePath(path: string): string | null {
-    const files = (this.h.installed ?? LocalBrain.installedGgufs)();
-    return files.find((f) => f.path === path)?.path ?? null;
+    return this.installed().find((f) => f.path === path)?.path ?? null;
+  }
+
+  private installed(): LocalBrain.InstalledGguf[] {
+    return this.h.installed ? this.h.installed() : LocalBrain.installedGgufs(this.s());
+  }
+
+  /** A .gguf from the list (models folder or brain folder) becomes the model. */
+  selectLocalFile(path: string): void {
+    const file = this.installed().find((f) => f.path === path);
+    if (file) this.useFile(file.path);
+  }
+
+  /**
+   * A .gguf picked with «Выбрать файл» anywhere on disk becomes the model, used where it is (nothing is
+   * copied). Returns why it was refused, or '' when taken.
+   */
+  pickFile(path: string): string {
+    const why = ggufProblem(path);
+    if (why) {
+      this.fileNote = why;
+      return why;
+    }
+    this.useFile(path);
+    return '';
+  }
+
+  private useFile(path: string): void {
+    const s = this.s();
+    this.fileNote = '';
+    if (s.BrainModel === 'File' && s.BrainModelFile === path) return;
+    s.BrainModel = 'File';
+    s.BrainModelFile = path;
+    this.h.stopLocal?.();
+    this.persist();
+  }
+
+  /** Where models are downloaded and looked for; '' brings back the brain folder in the app data. */
+  setModelsDir(path: string): void {
+    const s = this.s();
+    const v = path.trim();
+    if (v && !isAbsolute(v)) return;
+    if (v === s.BrainModelsDir) return;
+    s.BrainModelsDir = v;
+    this.h.stopLocal?.();
+    this.persist();
   }
 
   // ── server ─────────────────────────────────────────────
@@ -696,7 +764,7 @@ export class BrainController {
   // ── state ──────────────────────────────────────────────
 
   private localRows(s: SettingsData, ready: boolean): BrainModelRowDto[] {
-    const files = (this.h.installed ?? LocalBrain.installedGgufs)();
+    const files = this.installed();
     const claimed = new Set<string>();
     const rows: BrainModelRowDto[] = [];
     for (const kind of LOCAL_KINDS) {
@@ -712,13 +780,31 @@ export class BrainController {
         selected,
         onDisk,
         path,
+        deletable: onDisk,
         canDownload: !onDisk || engineOnly,
         downloadLabel: engineOnly ? t('Скачать движок', 'Download engine') : t('Скачать', 'Download'),
       });
     }
-    for (const f of files) {
-      if (claimed.has(f.path)) continue;
-      rows.push({ kind: null, label: f.label, selected: false, onDisk: true, path: f.path, canDownload: false, downloadLabel: '' });
+    // Any other .gguf on disk is a choice of its own: in the folders, and the picked file wherever it is.
+    const picked = s.BrainModel === 'File' ? s.BrainModelFile : '';
+    const others = files.filter((f) => !claimed.has(f.path)).map((f) => ({ path: f.path, label: f.label, deletable: true }));
+    if (picked && !others.some((f) => f.path === picked)) {
+      others.push({ path: picked, label: `${basename(picked)} (${dirname(picked)})`, deletable: false });
+    }
+    for (const f of others) {
+      const selected = f.path === picked;
+      const onDisk = f.deletable || existsSync(f.path);
+      const engineOnly = onDisk && selected && !ready;
+      rows.push({
+        kind: 'File',
+        label: f.label,
+        selected,
+        onDisk,
+        path: f.path,
+        deletable: f.deletable,
+        canDownload: engineOnly,
+        downloadLabel: engineOnly ? t('Скачать движок', 'Download engine') : '',
+      });
     }
     return rows;
   }
@@ -741,8 +827,13 @@ export class BrainController {
     let fileStatus = '';
     if (local) {
       const parsed = LocalBrain.tryParseCustomUrl(s.BrainCustomUrl);
-      if (s.BrainModel === 'Custom' && !parsed.ok) fileStatus = parsed.error;
-      else if (ready) {
+      if (this.fileNote) fileStatus = this.fileNote;
+      else if (s.BrainModel === 'Custom' && !parsed.ok) fileStatus = parsed.error;
+      else if (s.BrainModel === 'File' && !ready) {
+        fileStatus = existsSync(s.BrainModelFile)
+          ? t('Модель на диске. Нужен движок llama.cpp: нажмите «Скачать движок».', 'The model is on disk. The llama.cpp engine is needed: press «Download engine».')
+          : t(`Файл модели не найден: ${s.BrainModelFile}`, `The model file is not found: ${s.BrainModelFile}`);
+      } else if (ready) {
         const note = (this.h.deviceNote ?? LocalBrain.deviceNote)();
         fileStatus = t('Уже на диске: ', 'Already on disk: ') + LocalBrain.modelPath(s) + (note ? ' ' + note : '');
       } else fileStatus = notOnDiskNote();
@@ -801,6 +892,8 @@ export class BrainController {
         customUrlVisible: local && s.BrainModel === 'Custom',
         customUrl: s.BrainCustomUrl,
         fileStatus,
+        modelsDir: LocalBrain.modelsDir(s),
+        modelsDirCustom: s.BrainModelsDir.trim().length > 0,
       },
       everyTake: {
         visible: b !== 'Off',

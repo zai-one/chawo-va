@@ -19,7 +19,8 @@ export type NetworkRole = 'Host' | 'Client';
 export type AppMode = 'Dictation' | 'Sales';
 export type UiLanguage = 'Auto' | 'Russian' | 'English';
 export type BrainSource = 'Off' | 'Local' | 'Server';
-export type LocalBrainKind = 'Qwen3' | 'Qwen35' | 'Custom';
+/** Built-in models, a Hugging Face link, or any .gguf already on disk (BrainModelFile). */
+export type LocalBrainKind = 'Qwen3' | 'Qwen35' | 'Custom' | 'File';
 export type BrainDeviceKind = 'Cpu' | 'Gpu';
 
 /** PascalCase names as written by the WPF JsonStringEnumConverter. */
@@ -111,6 +112,10 @@ export interface SettingsData {
   BrainContextApp: boolean;
   BrainModel: LocalBrainKind;
   BrainCustomUrl: string;
+  /** BrainModel 'File': the .gguf on disk, picked from the list or with «Выбрать файл». */
+  BrainModelFile: string;
+  /** Where Brain models are downloaded and looked for; empty: the brain folder in the app data. */
+  BrainModelsDir: string;
   BrainInstruction: string;
   SimpleSyntax: boolean;
   /** Silero VAD: trim silence around a take and cut long files at real pauses (needs the 2 MB model). */
@@ -211,6 +216,8 @@ export function defaults(): SettingsData {
     BrainContextApp: false,
     BrainModel: 'Qwen3',
     BrainCustomUrl: '',
+    BrainModelFile: '',
+    BrainModelsDir: '',
     BrainInstruction: '',
     SimpleSyntax: false,
     VadEnabled: true,
@@ -445,8 +452,10 @@ export function fromJsonObject(raw: Record<string, unknown>): { settings: Settin
   d.BrainOnSelection = asBool(raw.BrainOnSelection, d.BrainOnSelection);
   d.BrainContextClipboard = asBool(raw.BrainContextClipboard, d.BrainContextClipboard);
   d.BrainContextApp = asBool(raw.BrainContextApp, d.BrainContextApp);
-  d.BrainModel = asEnum(raw.BrainModel, ['Qwen3', 'Qwen35', 'Custom'] as const, d.BrainModel);
+  d.BrainModel = asEnum(raw.BrainModel, ['Qwen3', 'Qwen35', 'Custom', 'File'] as const, d.BrainModel);
   d.BrainCustomUrl = asString(raw.BrainCustomUrl, d.BrainCustomUrl);
+  d.BrainModelFile = asString(raw.BrainModelFile, d.BrainModelFile).slice(0, 1024);
+  d.BrainModelsDir = asString(raw.BrainModelsDir, d.BrainModelsDir).slice(0, 1024);
   d.BrainInstruction = asString(raw.BrainInstruction, d.BrainInstruction);
   d.SimpleSyntax = asBool(raw.SimpleSyntax, d.SimpleSyntax);
   d.VadEnabled = asBool(raw.VadEnabled, d.VadEnabled);
@@ -557,6 +566,8 @@ export function toJsonObject(s: SettingsData): Record<string, unknown> {
     BrainContextApp: s.BrainContextApp,
     BrainModel: s.BrainModel,
     BrainCustomUrl: s.BrainCustomUrl,
+    BrainModelFile: s.BrainModelFile,
+    BrainModelsDir: s.BrainModelsDir,
     BrainInstruction: s.BrainInstruction,
     SimpleSyntax: s.SimpleSyntax,
     VadEnabled: s.VadEnabled,

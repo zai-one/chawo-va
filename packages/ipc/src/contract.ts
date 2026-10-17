@@ -169,6 +169,13 @@ export interface InvokeMap {
   'brain:device': (device: string) => BrainStateDto;
   'brain:localModel': (kind: string) => BrainStateDto;
   'brain:customUrl': (url: string) => BrainStateDto;
+  /** A .gguf from the page's list (models folder or brain folder) becomes the model. */
+  'brain:localFile': (path: string) => BrainStateDto;
+  /** A native file dialog in main picks any .gguf; the renderer never names an arbitrary path. */
+  'brain:pickFile': () => BrainStateDto;
+  'brain:pickFolder': () => BrainStateDto;
+  'brain:resetFolder': () => BrainStateDto;
+  'brain:openFolder': () => boolean;
   'brain:provider': (id: string) => BrainStateDto;
   'brain:key': (key: string) => BrainStateDto;
   'brain:url': (url: string) => BrainStateDto;
@@ -346,6 +353,7 @@ export const INVOKE_CHANNELS: readonly InvokeChannel[] = keys<InvokeMap>({
   'dictation:checkUpdates': true, 'wake:want': true, 'wake:micFailed': true,
   'brain:state': true, 'brain:source': true, 'brain:everyTake': true, 'brain:instruction': true, 'brain:selection': true,
   'brain:context': true, 'brain:device': true, 'brain:localModel': true, 'brain:customUrl': true, 'brain:provider': true,
+  'brain:localFile': true, 'brain:pickFile': true, 'brain:pickFolder': true, 'brain:resetFolder': true, 'brain:openFolder': true,
   'brain:key': true, 'brain:url': true, 'brain:model': true, 'brain:refresh': true, 'brain:keysLink': true,
   'brain:deleteGguf': true, 'brain:download': true, 'brain:cancelDownload': true, 'brain:dismissDownload': true,
   'brain:close': true, 'brain:addRule': true, 'brain:updateRule': true, 'brain:removeRule': true, 'brain:raiseRule': true,

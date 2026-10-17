@@ -121,6 +121,17 @@ export function sizeText(bytes: number): string {
   return `${Math.max(1, Math.round(bytes / 1024))} ${unit('КБ', 'KB')}`;
 }
 
+/** .gguf files (Brain models) somewhere under `dir`, a few levels deep. */
+function ggufsUnder(dir: string, depth = 4): string[] {
+  const out: string[] = [];
+  for (const name of list(dir)) {
+    const p = join(dir, name);
+    if (name.toLowerCase().endsWith('.gguf') && !isDir(p)) out.push(p);
+    else if (depth > 0 && isDir(p)) out.push(...ggufsUnder(p, depth - 1));
+  }
+  return out;
+}
+
 /** What is in use now: never offered for removal, nor any folder that holds it. */
 function inUse(s: SettingsData, extra: readonly string[]): string[] {
   const keep = [...extra];
@@ -157,7 +168,14 @@ export function scan(o: CleanupOptions): CleanupItem[] {
     [legacyRoamingDir(), t('настройки', 'settings')],
   ] as const) {
     if (isDir(dir) && !PROGRAM_EXE_NAMES.some((n) => existsSync(join(dir, n)))) {
-      add('legacy', t(`Папка старой версии GigaPisar (${where})`, `Old GigaPisar folder (${where})`), dir, [dir], true);
+      // Brain models inside are worth gigabytes and may still be wanted: named, never ticked by default.
+      const models = ggufsUnder(dir);
+      if (models.length) {
+        const names = models.map((m) => basename(m)).join(', ');
+        add('legacy', t(`Папка старой версии GigaPisar (${where}) — внутри модели Мозга: ${names}`, `Old GigaPisar folder (${where}) — Brain models inside: ${names}`), dir, [dir], false);
+      } else {
+        add('legacy', t(`Папка старой версии GigaPisar (${where})`, `Old GigaPisar folder (${where})`), dir, [dir], true);
+      }
     }
   }
   const staging = `${local}.migrating`;
@@ -200,7 +218,7 @@ export function scan(o: CleanupOptions): CleanupItem[] {
   if (isDir(otherEngine)) {
     add('unused', otherDevice === 'Gpu' ? t('Движок Мозга для видеокарты (сейчас выбран процессор)', 'Brain engine for the video card (the processor is selected)') : t('Движок Мозга для процессора (сейчас выбрана видеокарта)', 'Brain engine for the processor (the video card is selected)'), otherEngine, [otherEngine], false);
   }
-  for (const g of LocalBrain.installedGgufs()) {
+  for (const g of LocalBrain.installedGgufs(o.settings)) {
     add('unused', t(`Модель Мозга «${basename(g.path)}» (не выбрана)`, `Brain model «${basename(g.path)}» (not selected)`), g.path, [g.path], false);
   }
   for (const kind of SPEECH_KINDS) {

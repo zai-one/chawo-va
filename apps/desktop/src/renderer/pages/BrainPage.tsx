@@ -80,25 +80,23 @@ function LocalBlock({ s }: { s: BrainStateDto }) {
     <>
       <label className="block">{L('Модель на компьютере', 'Model on this computer')}</label>
       <div className="models">
-        {v.rows.map((r, i) => {
+        {v.rows.map((r) => {
           const kind = r.kind;
           const path = r.path;
+          const select = () =>
+            void (kind === 'File' && path ? invoke('brain:localFile', path) : invoke('brain:localModel', kind)).then(applyBrain);
           return (
-            <div key={kind ?? `row-${i}`} className="model">
-              {kind ? (
-                <label>
-                  <Radio name="brain-model" checked={r.selected} disabled={busy} onSelect={() => void invoke('brain:localModel', kind).then(applyBrain)} /> {r.label}
-                </label>
-              ) : (
-                <label>{r.label}</label>
-              )}
+            <div key={kind === 'File' ? `file:${path ?? ''}` : kind} className="model" data-brain-row={kind}>
+              <label>
+                <Radio name="brain-model" checked={r.selected} disabled={busy} onSelect={select} /> {r.label}
+              </label>
               {r.onDisk && <span className="disk">{L('на диске', 'on disk')}</span>}
-              {kind && r.canDownload && (
+              {r.canDownload && (
                 <Button disabled={busy} onClick={() => void invoke('brain:download', kind).then(applyBrain)}>
                   {r.downloadLabel}
                 </Button>
               )}
-              {path && (
+              {path && r.deletable && (
                 <Button disabled={busy && r.selected} onClick={() => void invoke('brain:deleteGguf', path).then(applyBrain)}>
                   {L('Удалить', 'Delete')}
                 </Button>
@@ -107,6 +105,34 @@ function LocalBlock({ s }: { s: BrainStateDto }) {
           );
         })}
       </div>
+      <Row>
+        <Button data-brain="pickFile" disabled={busy} onClick={() => void invoke('brain:pickFile').then(applyBrain)}>
+          {L('Выбрать файл .gguf…', 'Choose a .gguf file…')}
+        </Button>
+      </Row>
+      <label className="block">{L('Папка моделей', 'Models folder')}</label>
+      <Row>
+        <span className="line" data-brain="modelsDir">
+          {v.modelsDir}
+        </span>
+        <Button disabled={busy} onClick={() => void invoke('brain:pickFolder').then(applyBrain)}>
+          {L('Изменить…', 'Change…')}
+        </Button>
+        <Button variant="link" onClick={() => void invoke('brain:openFolder')}>
+          {L('Открыть', 'Open')}
+        </Button>
+        {v.modelsDirCustom && (
+          <Button variant="link" disabled={busy} onClick={() => void invoke('brain:resetFolder').then(applyBrain)}>
+            {L('Обычная папка', 'Usual folder')}
+          </Button>
+        )}
+      </Row>
+      <Hint>
+        {L(
+          'Сюда скачиваются модели; любой файл .gguf из этой папки появляется в списке выше. Модель из другого места — «Выбрать файл»: она используется там, где лежит.',
+          'Models are downloaded here; any .gguf file in this folder shows in the list above. A model elsewhere: «Choose a file», it is used where it is.',
+        )}
+      </Hint>
       {v.customUrlVisible && (
         <>
           <label className="block">{L('Ссылка Hugging Face', 'Hugging Face link')}</label>

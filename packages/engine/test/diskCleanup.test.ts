@@ -65,6 +65,24 @@ describe('scan', () => {
     expect(byLabel(items, /Последняя запись/)).toMatchObject({ preselected: true });
   });
 
+  it('an old GigaPisar folder with Brain models inside is named and never ticked', () => {
+    file(join(root, 'local', 'GigaPisar', 'brain', 'Qwen3.5-9B-Q4_K_M.gguf'), 4000);
+    const legacy = byLabel(scan(opts()), /GigaPisar/);
+    expect(legacy).toMatchObject({ group: 'legacy', preselected: false });
+    expect(legacy!.label).toContain('Qwen3.5-9B-Q4_K_M.gguf');
+  });
+
+  it('models in the chosen models folder are offered, the chosen one is kept', () => {
+    const s = Settings.defaults();
+    s.BrainModelsDir = join(root, 'Models');
+    s.BrainModel = 'File';
+    s.BrainModelFile = file(join(root, 'Models', 'big.gguf'), 3000);
+    const spare = file(join(root, 'Models', 'spare.gguf'), 2000);
+    const all = scan(opts({ settings: s })).flatMap((i) => i.paths);
+    expect(all).toContain(spare);
+    expect(all).not.toContain(s.BrainModelFile);
+  });
+
   it('a file still being written (changed in the last 10 minutes) is not offered', () => {
     file(join(local, 'model.tar.gz.part'), 500);
     file(join(roaming, 'snippets.json.tmp'), 5);

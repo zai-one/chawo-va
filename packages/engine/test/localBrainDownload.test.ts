@@ -284,6 +284,23 @@ describe('downloadAsync', () => {
     expect(reqs.length).toBe(2);
   });
 
+  it('a model picked on disk: only the engine is fetched; a missing file is refused before any request', async () => {
+    const { zip, spec } = engineZip();
+    const { f, reqs } = fakeNet({ [spec.url]: zip });
+    const s = Settings.defaults();
+    s.Brain = 'Local';
+    s.BrainModel = 'File';
+    s.BrainModelFile = join(root, 'D', 'Qwen3.5-9B.gguf');
+    const missing = await LocalBrain.downloadAsync(s, () => {}, new AbortController().signal, { fetch: f, engineSpec: () => spec }).catch((x) => x);
+    expect((missing as ModelDownloadException).kind).toBe('rejected');
+    expect(reqs).toHaveLength(0);
+    mkdirSync(join(root, 'D'), { recursive: true });
+    writeFileSync(s.BrainModelFile, gguf(4096));
+    await LocalBrain.downloadAsync(s, () => {}, new AbortController().signal, { fetch: f, engineSpec: () => spec });
+    expect(reqs.map((r) => r.url)).toEqual([spec.url]);
+    expect(LocalBrain.isReady(s)).toBe(true);
+  });
+
   it('custom file that is not a GGUF is rejected and removed; a bad link never fetches', async () => {
     const { zip, spec } = engineZip();
     const { f, reqs } = fakeNet({ [spec.url]: zip, [customUrl]: Buffer.alloc(4096, 1) });
@@ -365,11 +382,33 @@ describe('deleteGguf / deleteModel', () => {
     const p = join(d, 'x.gguf');
     writeFileSync(p, gguf(2000));
     writeFileSync(p + '.part', 'x');
-    expect(() => LocalBrain.deleteGguf(join(root, 'outside.gguf'))).toThrow('файл не в папке мозга');
+    expect(() => LocalBrain.deleteGguf(join(root, 'outside.gguf'))).toThrow('файл не в папке моделей мозга');
     expect(() => LocalBrain.deleteGguf(join(d, 'notes.txt'))).toThrow('это не файл модели');
     LocalBrain.deleteGguf(p);
     expect(existsSync(p)).toBe(false);
     expect(existsSync(p + '.part')).toBe(false);
+    // A chosen models folder counts too.
+    const models = join(root, 'Models');
+    mkdirSync(models, { recursive: true });
+    const q = join(models, 'y.gguf');
+    writeFileSync(q, gguf(2000));
+    expect(() => LocalBrain.deleteGguf(q)).toThrow('файл не в папке моделей мозга');
+    LocalBrain.deleteGguf(q, { BrainModelsDir: models });
+    expect(existsSync(q)).toBe(false);
+  });
+
+  it('a chosen models folder: downloads land there, models already in the brain folder stay usable', () => {
+    const s = Settings.defaults();
+    s.BrainModelsDir = join(root, 'D-Models');
+    expect(LocalBrain.modelPath(s)).toBe(join(root, 'D-Models', LocalBrain.ModelFile));
+    mkdirSync(LocalBrain.dir(), { recursive: true });
+    writeFileSync(join(LocalBrain.dir(), LocalBrain.ModelFile), gguf(2000));
+    expect(LocalBrain.modelPath(s)).toBe(join(LocalBrain.dir(), LocalBrain.ModelFile));
+    expect(LocalBrain.installedGgufs(s).map((g) => g.label)).toEqual(['Qwen3 4B']);
+    s.BrainModel = 'File';
+    s.BrainModelFile = join(root, 'elsewhere', 'm.gguf');
+    expect(LocalBrain.modelPath(s)).toBe(s.BrainModelFile);
+    expect(LocalBrain.title(s)).toBe('m');
   });
 
   it('refuses when the program sits in the brain folder; deleteModel wipes the folder', () => {
