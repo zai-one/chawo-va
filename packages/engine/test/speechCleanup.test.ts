@@ -51,6 +51,8 @@ describe('SpeechCleanup helpers', () => {
     expect(describeFailure(402, '{}')).toMatch(/денег|money|billing/i);
     expect(describeFailure(500, '{}')).toMatch(/сбой|failing/i);
     expect(describeFailure(404, '{"error":{"message":"model not found"}}')).toMatch(/модель|model/i);
+    const policy = '{"error":{"message":"No endpoints found matching your data policy (Free model publication)"}}';
+    expect(describeFailure(404, policy)).toMatch(/settings\/privacy/);
   });
 
   it('AnswerAfterThink', () => {

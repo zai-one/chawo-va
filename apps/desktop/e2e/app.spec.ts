@@ -60,6 +60,37 @@ test('the page list folds to a rail of icons and back (button, Ctrl+B), and stay
   await expect(win.locator('.nav').getByRole('button', { name: /Свернуть меню/ })).toHaveAttribute('aria-expanded', 'true');
 });
 
+test('the page list is as wide as its edge is dragged; narrow folds it, double-click brings the usual width', async ({ win }) => {
+  const nav = win.locator('.nav');
+  const edge = win.getByRole('separator', { name: 'Ширина меню' });
+  const navWidth = () => nav.evaluate((el) => Math.round(el.getBoundingClientRect().width));
+  const dragEdgeTo = async (x: number) => {
+    const box = (await edge.boundingBox())!;
+    const y = box.y + box.height / 2;
+    await win.mouse.move(box.x + box.width / 2, y);
+    await win.mouse.down();
+    await win.mouse.move(x, y, { steps: 6 });
+    await win.mouse.up();
+  };
+  if (await nav.evaluate((el) => el.classList.contains('collapsed'))) await win.keyboard.press('Control+b');
+  await expect.poll(navWidth).toBe(220);
+  await dragEdgeTo(300);
+  await expect.poll(navWidth).toBe(300);
+  await expect(edge).toHaveAttribute('aria-valuenow', '300');
+  // The width belongs to this computer: a reload keeps it.
+  await win.reload();
+  await expect.poll(navWidth).toBe(300);
+  // Dragged narrow, the list folds to the rail; the arrow key on the edge opens it at the narrowest width.
+  await dragEdgeTo(60);
+  await expect(nav).toHaveClass(/collapsed/);
+  await edge.focus();
+  await win.keyboard.press('ArrowRight');
+  await expect(nav).not.toHaveClass(/collapsed/);
+  await expect.poll(navWidth).toBe(168);
+  await edge.dblclick();
+  await expect.poll(navWidth).toBe(220);
+});
+
 test('the page is isolated: no Node, no Electron, only the contract API', async ({ app, win }) => {
   const seen = await win.evaluate(() => {
     const w = window as unknown as Record<string, unknown>;

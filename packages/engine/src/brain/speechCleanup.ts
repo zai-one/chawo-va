@@ -356,6 +356,12 @@ export function describeFailure(status: number, body: string): string {
   if (m.includes('country') || m.includes('region') || m.includes('territory') || m.includes('location')) {
     return t('сервис недоступен из вашей страны', 'the service is not available in your country');
   }
+  if (m.includes('data policy')) {
+    return t(
+      'бесплатные модели закрыты настройками приватности сервиса: на OpenRouter включите «Enable free endpoints that may publish prompts» (openrouter.ai/settings/privacy)',
+      'free models are blocked by the service privacy settings: on OpenRouter turn on «Enable free endpoints that may publish prompts» (openrouter.ai/settings/privacy)',
+    );
+  }
   if (status === 401) return t('сервис не принял ключ', 'the service rejected the key');
   if (status === 403) return t('у ключа нет доступа к этой модели или сервису', 'the key has no access to this model or service');
   if (status === 404 || (m.includes('model') && (m.includes('not found') || m.includes('does not exist') || m.includes('not exist')))) {
