@@ -1,3 +1,4 @@
+import type { IconName } from '@chawo/ui/Icon';
 import { invoke } from '../bridge';
 import { createStore } from './store';
 
@@ -14,6 +15,19 @@ export const TITLES: Record<PageName, [string, string]> = {
   brain: ['Мозг', 'Brain'],
   voice: ['Голос', 'Voice'],
   network: ['Сеть', 'Network'],
+};
+
+/** One Product UI icon per page (zai-brand sprite names), shown beside the title and alone in the rail. */
+export const ICONS: Record<PageName, IconName> = {
+  dictation: 'mic',
+  file: 'file-audio',
+  history: 'history',
+  speech: 'audio-waveform',
+  dictionary: 'book-open',
+  sales: 'briefcase',
+  brain: 'brain',
+  voice: 'volume',
+  network: 'network',
 };
 
 export const currentPage = createStore<PageName>('dictation');

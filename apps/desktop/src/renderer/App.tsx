@@ -1,8 +1,12 @@
 // The window: the page list on the left, the open page on the right. Dark only.
 import { useEffect, type ReactElement } from 'react';
 import { invoke, chawo } from './bridge';
+import { ChawoLogo, ChawoMark } from '@chawo/ui/ChawoLogo';
+import { cx } from '@chawo/ui/cx';
+import { Icon } from '@chawo/ui/Icon';
 import { useL } from './app/i18n';
-import { currentPage, PAGES, pageVisit, showPage, TITLES, type PageName } from './app/pages';
+import { isNavShortcut, navCollapsed, toggleNav } from './app/navState';
+import { currentPage, ICONS, PAGES, pageVisit, showPage, TITLES, type PageName } from './app/pages';
 import { applyFile } from './app/state';
 import { useStore } from './app/store';
 import { BrainPage } from './pages/BrainPage';
@@ -49,22 +53,73 @@ function useDropFiles(): void {
   }, []);
 }
 
+/** Ctrl+B anywhere in the window folds or unfolds the page list. */
+function useNavShortcut(): void {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!isNavShortcut(e)) return;
+      e.preventDefault();
+      toggleNav();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+}
+
+/** The page list: icon and title per page; folded, a rail of icons whose titles show as tooltips. */
+function Nav({ page }: { page: PageName }) {
+  const L = useL();
+  const collapsed = useStore(navCollapsed);
+  const toggleLabel = collapsed ? L('Развернуть меню', 'Expand menu') : L('Свернуть меню', 'Collapse menu');
+  return (
+    <aside className={cx('nav', collapsed && 'collapsed')} id="nav" aria-label={L('Разделы', 'Sections')}>
+      <div className="brand">{collapsed ? <ChawoMark size={24} /> : <ChawoLogo fontSize={22} />}</div>
+      {PAGES.map((p) => {
+        const title = L(...TITLES[p]);
+        return (
+          <button
+            key={p}
+            type="button"
+            className={p === page ? 'active' : undefined}
+            aria-current={p === page ? 'page' : undefined}
+            data-page={p}
+            data-tip={collapsed ? title : undefined}
+            onClick={() => showPage(p)}
+          >
+            <Icon name={ICONS[p]} />
+            <span className="label">{title}</span>
+          </button>
+        );
+      })}
+      <div className="nav-foot">
+        <button
+          type="button"
+          className="nav-toggle"
+          aria-controls="nav"
+          aria-expanded={!collapsed}
+          aria-label={`${toggleLabel} (Ctrl+B)`}
+          data-tip={collapsed ? `${toggleLabel} · Ctrl+B` : undefined}
+          onClick={toggleNav}
+        >
+          <Icon name="panel-left" />
+          <span className="label" aria-hidden="true">
+            {toggleLabel}
+          </span>
+        </button>
+      </div>
+    </aside>
+  );
+}
+
 export function App() {
   const page = useStore(currentPage);
   const visit = useStore(pageVisit);
-  const L = useL();
   useDropFiles();
+  useNavShortcut();
   const View = VIEWS[page];
   return (
     <>
-      <aside className="nav">
-        <div className="brand">Chawo</div>
-        {PAGES.map((p) => (
-          <button key={p} type="button" className={p === page ? 'active' : undefined} data-page={p} onClick={() => showPage(p)}>
-            {L(...TITLES[p])}
-          </button>
-        ))}
-      </aside>
+      <Nav page={page} />
       <main id="page">
         {/* A page mounts fresh each time it is opened (also again) and asks main for its state. */}
         <View key={`${page}#${visit}`} />

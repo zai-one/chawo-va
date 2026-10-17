@@ -1,42 +1,65 @@
-/* Chawo design tokens. Dark only (product rule): the palette follows the WPF app — near-black
-   surfaces, coral accent. Components and pages use these names, never raw colours. */
+/* Chawo design tokens: the dark theme of ZAI Product UI Core (zai-brand, tokens/product-ui.css).
+   Chawo is one of the three ZAI brands; the app is dark only (product rule). Values are copied from
+   the brand system, never picked by eye: components and pages use these names, never raw colours.
+   Text roles hold 4.5:1 on every surface; the sand accent marks the main action and the selection;
+   red (--danger) is only for something that needs the user's action. */
 :root {
   color-scheme: dark;
 
-  /* surfaces and text */
-  --bg: #14161a;
-  --panel: #1c1f24;
-  --line: #2a2e35;
-  --text: #e6e8eb;
+  /* surfaces: --pui-bg-workspace, -surface, -surface-hover, -raised, -overlay */
+  --bg: #0d0e0f;
+  --panel: #121315;
+  --panel-hover: #181a1d;
+  --raised: #1c1e21;
+  --overlay: #202226;
+  --selected: #202226;
+  /* hairlines between areas (--pui-border, --pui-border-strong) and the boundary of a control */
+  --line: #292b2f;
+  --line-strong: #41444a;
+  --control-border: #5c5f66;
+
+  /* text: --pui-text, -secondary, -muted */
+  --text: #f5f1eb;
   --fg: var(--text);
-  --muted: #8b929c;
+  --text-2: #b7b1aa;
+  --muted: #948f86;
 
-  /* accent and states */
-  --accent: #ff6b5a;
-  --on-accent: #14161a;
-  --ok: #7fd18b;
-  --danger: #ff8a7a;
-  --verdict-yes: #4caf7a;
-  --verdict-partial: #d9a441;
-  --verdict-no: #e0645c;
-  --row-active: #243044;
+  /* accent and states: sand is the main action and «on»; attention is the only red */
+  --accent: #fee9ce;
+  --accent-hover: #fff3e2;
+  --on-accent: #17130f;
+  --focus: #fee9ce;
+  --ok: #62c98a;
+  --warn: #d4aa62;
+  --danger: #ff6257;
+  --verdict-yes: #62c98a;
+  --verdict-partial: #d4aa62;
+  --verdict-no: #ff6257;
+  --row-active: #202226;
+  --shadow-overlay: 0 16px 42px rgba(0, 0, 0, 0.42);
 
-  /* type */
-  --font: 14px/1.45 "Segoe UI", system-ui, sans-serif;
-  --font-mono: 12px/1.4 ui-monospace, Consolas, monospace;
+  /* type: DIN Pro is the brand face (used when installed); the stack falls back to the system UI font.
+     --font-mono is the brand's code role (--font-code): commands, keys and paths only. */
+  --font: 14px/20px "DIN Pro", "Segoe UI", system-ui, sans-serif;
+  --font-mono: 12px/1.4 "Geist Mono", ui-monospace, Consolas, monospace;
   --text-sm: 12px;
   --text-h1: 20px;
 
-  /* shape and space */
+  /* shape and space: --pui-radius-control 8, -row 10, -menu 12; the 4/8 interface scale */
   --radius-sm: 4px;
-  --radius: 6px;
-  --radius-lg: 8px;
-  --radius-xl: 10px;
+  --radius: 8px;
+  --radius-lg: 10px;
+  --radius-xl: 12px;
   --space-1: 4px;
   --space-2: 8px;
   --space-3: 12px;
   --space-4: 16px;
   --space-6: 24px;
   --space-8: 32px;
-  --nav-width: 200px;
+
+  /* the page list: full width and the folded rail of icons */
+  --nav-width: 220px;
+  --nav-rail: 56px;
+  --motion-base: 180ms;
+  --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
 }

@@ -96,7 +96,7 @@ app.whenReady().then(async () => {
     check('gui: dark theme (body background)', lum < 0.25, `${bg.c} luminance ${lum.toFixed(2)}`);
 
     // Every page in the nav renders real content.
-    const pages = await js(`Array.from(document.querySelectorAll('.nav button')).map((b) => b.dataset.page)`);
+    const pages = await js(`Array.from(document.querySelectorAll('.nav button[data-page]')).map((b) => b.dataset.page)`);
     check('gui: nav has pages', pages.length >= 8, pages.join(', '));
     if (shots) mkdirSync(shots, { recursive: true });
     for (const p of pages) {

@@ -9,7 +9,7 @@ test('starts with a dark window and the page list', async ({ app, win }) => {
   const bg = await win.evaluate(() => getComputedStyle(document.body).backgroundColor);
   const [r, g, b] = (bg.match(/\d+(\.\d+)?/g) ?? []).slice(0, 3).map(Number);
   expect((0.2126 * r + 0.7152 * g + 0.0722 * b) / 255, `body background ${bg}`).toBeLessThan(0.25);
-  await expect(win.locator('.nav button')).toHaveText(PAGES);
+  await expect(win.locator('.nav button[data-page]')).toHaveText(PAGES);
   await expect(win.locator('.nav button.active')).toHaveText('Диктовка');
   const shown = await app.evaluate(({ BrowserWindow }) =>
     BrowserWindow.getAllWindows()
@@ -29,7 +29,7 @@ test('every page opens from the nav and has its heading', async ({ win }) => {
 });
 
 test('the nav works from the keyboard', async ({ win }) => {
-  await win.locator('.nav button').first().focus();
+  await win.locator('.nav button[data-page]').first().focus();
   await win.keyboard.press('Tab');
   await win.keyboard.press('Tab');
   await expect(win.locator('.nav button:focus')).toHaveText('История');
@@ -38,6 +38,26 @@ test('the nav works from the keyboard', async ({ win }) => {
   await win.keyboard.press('Shift+Tab');
   await win.keyboard.press('Space');
   await expect(win.locator('#page h1')).toHaveText('Расшифровка файла');
+});
+
+test('the page list folds to a rail of icons and back (button, Ctrl+B), and stays folded', async ({ win }) => {
+  const nav = win.locator('.nav');
+  const toggle = nav.getByRole('button', { name: /Свернуть меню/ });
+  await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+  await toggle.click();
+  await expect(nav).toHaveClass(/collapsed/);
+  // Folded: icons only, but every page keeps its name for screen readers, tests and the tooltip.
+  await expect(nav.locator('button[data-page="history"]')).toHaveAttribute('data-tip', 'История');
+  const width = await nav.evaluate((el) => el.getBoundingClientRect().width);
+  expect(width).toBeLessThan(80);
+  await openPage(win, 'Мозг');
+  await expect(win.locator('.nav button[aria-current="page"]')).toHaveAttribute('data-page', 'brain');
+  // The choice belongs to this computer: a reload keeps it.
+  await win.reload();
+  await expect(win.locator('.nav')).toHaveClass(/collapsed/);
+  await win.keyboard.press('Control+b');
+  await expect(win.locator('.nav')).not.toHaveClass(/collapsed/);
+  await expect(win.locator('.nav').getByRole('button', { name: /Свернуть меню/ })).toHaveAttribute('aria-expanded', 'true');
 });
 
 test('the page is isolated: no Node, no Electron, only the contract API', async ({ app, win }) => {
