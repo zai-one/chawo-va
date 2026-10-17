@@ -90,6 +90,11 @@ describe('«Мозг» page', () => {
     expect(st.everyTake.visible).toBe(true);
     expect(st.instruction.visible).toBe(false);
     ctl.setEveryTake(true);
+    // A ready style first («Только чистка»); the instruction box only under «Своя инструкция».
+    expect(ctl.state().style).toMatchObject({ visible: true, value: 'Clean' });
+    expect(ctl.state().instruction.visible).toBe(false);
+    ctl.setStyle('Custom');
+    expect(s.BrainStyle).toBe('Custom');
     expect(ctl.state().instruction.visible).toBe(true);
   });
 

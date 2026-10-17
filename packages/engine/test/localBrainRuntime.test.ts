@@ -122,6 +122,17 @@ describe('LlamaServerRuntime (fake llama-server)', () => {
     await until(() => !alive(pid));
   });
 
+  it('stopAsync resolves only after the process is gone (the model file is free then)', async () => {
+    const before = launches().length;
+    const rt = make();
+    await rt.ensureStarted(settings('good'), () => {}, signal());
+    const pid = launches()[before].pid;
+    await rt.stopAsync();
+    expect(alive(pid)).toBe(false);
+    expect(rt.running).toBe(false);
+    await rt.stopAsync(); // nothing running: returns at once
+  });
+
   it('another model restarts the server; concurrent callers share one start', async () => {
     const rt = make();
     const before = launches().length;

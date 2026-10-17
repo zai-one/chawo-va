@@ -107,6 +107,8 @@ export function findRule(rules: readonly AppRule[] | undefined, app: ForegroundA
 export interface EditSettings {
   BrainEveryTake: boolean;
   BrainInstruction: string;
+  /** The app's ready styles: a rule's own instruction switches the take to it. */
+  BrainStyle?: string;
   SimpleSyntax: boolean;
 }
 
@@ -118,6 +120,7 @@ export function applyRule<T extends EditSettings>(s: T, rule: AppRule | null): T
   else if (rule.Edit === 'Custom') {
     out.BrainEveryTake = true;
     out.BrainInstruction = rule.Instruction;
+    if ('BrainStyle' in out) (out as EditSettings).BrainStyle = 'Custom';
   }
   if (rule.SimpleSyntax === 'On') out.SimpleSyntax = true;
   else if (rule.SimpleSyntax === 'Off') out.SimpleSyntax = false;

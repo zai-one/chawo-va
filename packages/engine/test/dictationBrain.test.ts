@@ -154,9 +154,29 @@ describe('DictationSession + Brain + SimpleSyntax', () => {
 
   it('a custom instruction replaces the cleanup prompt on every take', async () => {
     const srv = server(() => 'ok');
-    const { take } = make({ fetch: srv.fetch }, (x) => { serverSettings(x); x.BrainEveryTake = true; x.BrainInstruction = 'Translate into English.'; });
+    const { take } = make({ fetch: srv.fetch }, (x) => {
+      serverSettings(x);
+      x.BrainEveryTake = true;
+      x.BrainInstruction = 'Translate into English.';
+      x.BrainStyle = 'Custom';
+    });
     await take('привет мир');
     expect(srv.calls[0].body.messages[0].content).toBe('Translate into English.');
+  });
+
+  it('a ready style is the prompt; a written instruction waits until «Своя инструкция» is chosen', async () => {
+    const srv = server(() => 'ok');
+    const { s, take } = make({ fetch: srv.fetch }, (x) => {
+      serverSettings(x);
+      x.BrainEveryTake = true;
+      x.BrainInstruction = 'Translate into English.';
+      x.BrainStyle = 'Format';
+    });
+    await take('привет мир');
+    expect(srv.calls[0].body.messages[0].content).toContain('раздели текст на абзацы');
+    s.BrainStyle = 'Clean';
+    await take('привет мир');
+    expect(srv.calls[1].body.messages[0].content).toContain('не перефразируй');
   });
 
   it('a «Чаво, …» command: body goes to the server with the command; no edit-every-take needed', async () => {

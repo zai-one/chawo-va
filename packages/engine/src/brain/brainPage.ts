@@ -19,7 +19,7 @@ import {
   type AppRuleToggle,
   type ForegroundApp,
 } from '@chawo/core/appRules';
-import type { BrainDeviceKind, BrainSource, LocalBrainKind, SettingsData } from '../settings';
+import type { BrainDeviceKind, BrainSource, BrainStyle, LocalBrainKind, SettingsData } from '../settings';
 import * as Providers from './brainProviders';
 import type { BrainProvider } from './brainProviders';
 import { serverConfigured } from './brain';
@@ -91,6 +91,8 @@ export interface BrainStateDto {
     modelsDirCustom: boolean;
   };
   everyTake: { visible: boolean; on: boolean; hint: string };
+  /** «Как править»: ready prompts or the user's own instruction. */
+  style: { visible: boolean; value: BrainStyle; choices: { value: BrainStyle; label: string }[]; hint: string };
   instruction: { visible: boolean; text: string; hint: string };
   selection: { visible: boolean; on: boolean; hint: string };
   /** «Контекст для Мозга» (opt-in): clipboard text and the focused program. warning: cloud Brain, the context leaves the PC. */
@@ -217,6 +219,28 @@ export function ggufProblem(path: string): string {
   return '';
 }
 
+function styleHint(style: BrainStyle): string {
+  switch (style) {
+    case 'Edit':
+      return t(
+        'Как «Только чистка», плюс грамматика и корявые фразы; смысл, тон и слова говорящего остаются. Числа — цифрами.',
+        "As «Cleanup only», plus grammar and clumsy phrases; the speaker's meaning, tone and words stay. Numbers in digits.",
+      );
+    case 'Format':
+      return t(
+        'Как «Только чистка», плюс абзацы по смыслу и списки для перечислений. Для писем и заметок.',
+        'As «Cleanup only», plus paragraphs and lists for enumerations. For letters and notes.',
+      );
+    case 'Custom':
+      return t('Свой текст ниже вместо готового.', 'Your own text below instead of a ready one.');
+    default:
+      return t(
+        'Убрать «ы», «э», «мм» и паразиты, расставить знаки и заглавные, исправить явные ослышки. Слова и их порядок не меняются. Лучший выбор для небольших моделей.',
+        'Remove "uh", "um" and filler, add punctuation and capitals, fix obvious mishearings. Words and their order stay. Best for small models.',
+      );
+  }
+}
+
 export function notOnDiskNote(): string {
   return t('Файла ещё нет. Нажмите кнопку, сама модель не скачивается.', 'Not on disk yet. Press the button. It does not download by itself.');
 }
@@ -322,6 +346,13 @@ export class BrainController {
     const s = this.s();
     if (on === s.BrainEveryTake) return;
     s.BrainEveryTake = on;
+    this.persist();
+  }
+
+  setStyle(style: BrainStyle): void {
+    const s = this.s();
+    if (style === s.BrainStyle) return;
+    s.BrainStyle = style;
     this.persist();
   }
 
@@ -903,12 +934,23 @@ export class BrainController {
           'Turn on, and the box below is how to rewrite. Off: the phrase is inserted as recognized until you say "Chawo, …".',
         ),
       },
-      instruction: {
+      style: {
         visible: b !== 'Off' && s.BrainEveryTake,
+        value: s.BrainStyle,
+        choices: [
+          { value: 'Clean', label: t('Только чистка', 'Cleanup only') },
+          { value: 'Edit', label: t('Чистка и правка', 'Cleanup and editing') },
+          { value: 'Format', label: t('Оформить: абзацы и списки', 'Format: paragraphs and lists') },
+          { value: 'Custom', label: t('Своя инструкция', 'Own instruction') },
+        ],
+        hint: styleHint(s.BrainStyle),
+      },
+      instruction: {
+        visible: b !== 'Off' && s.BrainEveryTake && s.BrainStyle === 'Custom',
         text: s.BrainInstruction,
         hint: t(
-          'Пусто: убрать повторы, слова-паразиты и чужой разговор. Смысл не сокращать и слова не добавлять. Написали своё: выполняется только этот текст.',
-          "Empty: drop repeats, filler, and someone else's conversation. Do not cut the meaning or add words. Your text: only that is followed.",
+          'Выполняется только этот текст, например: «Убери паразиты, расставь знаки, слова не меняй». Пусто — как «Только чистка».',
+          'Only this text is followed, e.g. "Remove filler, add punctuation, keep the words". Empty: as «Cleanup only».',
         ),
       },
       selection: {

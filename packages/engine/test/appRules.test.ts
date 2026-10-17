@@ -91,6 +91,10 @@ describe('appRules core', () => {
     expect(applyRule(off, rule({ Edit: 'Custom', Instruction: 'деловой стиль', SimpleSyntax: 'Off' })))
       .toEqual({ ...off, BrainEveryTake: true, BrainInstruction: 'деловой стиль', SimpleSyntax: false });
     expect(base.BrainEveryTake).toBe(true);
+    // In the app's settings a rule's own instruction also switches the style to «Своя инструкция».
+    const styled = { ...base, BrainStyle: 'Clean' };
+    expect(applyRule(styled, rule({ Edit: 'Custom', Instruction: 'деловой стиль' })).BrainStyle).toBe('Custom');
+    expect(applyRule(styled, rule({ Edit: 'Default' })).BrainStyle).toBe('Clean');
   });
 
   it('parse drops junk, falls back to Default and caps the list', () => {

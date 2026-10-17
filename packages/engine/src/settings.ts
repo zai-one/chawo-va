@@ -22,6 +22,8 @@ export type BrainSource = 'Off' | 'Local' | 'Server';
 /** Built-in models, a Hugging Face link, or any .gguf already on disk (BrainModelFile). */
 export type LocalBrainKind = 'Qwen3' | 'Qwen35' | 'Custom' | 'File';
 export type BrainDeviceKind = 'Cpu' | 'Gpu';
+/** How «Мозг» edits each take: ready prompts, or the user's own instruction (BrainInstruction). */
+export type BrainStyle = 'Clean' | 'Edit' | 'Format' | 'Custom';
 
 /** PascalCase names as written by the WPF JsonStringEnumConverter. */
 export type SettingsSpeechModel = 'MultilingualLargeCtc' | 'V3E2eRnnt';
@@ -117,6 +119,7 @@ export interface SettingsData {
   /** Where Brain models are downloaded and looked for; empty: the brain folder in the app data. */
   BrainModelsDir: string;
   BrainInstruction: string;
+  BrainStyle: BrainStyle;
   SimpleSyntax: boolean;
   /** Silero VAD: trim silence around a take and cut long files at real pauses (needs the 2 MB model). */
   VadEnabled: boolean;
@@ -219,6 +222,7 @@ export function defaults(): SettingsData {
     BrainModelFile: '',
     BrainModelsDir: '',
     BrainInstruction: '',
+    BrainStyle: 'Clean',
     SimpleSyntax: false,
     VadEnabled: true,
     VadAutoStopMs: 0,
@@ -457,6 +461,8 @@ export function fromJsonObject(raw: Record<string, unknown>): { settings: Settin
   d.BrainModelFile = asString(raw.BrainModelFile, d.BrainModelFile).slice(0, 1024);
   d.BrainModelsDir = asString(raw.BrainModelsDir, d.BrainModelsDir).slice(0, 1024);
   d.BrainInstruction = asString(raw.BrainInstruction, d.BrainInstruction);
+  // Before the ready styles a written instruction was the way to edit: it stays in use.
+  d.BrainStyle = asEnum(raw.BrainStyle, ['Clean', 'Edit', 'Format', 'Custom'] as const, d.BrainInstruction.trim() ? 'Custom' : d.BrainStyle);
   d.SimpleSyntax = asBool(raw.SimpleSyntax, d.SimpleSyntax);
   d.VadEnabled = asBool(raw.VadEnabled, d.VadEnabled);
   d.VadAutoStopMs = Math.min(60_000, Math.max(0, asInt(raw.VadAutoStopMs, d.VadAutoStopMs)));
@@ -569,6 +575,7 @@ export function toJsonObject(s: SettingsData): Record<string, unknown> {
     BrainModelFile: s.BrainModelFile,
     BrainModelsDir: s.BrainModelsDir,
     BrainInstruction: s.BrainInstruction,
+    BrainStyle: s.BrainStyle,
     SimpleSyntax: s.SimpleSyntax,
     VadEnabled: s.VadEnabled,
     VadAutoStopMs: s.VadAutoStopMs,

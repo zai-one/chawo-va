@@ -164,6 +164,7 @@ export interface InvokeMap {
   'brain:source': (source: string) => BrainStateDto;
   'brain:everyTake': (on: boolean) => BrainStateDto;
   'brain:instruction': (text: string) => BrainStateDto;
+  'brain:style': (style: string) => BrainStateDto;
   'brain:selection': (on: boolean) => BrainStateDto;
   'brain:context': (patch: { clipboard?: boolean; app?: boolean }) => BrainStateDto;
   'brain:device': (device: string) => BrainStateDto;
@@ -352,6 +353,7 @@ export const INVOKE_CHANNELS: readonly InvokeChannel[] = keys<InvokeMap>({
   'dictation:stop': true, 'dictation:cancel': true, 'dictation:micFailed': true, 'dictation:wake': true,
   'dictation:checkUpdates': true, 'wake:want': true, 'wake:micFailed': true,
   'brain:state': true, 'brain:source': true, 'brain:everyTake': true, 'brain:instruction': true, 'brain:selection': true,
+  'brain:style': true,
   'brain:context': true, 'brain:device': true, 'brain:localModel': true, 'brain:customUrl': true, 'brain:provider': true,
   'brain:localFile': true, 'brain:pickFile': true, 'brain:pickFolder': true, 'brain:resetFolder': true, 'brain:openFolder': true,
   'brain:key': true, 'brain:url': true, 'brain:model': true, 'brain:refresh': true, 'brain:keysLink': true,

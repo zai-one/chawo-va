@@ -376,15 +376,15 @@ describe('downloadAsync', () => {
 });
 
 describe('deleteGguf / deleteModel', () => {
-  it('deletes only a .gguf inside the brain folder, with its .part', () => {
+  it('deletes only a .gguf inside the brain folder, with its .part', async () => {
     const d = LocalBrain.dir();
     mkdirSync(d, { recursive: true });
     const p = join(d, 'x.gguf');
     writeFileSync(p, gguf(2000));
     writeFileSync(p + '.part', 'x');
-    expect(() => LocalBrain.deleteGguf(join(root, 'outside.gguf'))).toThrow('файл не в папке моделей мозга');
-    expect(() => LocalBrain.deleteGguf(join(d, 'notes.txt'))).toThrow('это не файл модели');
-    LocalBrain.deleteGguf(p);
+    await expect(LocalBrain.deleteGguf(join(root, 'outside.gguf'))).rejects.toThrow('файл не в папке моделей мозга');
+    await expect(LocalBrain.deleteGguf(join(d, 'notes.txt'))).rejects.toThrow('это не файл модели');
+    await LocalBrain.deleteGguf(p);
     expect(existsSync(p)).toBe(false);
     expect(existsSync(p + '.part')).toBe(false);
     // A chosen models folder counts too.
@@ -392,8 +392,8 @@ describe('deleteGguf / deleteModel', () => {
     mkdirSync(models, { recursive: true });
     const q = join(models, 'y.gguf');
     writeFileSync(q, gguf(2000));
-    expect(() => LocalBrain.deleteGguf(q)).toThrow('файл не в папке моделей мозга');
-    LocalBrain.deleteGguf(q, { BrainModelsDir: models });
+    await expect(LocalBrain.deleteGguf(q)).rejects.toThrow('файл не в папке моделей мозга');
+    await LocalBrain.deleteGguf(q, { BrainModelsDir: models });
     expect(existsSync(q)).toBe(false);
   });
 
@@ -411,15 +411,41 @@ describe('deleteGguf / deleteModel', () => {
     expect(LocalBrain.title(s)).toBe('m');
   });
 
-  it('refuses when the program sits in the brain folder; deleteModel wipes the folder', () => {
+  it('waits for the running engine to let go of the model before deleting it', async () => {
+    const d = LocalBrain.dir();
+    mkdirSync(d, { recursive: true });
+    const p = join(d, 'busy.gguf');
+    writeFileSync(p, gguf(2000));
+    const order: string[] = [];
+    LocalBrain.setRuntime({
+      isReady: () => true,
+      running: true,
+      endpointUrl: '',
+      apiKey: '',
+      ensureStarted: async () => {},
+      stopAsync: async () => {
+        await new Promise((r) => setTimeout(r, 50));
+        order.push(existsSync(p) ? 'stopped, file still there' : 'stopped after delete');
+      },
+    });
+    try {
+      await LocalBrain.deleteGguf(p);
+    } finally {
+      LocalBrain.resetRuntime();
+    }
+    expect(order).toEqual(['stopped, file still there']);
+    expect(existsSync(p)).toBe(false);
+  });
+
+  it('refuses when the program sits in the brain folder; deleteModel wipes the folder', async () => {
     const d = LocalBrain.dir();
     mkdirSync(d, { recursive: true });
     const p = join(d, 'x.gguf');
     writeFileSync(p, gguf(2000));
     writeFileSync(join(d, 'ChawoVoiceAssistant.exe'), 'MZ');
-    expect(() => LocalBrain.deleteGguf(p)).toThrow('рядом лежит программа');
+    await expect(LocalBrain.deleteGguf(p)).rejects.toThrow('рядом лежит программа');
     expect(existsSync(p)).toBe(true);
-    LocalBrain.deleteModel();
+    await LocalBrain.deleteModel();
     expect(existsSync(d)).toBe(false);
   });
 });

@@ -21,6 +21,7 @@ import {
   statSync,
   type WriteStream,
 } from 'node:fs';
+import { rm } from 'node:fs/promises';
 import { createServer } from 'node:net';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { t } from '@chawo/core/strings';
@@ -398,7 +399,7 @@ export interface DownloadDeps {
   idleMs?: number;
 }
 
-const USER_AGENT = `ChawoVoiceAssistant/2.2.0 (${process.platform})`;
+const USER_AGENT = `ChawoVoiceAssistant/2.3.0 (${process.platform})`;
 
 const isAbort = (e: unknown) =>
   (e instanceof Error && e.name === 'AbortError') ||
@@ -430,7 +431,7 @@ export async function downloadAsync(
     throw new ModelDownloadException('rejected', t(`Файл модели не найден: ${dest}`, `The model file is not found: ${dest}`));
   }
 
-  stop();
+  await stopAsync();
   mkdirSync(dir(), { recursive: true });
   const d = onDisk ? dir() : dirname(dest);
   mkdirSync(d, { recursive: true });
@@ -582,8 +583,11 @@ export function pruneOldEngines(): string[] {
 
 // ── delete ───────────────────────────────────────────────────
 
-/** Deletes one GGUF in the models folder or the brain folder. Stops llama-server first. Does not delete the engine or the app. */
-export function deleteGguf(path: string, s: Pick<SettingsData, 'BrainModelsDir'> = { BrainModelsDir: '' }): void {
+/**
+ * Deletes one GGUF in the models folder or the brain folder. Stops llama-server first and waits for it
+ * to let go of the file. Does not delete the engine or the app.
+ */
+export async function deleteGguf(path: string, s: Pick<SettingsData, 'BrainModelsDir'> = { BrainModelsDir: '' }): Promise<void> {
   const full = resolve(path);
   const root = modelDirs(s)
     .map((d) => resolve(d))
@@ -598,8 +602,8 @@ export function deleteGguf(path: string, s: Pick<SettingsData, 'BrainModelsDir'>
   if (PROGRAM_EXE_NAMES.some((n) => existsSync(join(root, n)))) {
     throw new Error(t('рядом лежит программа, файл не удалён', 'the program is next to it, the file was not deleted'));
   }
-  stop();
-  rmSync(full, { force: true });
+  await stopAsync();
+  await removeHeld(full);
   try {
     rmSync(full + '.part', { force: true });
   } catch {
@@ -608,10 +612,10 @@ export function deleteGguf(path: string, s: Pick<SettingsData, 'BrainModelsDir'>
 }
 
 /** Removes the whole brain folder (engines and models). */
-export function deleteModel(): void {
-  stop();
+export async function deleteModel(): Promise<void> {
+  await stopAsync();
   try {
-    rmSync(dir(), { recursive: true, force: true });
+    await removeHeld(dir());
   } catch (e) {
     Log.write(`brain delete failed: ${e instanceof Error ? e.message : String(e)}`);
   }
@@ -627,6 +631,8 @@ export type LocalBrainRuntime = {
   ensureStarted(s: SettingsData, tick: (sec: number) => void, signal: AbortSignal): Promise<void>;
   /** Kills the server (fakes may omit it). */
   stop?(): void;
+  /** Kills the server and waits until its process is gone: Windows keeps the model file locked until then. */
+  stopAsync?(waitMs?: number): Promise<void>;
   /** Restart the idle delay (after a request, or when the setting changes). */
   touch?(): void;
   /** Set when Vulkan failed and the CPU engine took over. */
@@ -919,6 +925,23 @@ export class LlamaServerRuntime implements LocalBrainRuntime {
     }
   }
 
+  async stopAsync(waitMs = 5000): Promise<void> {
+    const server = this.server;
+    this.stop();
+    if (!server || server.exited) return;
+    await new Promise<void>((done) => {
+      const timer = setTimeout(done, waitMs);
+      server.proc.once('exit', () => {
+        clearTimeout(timer);
+        done();
+      });
+      if (server.exited) {
+        clearTimeout(timer);
+        done();
+      }
+    });
+  }
+
   stop(): void {
     if (this.idleTimer) clearTimeout(this.idleTimer);
     this.idleTimer = null;
@@ -990,6 +1013,35 @@ export function deviceNote(): string | null {
 /** LocalBrain.Stop: kills the server, clears the idle timer, closes the log. */
 export function stop(): void {
   activeRuntime.stop?.();
+}
+
+/** Stops the server and waits for its process to end (a few seconds at most). */
+export async function stopAsync(waitMs?: number): Promise<void> {
+  if (activeRuntime.stopAsync) await activeRuntime.stopAsync(waitMs);
+  else activeRuntime.stop?.();
+}
+
+/**
+ * Deletes a file or folder the Brain may have held open. A file closed a moment ago can stay locked on
+ * Windows for a little while (the process ending, an antivirus scan), so busy errors are retried; one
+ * that stays busy is reported in words.
+ */
+async function removeHeld(path: string): Promise<void> {
+  try {
+    await rm(path, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+  } catch (e) {
+    const code = (e as { code?: string }).code ?? '';
+    if (['EPERM', 'EBUSY', 'EACCES'].includes(code)) {
+      throw new Error(
+        t(
+          'Файл модели занят: его держит другая программа (антивирус, LM Studio, Ollama). Закройте её и попробуйте снова.',
+          'The model file is busy: another program holds it (an antivirus, LM Studio, Ollama). Close it and try again.',
+        ),
+        { cause: e },
+      );
+    }
+    throw e;
+  }
 }
 /** Live idle delay for the default runtime (set once by the app from its settings). */
 let idleSource: (() => number) | null = null;
