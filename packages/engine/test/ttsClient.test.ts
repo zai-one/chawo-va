@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { isWav, joinSounds, pcmToWav, synthesize, TtsException, ttsUrl, wavParts, type TtsTarget } from '../src/tts/ttsClient';
 import { Custom, Gemini, OpenAI, Xiaomi } from '../src/tts/ttsProviders';
 
@@ -92,6 +92,29 @@ describe('TTS client', () => {
     const speech = await synthesize(target, 'Hello team, the build is green now. Привет, всё работает.', { fetch: f.fetch });
     expect(f.calls.map((c) => c.body.input)).toEqual(['Hello team, the build is green now.', 'Привет, всё работает.']);
     expect(speech).toEqual({ audio: new Uint8Array([0xff, 0xfb, 1, 0xff, 0xfb, 1]), mime: 'audio/mpeg', pieces: 2 });
+  });
+
+  it('asks for up to three pieces at once and keeps their order', async () => {
+    const pending: { input: string; resolve: (r: Response) => void }[] = [];
+    let most = 0;
+    const slow = (async (_url: string, init: RequestInit) => {
+      const input = (JSON.parse(String(init.body)) as { input: string }).input;
+      return new Promise<Response>((resolve) => {
+        pending.push({ input, resolve });
+        most = Math.max(most, pending.length);
+      });
+    }) as unknown as typeof fetch;
+    const target: TtsTarget = { provider: OpenAI, baseUrl: OpenAI.baseUrl, key: 'sk-1', model: 'tts-1', voice: '' };
+    const run = synthesize(target, 'One two three four. Раз два три четыре. Five six seven eight. Пять шесть семь восемь.', { fetch: slow });
+    for (let answered = 0; answered < 4; answered++) {
+      await vi.waitFor(() => expect(pending.length).toBeGreaterThan(0));
+      const newest = pending.pop()!; // answers come back out of order
+      newest.resolve(new Response(new TextEncoder().encode(newest.input[0])));
+    }
+    const speech = await run;
+    expect(most).toBe(3);
+    expect(speech.pieces).toBe(4);
+    expect(new TextDecoder().decode(speech.audio)).toBe(['One', 'Раз', 'Five', 'Пять'].map((w) => w[0]).join(''));
   });
 
   it('joins MP3 pieces byte after byte and merges streamed WAVs', () => {

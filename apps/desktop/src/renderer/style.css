@@ -2,7 +2,8 @@
    (tokens.css, base.css); dark only. */
 #root { display: flex; height: 100%; }
 /* The page list (zai-brand Product UI SideNav): icon + title per page; folded to a rail of icons whose
-   titles show as tooltips. Selected is a surface, never red. Folding animates the width only. */
+   titles show as tooltips; its open width follows a drag of the right edge (--nav-width set inline).
+   Selected is a surface, never red. Folding animates the width only. */
 .nav { position: relative; z-index: 2; flex: none; width: var(--nav-width); background: var(--panel); border-right: 1px solid var(--line); padding: 12px 8px; display: flex; flex-direction: column; gap: 2px; transition: width var(--motion-base) var(--ease); }
 .nav.collapsed { width: var(--nav-rail); align-items: center; }
 .brand { display: flex; align-items: center; height: 40px; padding: 0 10px 8px; color: var(--text); }
@@ -24,6 +25,13 @@
   padding: 6px 10px; border: 1px solid var(--line-strong); border-radius: var(--radius); background: var(--overlay);
   color: var(--text); font-size: var(--text-sm); line-height: 16px; white-space: nowrap; pointer-events: none; box-shadow: var(--shadow-overlay);
 }
+/* The right edge: drag to set the width (narrow folds the list), double-click for the usual width, arrows from the keyboard. */
+.nav-edge { position: absolute; top: 0; bottom: 0; right: -4px; width: 8px; z-index: 3; cursor: col-resize; outline: none; touch-action: none; }
+.nav-edge::after { content: ''; position: absolute; top: 0; bottom: 0; left: 3px; width: 2px; background: transparent; transition: background var(--motion-base) var(--ease); }
+.nav-edge:hover::after, .nav.resizing .nav-edge::after { background: var(--line-strong); }
+.nav-edge:focus-visible::after { background: var(--focus); }
+.nav.resizing { transition: none; }
+body.nav-resizing { cursor: col-resize; user-select: none; }
 @media (prefers-reduced-motion: reduce) { .nav { transition: none; } }
 main { flex: 1; min-width: 0; padding: 24px 32px; overflow: auto; }
 .queue { border: 1px solid var(--line); border-radius: 8px; background: var(--panel); min-height: 96px; max-height: 300px; overflow: auto; margin-bottom: 12px; }

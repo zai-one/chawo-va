@@ -1,5 +1,6 @@
 // Reads text aloud through a speech service (ttsProviders). Runs in main: the renderer has no network.
-// A long text goes in pieces (splitForSpeech); the pieces come back as one sound: WAV pieces are merged
+// A long or mixed Russian/English text goes in pieces (splitByScript, splitForSpeech), up to PARALLEL
+// requests at a time; the pieces come back as one sound in their order: WAV pieces are merged
 // into one WAV, MP3 pieces are joined (MP3 frames play one after another). Speed is not sent: the player
 // changes it while playing, so one request serves every speed.
 import { t } from '@chawo/core/strings';
@@ -58,6 +59,9 @@ export function ttsUrl(target: Pick<TtsTarget, 'provider' | 'baseUrl' | 'model'>
   }
 }
 
+/** Pieces asked at once: a long or mixed text is ready sooner, and three stay under a free tier's rate limit. */
+const PARALLEL = 3;
+
 export async function synthesize(target: TtsTarget, text: string, options: SynthOptions = {}): Promise<Speech> {
   const input = speechInput(text);
   if (!input) throw new TtsException(t('нечего читать: текст пустой', 'nothing to read: the text is empty'));
@@ -65,17 +69,31 @@ export async function synthesize(target: TtsTarget, text: string, options: Synth
   if (!target.model.trim()) throw new TtsException(t('не выбрана модель', 'no model is chosen'));
   if (target.provider.needsKey && !target.key.trim()) throw new TtsException(t('нет ключа сервиса', 'the service key is missing'));
   const pieces = splitByScript(input).flatMap((part) => splitForSpeech(part, target.provider.maxChars));
-  const outer = options.signal ?? new AbortController().signal;
   const fetchImpl = options.fetch ?? fetch;
   const timeoutMs = options.timeoutMs ?? 90_000;
-  const sounds: Uint8Array[] = [];
-  for (const piece of pieces) {
-    if (outer.aborted) throw new TtsException(t('остановлено', 'stopped'));
-    sounds.push(await requestPiece(target, piece, outer, fetchImpl, timeoutMs));
-    options.onProgress?.(sounds.length, pieces.length);
+  // Pieces go PARALLEL at a time and come back in order; the first failure stops the rest.
+  const failed = new AbortController();
+  const signal = AbortSignal.any([options.signal ?? new AbortController().signal, failed.signal]);
+  const sounds: Uint8Array[] = new Array<Uint8Array>(pieces.length);
+  let next = 0;
+  let done = 0;
+  const worker = async () => {
+    while (next < pieces.length) {
+      if (signal.aborted) throw new TtsException(t('остановлено', 'stopped'));
+      const i = next++;
+      sounds[i] = await requestPiece(target, pieces[i], signal, fetchImpl, timeoutMs);
+      options.onProgress?.(++done, pieces.length);
+    }
+  };
+  try {
+    await Promise.all(Array.from({ length: Math.min(PARALLEL, pieces.length) }, worker));
+  } catch (e) {
+    failed.abort();
+    throw e;
   }
   return { ...joinSounds(sounds), pieces: pieces.length };
 }
+
 
 async function requestPiece(target: TtsTarget, text: string, outer: AbortSignal, fetchImpl: FetchLike, timeoutMs: number): Promise<Uint8Array> {
   const deadline = withTimeout(outer, timeoutMs);

@@ -1,11 +1,11 @@
 // The window: the page list on the left, the open page on the right. Dark only.
-import { useEffect, type ReactElement } from 'react';
+import { useEffect, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactElement } from 'react';
 import { invoke, chawo } from './bridge';
 import { ChawoLogo, ChawoMark } from '@chawo/ui/ChawoLogo';
 import { cx } from '@chawo/ui/cx';
 import { Icon } from '@chawo/ui/Icon';
 import { useL } from './app/i18n';
-import { isNavShortcut, navCollapsed, toggleNav } from './app/navState';
+import { isNavShortcut, NAV_MAX, NAV_MIN, NAV_RAIL, navCollapsed, navWidth, resetNavWidth, resizeNav, toggleNav } from './app/navState';
 import { currentPage, ICONS, PAGES, pageVisit, showPage, TITLES, type PageName } from './app/pages';
 import { applyFile } from './app/state';
 import { useStore } from './app/store';
@@ -66,13 +66,79 @@ function useNavShortcut(): void {
   }, []);
 }
 
+/** The right edge of the page list: a drag sets its width (narrow folds it to the rail), a double-click
+ *  brings the usual width back, the arrow keys move it from the keyboard (window splitter pattern). */
+function NavEdge({ onResizing }: { onResizing: (on: boolean) => void }) {
+  const L = useL();
+  const collapsed = useStore(navCollapsed);
+  const width = useStore(navWidth);
+  const now = collapsed ? NAV_RAIL : width;
+  const onPointerDown = (e: ReactPointerEvent<HTMLDivElement>) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    const edge = e.currentTarget;
+    const left = (edge.parentElement ?? edge).getBoundingClientRect().left;
+    edge.setPointerCapture(e.pointerId);
+    onResizing(true);
+    document.body.classList.add('nav-resizing');
+    const move = (ev: PointerEvent) => resizeNav(ev.clientX - left);
+    const up = () => {
+      edge.removeEventListener('pointermove', move);
+      edge.removeEventListener('pointerup', up);
+      edge.removeEventListener('pointercancel', up);
+      document.body.classList.remove('nav-resizing');
+      onResizing(false);
+    };
+    edge.addEventListener('pointermove', move);
+    edge.addEventListener('pointerup', up);
+    edge.addEventListener('pointercancel', up);
+  };
+  const onKeyDown = (e: ReactKeyboardEvent<HTMLDivElement>) => {
+    const step = e.shiftKey ? 64 : 16;
+    const go: Record<string, () => void> = {
+      ArrowLeft: () => resizeNav(collapsed || now - step < NAV_MIN ? 0 : now - step),
+      ArrowRight: () => resizeNav(collapsed ? NAV_MIN : now + step),
+      Home: () => resizeNav(0),
+      End: () => resizeNav(NAV_MAX),
+      Enter: toggleNav,
+    };
+    if (!go[e.key]) return;
+    e.preventDefault();
+    go[e.key]();
+  };
+  return (
+    <div
+      className="nav-edge"
+      role="separator"
+      aria-orientation="vertical"
+      aria-controls="nav"
+      aria-label={L('Ширина меню', 'Menu width')}
+      aria-valuemin={NAV_RAIL}
+      aria-valuemax={NAV_MAX}
+      aria-valuenow={now}
+      tabIndex={0}
+      title={L('Тяните, чтобы изменить ширину; двойной щелчок — обычная ширина', 'Drag to change the width; double-click for the usual width')}
+      onPointerDown={onPointerDown}
+      onDoubleClick={resetNavWidth}
+      onKeyDown={onKeyDown}
+    />
+  );
+}
+
 /** The page list: icon and title per page; folded, a rail of icons whose titles show as tooltips. */
 function Nav({ page }: { page: PageName }) {
   const L = useL();
   const collapsed = useStore(navCollapsed);
+  const width = useStore(navWidth);
+  const [resizing, setResizing] = useState(false);
   const toggleLabel = collapsed ? L('Развернуть меню', 'Expand menu') : L('Свернуть меню', 'Collapse menu');
   return (
-    <aside className={cx('nav', collapsed && 'collapsed')} id="nav" aria-label={L('Разделы', 'Sections')}>
+    <aside
+      className={cx('nav', collapsed && 'collapsed', resizing && 'resizing')}
+      id="nav"
+      aria-label={L('Разделы', 'Sections')}
+      style={{ '--nav-width': `${width}px` } as CSSProperties}
+    >
       <div className="brand">{collapsed ? <ChawoMark size={24} /> : <ChawoLogo fontSize={22} />}</div>
       {PAGES.map((p) => {
         const title = L(...TITLES[p]);
@@ -107,6 +173,7 @@ function Nav({ page }: { page: PageName }) {
           </span>
         </button>
       </div>
+      <NavEdge onResizing={setResizing} />
     </aside>
   );
 }
