@@ -63,12 +63,12 @@ try {
   const errors = [];
   page.on('console', (m) => m.type() === 'error' && errors.push(m.text()));
   page.on('pageerror', (e) => errors.push(e.message));
-  await page.waitForSelector('.nav button', { timeout: 20_000 });
+  await page.waitForSelector('.nav button[data-page]', { timeout: 20_000 });
   const info = await page.evaluate(() => ({
     secure: isSecureContext,
     worklet: typeof AudioWorkletNode,
     node: typeof (globalThis).require,
-    pages: Array.from(document.querySelectorAll('.nav button'), (b) => b.getAttribute('data-page')),
+    pages: Array.from(document.querySelectorAll('.nav button[data-page]'), (b) => b.getAttribute('data-page')),
     bg: getComputedStyle(document.body).backgroundColor,
   }));
   check('main window from chawo-app://bundle', true, page.url());

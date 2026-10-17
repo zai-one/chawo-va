@@ -1,12 +1,31 @@
 /* Page layouts of the main window. Colours, type and the shared controls come from @chawo/ui
    (tokens.css, base.css); dark only. */
 #root { display: flex; height: 100%; }
-.nav { width: var(--nav-width); background: var(--panel); border-right: 1px solid var(--line); padding: 16px 8px; display: flex; flex-direction: column; gap: 2px; }
-.brand { font-weight: 600; font-size: 18px; padding: 4px 12px 16px; color: var(--accent); }
-.nav button { all: unset; padding: 8px 12px; border-radius: 6px; cursor: pointer; color: var(--muted); }
-.nav button:hover { background: var(--line); color: var(--text); }
-.nav button.active { background: var(--line); color: var(--text); }
-main { flex: 1; padding: 24px 32px; overflow: auto; }
+/* The page list (zai-brand Product UI SideNav): icon + title per page; folded to a rail of icons whose
+   titles show as tooltips. Selected is a surface, never red. Folding animates the width only. */
+.nav { position: relative; z-index: 2; flex: none; width: var(--nav-width); background: var(--panel); border-right: 1px solid var(--line); padding: 12px 8px; display: flex; flex-direction: column; gap: 2px; transition: width var(--motion-base) var(--ease); }
+.nav.collapsed { width: var(--nav-rail); align-items: center; }
+.brand { display: flex; align-items: center; height: 40px; padding: 0 10px 8px; color: var(--text); }
+.nav.collapsed .brand { padding: 0 0 8px; justify-content: center; }
+.nav button { all: unset; box-sizing: border-box; position: relative; display: flex; align-items: center; gap: 10px; height: 36px; padding: 0 10px; border-radius: var(--radius); cursor: pointer; color: var(--text-2); white-space: nowrap; }
+.nav button svg { flex: none; }
+.nav button:hover { background: var(--panel-hover); color: var(--text); }
+.nav button.active { background: var(--selected); color: var(--text); }
+.nav button:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
+.nav .label { overflow: hidden; text-overflow: ellipsis; }
+.nav.collapsed button { width: 40px; padding: 0; justify-content: center; }
+.nav.collapsed .label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.nav-foot { margin-top: auto; padding-top: 8px; border-top: 1px solid var(--line); display: flex; flex-direction: column; align-self: stretch; }
+.nav.collapsed .nav-foot { align-items: center; }
+.nav-toggle { color: var(--muted) !important; }
+/* Tooltip of a folded item: its title (and the shortcut), on hover and keyboard focus. */
+.nav.collapsed button[data-tip]:hover::after, .nav.collapsed button[data-tip]:focus-visible::after {
+  content: attr(data-tip); position: absolute; left: calc(100% + 10px); top: 50%; transform: translateY(-50%);
+  padding: 6px 10px; border: 1px solid var(--line-strong); border-radius: var(--radius); background: var(--overlay);
+  color: var(--text); font-size: var(--text-sm); line-height: 16px; white-space: nowrap; pointer-events: none; box-shadow: var(--shadow-overlay);
+}
+@media (prefers-reduced-motion: reduce) { .nav { transition: none; } }
+main { flex: 1; min-width: 0; padding: 24px 32px; overflow: auto; }
 .queue { border: 1px solid var(--line); border-radius: 8px; background: var(--panel); min-height: 96px; max-height: 300px; overflow: auto; margin-bottom: 12px; }
 .queue .empty { padding: 32px 16px; text-align: center; }
 .item { display: grid; grid-template-columns: minmax(0, 2fr) 96px minmax(0, 3fr) auto; gap: 8px; align-items: center; padding: 6px 12px; border-bottom: 1px solid var(--line); }
@@ -34,9 +53,9 @@ main { flex: 1; padding: 24px 32px; overflow: auto; }
 .card.start .step { margin: 6px 0 0; }
 .card.phase { display: flex; align-items: center; gap: 12px; }
 .card.phase .phase-line { flex: 1; min-width: 0; }
-.card.phase button { min-width: 96px; font-weight: 600; }
+.card.phase button { min-width: 96px; font-weight: 700; }
 .hold-row { display: flex; align-items: center; gap: 16px; margin: 4px 0 0; }
-button.hold { min-width: 280px; padding: 16px 20px; border-radius: 10px; font-size: 15px; font-weight: 600; user-select: none; touch-action: none; -webkit-user-select: none; }
+button.hold { min-width: 280px; padding: 16px 20px; border-radius: 10px; font-size: 15px; font-weight: 700; user-select: none; touch-action: none; -webkit-user-select: none; }
 button.hold.pressed { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
 button.hold.busy { border-color: var(--accent); color: var(--accent); }
 .meter { flex: 1; max-width: 280px; height: 44px; display: flex; align-items: center; gap: 3px; }
@@ -44,7 +63,7 @@ button.hold.busy { border-color: var(--accent); color: var(--accent); }
 #file-url { flex: 1 1 auto; width: auto; }
 #file-url + button { flex: none; }
 .meeting .rec { margin: 0; font-variant-numeric: tabular-nums; }
-.meeting .rec .dot { color: var(--accent); }
+.meeting .rec .dot { color: var(--danger); }
 .meeting .lv { font-family: ui-monospace, monospace; letter-spacing: -1px; color: var(--accent); }
 .app-rule .card-head input { flex: 1; min-width: 0; }
 .app-rule .row { margin: 8px 0 0; }
@@ -85,7 +104,7 @@ button.hold.busy { border-color: var(--accent); color: var(--accent); }
 .call-score .score-items li { display: grid; grid-template-columns: 18px minmax(0, 1fr); column-gap: 6px; }
 .call-score .score-items li > q, .call-score .score-items li > small { grid-column: 2; overflow-wrap: anywhere; }
 .call-score .score-items q { color: var(--muted); font-style: italic; }
-.call-score .mark { font-weight: 600; text-align: center; }
+.call-score .mark { font-weight: 700; text-align: center; }
 .call-score .v-yes .mark { color: var(--verdict-yes); }
 .call-score .v-partial .mark { color: var(--verdict-partial); }
 .call-score .v-no .mark { color: var(--verdict-no); }
@@ -113,7 +132,7 @@ button.hold.busy { border-color: var(--accent); color: var(--accent); }
 .call-stats .tracker summary { display: flex; justify-content: space-between; cursor: pointer; padding: 4px 6px; border-radius: 4px; }
 .call-stats .tracker summary:hover { background: var(--panel); }
 .call-stats .tracker-count { color: var(--muted); font-variant-numeric: tabular-nums; }
-.call-stats .tracker-count.hit { color: var(--accent); font-weight: 600; }
+.call-stats .tracker-count.hit { color: var(--accent); font-weight: 700; }
 .call-stats .phrase { display: grid; grid-template-columns: 56px minmax(0, 1fr); gap: 8px; text-align: left; width: 100%; border: 0; background: transparent; color: var(--fg); padding: 4px 10px; cursor: pointer; font: inherit; }
 .call-stats .phrase:disabled { cursor: default; }
 .call-stats .phrase-time { color: var(--muted); font-variant-numeric: tabular-nums; font-size: 12px; }
@@ -130,7 +149,7 @@ button.hold.busy { border-color: var(--accent); color: var(--accent); }
 .crm-target strong { flex: 0 0 90px; }
 .crm-target input { flex: 1 1 170px; width: auto; min-width: 0; }
 .meeting .meeting-offer { margin: 0 0 10px; padding: 10px 12px; border: 1px solid var(--accent); border-radius: 8px; background: color-mix(in srgb, var(--accent) 12%, var(--bg)); }
-.meeting .meeting-offer .offer-title { margin: 0 0 4px; font-weight: 600; }
+.meeting .meeting-offer .offer-title { margin: 0 0 4px; font-weight: 700; }
 .meeting .cal-row { margin: 6px 0; gap: 8px; align-items: center; }
 .meeting .cal-row input.grow { flex: 1; min-width: 0; font: inherit; background: var(--bg); color: var(--fg); border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; }
 /* «Голос»: the «Проверить» button below the service form. */

@@ -1,13 +1,14 @@
-/* «Озвучить» next to a selection in another app: one small dark button. */
+/* «Озвучить» next to a selection in another app: one small dark button (ZAI Product UI Core, dark). */
 html, body { margin: 0; background: transparent; overflow: hidden; user-select: none; }
-body { padding: 6px; font: 12.5px/1 "Segoe UI", system-ui, sans-serif; }
+body { padding: 6px; font: 12.5px/1 "DIN Pro", "Segoe UI", system-ui, sans-serif; }
 .pill {
   display: inline-flex; align-items: center; gap: 6px; padding: 6px 10px 6px 8px;
-  background: #0A0A0A; color: #FFF3E2; border: 1px solid rgba(254, 233, 206, 0.28); border-radius: 999px;
-  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.45); cursor: pointer; font: inherit; white-space: nowrap;
+  background: #202226; color: #F5F1EB; border: 1px solid #76716A; border-radius: 999px;
+  box-shadow: 0 16px 42px rgba(0, 0, 0, 0.42); cursor: pointer; font: inherit; white-space: nowrap;
   animation: pop 100ms ease-out;
 }
-.pill:hover { border-color: #FF8A3D; background: #161616; }
-.pill svg { width: 16px; height: 16px; fill: #FF8A3D; stroke: #FF8A3D; stroke-width: 0; }
+.pill:hover { border-color: #FEE9CE; background: #2A2C31; }
+.pill:focus-visible { outline: 2px solid #FEE9CE; outline-offset: 2px; }
+.pill svg { width: 16px; height: 16px; fill: #FEE9CE; stroke: #FEE9CE; stroke-width: 0; }
 .pill .wave { fill: none; stroke-width: 1.8; stroke-linecap: round; }
 @keyframes pop { from { opacity: 0; transform: scale(0.92); } to { opacity: 1; transform: none; } }
