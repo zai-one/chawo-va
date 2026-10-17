@@ -1,7 +1,7 @@
 import { invoke } from '../bridge';
 import { createStore } from './store';
 
-export const PAGES = ['dictation', 'file', 'history', 'speech', 'dictionary', 'sales', 'brain', 'network'] as const;
+export const PAGES = ['dictation', 'file', 'history', 'speech', 'dictionary', 'sales', 'brain', 'voice', 'network'] as const;
 export type PageName = (typeof PAGES)[number];
 
 export const TITLES: Record<PageName, [string, string]> = {
@@ -12,6 +12,7 @@ export const TITLES: Record<PageName, [string, string]> = {
   dictionary: ['Словарь', 'Dictionary'],
   sales: ['Продажи', 'Sales'],
   brain: ['Мозг', 'Brain'],
+  voice: ['Голос', 'Voice'],
   network: ['Сеть', 'Network'],
 };
 

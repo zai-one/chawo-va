@@ -5,8 +5,8 @@ import { EVENT_CHANNELS, INVOKE_CHANNELS, SEND_CHANNELS } from '../src/contract'
 
 const MAIN = join(__dirname, '..', '..', '..', 'apps', 'desktop', 'src', 'main');
 
-/** Main-process modules of the main window. The overlay, sales card and decoder windows have their own channels. */
-const OWN_WINDOWS = /(overlayWindow|salesCardWindow|chromiumDecoder)\.ts$/;
+/** Main-process modules of the main window. The overlay, sales card, decoder, TTS player and «Озвучить» windows have their own channels. */
+const OWN_WINDOWS = /(overlayWindow|salesCardWindow|chromiumDecoder|playerWindow|pillWindow)\.ts$/;
 
 function sources(dir: string): { path: string; text: string }[] {
   return readdirSync(dir).flatMap((n) => {

@@ -7,6 +7,7 @@ import { TextField } from '@chawo/ui/TextField';
 import { invoke } from '../../bridge';
 import { useL } from '../../app/i18n';
 import { applyFile } from '../../app/state';
+import { SpeakButton } from '../SpeakButton';
 
 const LANG_LIST_ID = 'translate-langs';
 
@@ -47,13 +48,16 @@ export function TranslateBox({ s }: { s: FileStateDto }) {
         <Card className="result translate-card">
           <div className="card-head">
             <strong>{L('Перевод', 'Translation')}</strong>
-            {tr.path ? (
-              <Button variant="link" onClick={() => void invoke('file:reveal', tr.path!)}>
-                {L('Показать файл', 'Show file')}
-              </Button>
-            ) : (
-              <span />
-            )}
+            <span className="row inline">
+              <SpeakButton text={tr.text} />
+              {tr.path ? (
+                <Button variant="link" onClick={() => void invoke('file:reveal', tr.path!)}>
+                  {L('Показать файл', 'Show file')}
+                </Button>
+              ) : (
+                <span />
+              )}
+            </span>
           </div>
           <pre className="last-text">{tr.text}</pre>
         </Card>

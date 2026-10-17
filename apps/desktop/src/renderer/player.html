@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; media-src blob:" />
+    <link rel="stylesheet" href="player.css" />
+    <title>Chawo — озвучка</title>
+  </head>
+  <body>
+    <div id="card" class="card">
+      <div class="head" id="drag">
+        <svg class="mark" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9v6h4l5 4V5L8 9H4z" /><path class="wave" d="M16 8.5a5 5 0 0 1 0 7M18.5 6a8.5 8.5 0 0 1 0 12" /></svg>
+        <div id="title" class="title"></div>
+        <button id="close" class="icon" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" /></svg></button>
+      </div>
+      <div id="message" class="message" hidden></div>
+      <div id="controls" class="controls" hidden>
+        <button id="play" class="play" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path id="playIcon" d="M8 5v14l11-7z" /></svg></button>
+        <span id="time" class="time">0:00</span>
+        <input id="seek" class="seek" type="range" min="0" max="1000" value="0" step="1" />
+        <span id="total" class="time">0:00</span>
+        <select id="rate" class="rate"></select>
+      </div>
+      <div class="foot">
+        <button id="settings" class="link" type="button"></button>
+      </div>
+    </div>
+    <audio id="audio" preload="auto"></audio>
+    <script type="module" src="./player.ts"></script>
+  </body>
+</html>

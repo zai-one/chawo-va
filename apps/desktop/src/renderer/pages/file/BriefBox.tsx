@@ -9,6 +9,7 @@ import { invoke } from '../../bridge';
 import { useL } from '../../app/i18n';
 import { applyFile } from '../../app/state';
 import { CrmOpenButton, CrmPanelHost, CrmSettings } from './CrmPanel';
+import { SpeakButton } from '../SpeakButton';
 
 export function BriefBox({ s }: { s: FileStateDto }) {
   const L = useL();
@@ -83,6 +84,7 @@ export function BriefBox({ s }: { s: FileStateDto }) {
           <div className="card-head">
             <strong>{L('Карточка', 'Card')}</strong>
             <span className="row inline">
+              <SpeakButton text={br.text} />
               {br.path ? <CrmOpenButton /> : <span />}
               {br.path ? (
                 <Button variant="link" onClick={() => void invoke('file:reveal', br.path!)}>

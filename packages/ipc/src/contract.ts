@@ -19,8 +19,10 @@ import type { MeetingDetectResult } from '@chawo/engine/meeting/meetingDetect';
 import type { NetworkStateDto } from '@chawo/engine/network/networkPage';
 import type { OverlayState } from '@chawo/engine/overlay/overlayModel';
 import type { SalesCardState } from '@chawo/engine/sales/salesCard';
+import type { PlayerState } from '@chawo/engine/tts/playerModel';
 import type { SalesStateDto } from '@chawo/engine/sales/salesPage';
 import type { SpeechStateDto } from '@chawo/engine/speech/speechPage';
+import type { VoiceStateDto } from '@chawo/engine/tts/voicePage';
 import type { CueEventDto, FileStateDto, HotEventDto, McpStateDto, WakeWantDto } from './dto';
 
 export type * from './dto';
@@ -41,6 +43,8 @@ export type {
   SalesCardState,
   SalesStateDto,
   SpeechStateDto,
+  PlayerState,
+  VoiceStateDto,
 };
 
 /** Main window: request → answer. */
@@ -209,6 +213,21 @@ export interface InvokeMap {
   'network:check': () => NetworkStateDto;
   'network:lan': () => NetworkStateDto;
   'network:keepAwake': (on: boolean) => NetworkStateDto;
+
+  'voice:state': () => VoiceStateDto;
+  /** '' turns reading aloud off. */
+  'voice:provider': (id: string) => VoiceStateDto;
+  'voice:url': (url: string) => VoiceStateDto;
+  'voice:key': (key: string) => VoiceStateDto;
+  'voice:model': (model: string) => VoiceStateDto;
+  'voice:voice': (voice: string) => VoiceStateDto;
+  'voice:speed': (speed: number) => VoiceStateDto;
+  'voice:selection': (on: boolean) => VoiceStateDto;
+  'voice:hotkey': (vk: number) => VoiceStateDto;
+  'voice:test': () => VoiceStateDto;
+  'voice:keysLink': () => boolean;
+  /** «Озвучить» at a text in the window: reads it in the player. False when the text is empty. */
+  'voice:speak': (text: string) => boolean;
 }
 
 /** Main window: audio streamed to main, 16 kHz mono chunks from the AudioWorklets. */
@@ -235,6 +254,9 @@ export interface EventMap {
   'history:state': HistoryStateDto;
   'network:state': NetworkStateDto;
   'crm:state': CrmStateDto;
+  'voice:state': VoiceStateDto;
+  /** Main asks the window to open a page (the player's «Настройки голоса»). */
+  'app:page': string;
 }
 
 /** What overlayPreload puts on `window.chawoOverlay` in the floating pill. */
@@ -252,6 +274,28 @@ export interface SalesCardApi {
   size(width: number, height: number): void;
   /** The × button. */
   dismiss(): void;
+}
+
+/** What playerPreload puts on `window.chawoPlayer` in the TTS player. */
+export interface PlayerApi {
+  onState(listener: (state: PlayerState) => void): void;
+  /** The audio to play: bytes and their media type (played from a Blob, never fetched). */
+  onAudio(listener: (audio: Uint8Array, mime: string) => void): void;
+  size(width: number, height: number): void;
+  /** The speed was changed in the player: remembered as the default. */
+  rate(value: number): void;
+  close(): void;
+  /** «Настройки голоса»: opens the «Голос» page in the main window. */
+  settings(): void;
+}
+
+/** What pillPreload puts on `window.chawoPill`: the «Озвучить» button next to a selection. */
+export interface PillApi {
+  onState(listener: (state: { label: string }) => void): void;
+  size(width: number, height: number): void;
+  speak(): void;
+  /** The pointer left the button: main may hide it. */
+  leave(): void;
 }
 
 export type InvokeChannel = keyof InvokeMap;
@@ -312,6 +356,9 @@ export const INVOKE_CHANNELS: readonly InvokeChannel[] = keys<InvokeMap>({
   'mcp:state': true, 'mcp:enable': true, 'mcp:copy': true,
   'network:state': true, 'network:role': true, 'network:remote': true, 'network:check': true, 'network:lan': true,
   'network:keepAwake': true,
+  'voice:state': true, 'voice:provider': true, 'voice:url': true, 'voice:key': true, 'voice:model': true, 'voice:voice': true,
+  'voice:speed': true, 'voice:selection': true, 'voice:hotkey': true, 'voice:test': true, 'voice:keysLink': true,
+  'voice:speak': true,
 });
 
 export const SEND_CHANNELS: readonly SendChannel[] = keys<SendMap>({ 'dictation:pcm': true, 'wake:pcm': true, 'meeting:pcm': true });
@@ -319,5 +366,5 @@ export const SEND_CHANNELS: readonly SendChannel[] = keys<SendMap>({ 'dictation:
 export const EVENT_CHANNELS: readonly EventChannel[] = keys<EventMap>({
   'file:state': true, 'file:toast': true, 'meeting:state': true, 'speech:state': true, 'dictation:state': true,
   'dictation:cue': true, 'dictation:level': true, 'dictation:hot': true, 'wake:listen': true, 'brain:state': true,
-  'ask:state': true, 'history:state': true, 'network:state': true, 'crm:state': true,
+  'ask:state': true, 'history:state': true, 'network:state': true, 'crm:state': true, 'voice:state': true, 'app:page': true,
 });

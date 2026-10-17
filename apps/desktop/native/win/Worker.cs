@@ -110,6 +110,13 @@ internal sealed class Worker
                 _emit($"sel {cmd[1]} {(sel == null ? "-" : Program.ToB64(sel))}");
                 break;
             }
+            case "selprobe" when cmd.Length >= 2:
+            {
+                // After a mouse selection: UI Automation only. No Ctrl+C here, it would run on every drag.
+                string? sel = SelectionReader.TryGet(() => null);
+                _emit($"sel {cmd[1]} {(sel == null ? "-" : Program.ToB64(sel))}");
+                break;
+            }
             case "fg" when cmd.Length >= 2:
                 _emit($"fg {cmd[1]} {Program.ToB64(ForegroundProcess())}");
                 break;

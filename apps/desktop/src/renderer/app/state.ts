@@ -12,6 +12,7 @@ import type {
   NetworkStateDto,
   SalesStateDto,
   SpeechStateDto,
+  VoiceStateDto,
 } from '@chawo/ipc/contract';
 import { lang } from './i18n';
 import { createStore, type Store } from './store';
@@ -33,6 +34,7 @@ export const askStore = createStore<AskStateDto | null>(null);
 export const salesStore = createStore<SalesStateDto | null>(null);
 export const mcpStore = createStore<McpStateDto | null>(null);
 export const crmStore = createStore<CrmStateDto | null>(null);
+export const voiceStore = createStore<VoiceStateDto | null>(null);
 
 export const applyFile = tracked(fileStore);
 export const applyMeeting = tracked(meetingStore);
@@ -43,6 +45,7 @@ export const applyDictation = tracked(dictationStore);
 export const applyNetwork = tracked(networkStore);
 export const applyHistory = tracked(historyStore);
 export const applySales = tracked(salesStore);
+export const applyVoice = tracked(voiceStore);
 export const applyAsk = (s: AskStateDto): void => askStore.set(s);
 export const applyMcp = (s: McpStateDto): void => mcpStore.set(s);
 export const applyCrm = (s: CrmStateDto): void => crmStore.set(s);

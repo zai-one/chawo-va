@@ -136,6 +136,21 @@ export interface SettingsData {
   CleanupModel: string;
   ProviderKeys: Record<string, string>;
   ProviderModels: Record<string, string>;
+  /**
+   * «Голос» (TS port only): text-to-speech service id ('' = off: nothing is read aloud and nothing goes out).
+   * Its key lives in ProviderKeys under the same id (shared with the Brain for the same service).
+   */
+  TtsProvider: string;
+  /** Address of an own OpenAI-compatible speech server (TtsProvider 'tts-custom'). */
+  TtsEndpointUrl: string;
+  TtsModel: string;
+  TtsVoice: string;
+  /** Playback speed the player starts with, 0.5…2. */
+  TtsSpeed: number;
+  /** «Озвучить» button next to a text selected with the mouse in any app. */
+  TtsSelectionButton: boolean;
+  /** Key that reads the selection aloud (HOTKEY_CHOICES value), 0 = none. */
+  TtsHotkeyVk: number;
   CleanupPrompt: string;
   OverlayX: number | null;
   OverlayY: number | null;
@@ -212,6 +227,13 @@ export function defaults(): SettingsData {
     CleanupModel: '',
     ProviderKeys: {},
     ProviderModels: {},
+    TtsProvider: '',
+    TtsEndpointUrl: '',
+    TtsModel: '',
+    TtsVoice: '',
+    TtsSpeed: 1,
+    TtsSelectionButton: true,
+    TtsHotkeyVk: 0,
     CleanupPrompt: '',
     OverlayX: null,
     OverlayY: null,
@@ -439,6 +461,13 @@ export function fromJsonObject(raw: Record<string, unknown>): { settings: Settin
   d.CleanupEndpointUrl = asString(raw.CleanupEndpointUrl, d.CleanupEndpointUrl);
   d.CleanupModel = asString(raw.CleanupModel, d.CleanupModel);
   d.ProviderModels = parseStringMap(raw.ProviderModels);
+  d.TtsProvider = asString(raw.TtsProvider, d.TtsProvider).slice(0, 64);
+  d.TtsEndpointUrl = asString(raw.TtsEndpointUrl, d.TtsEndpointUrl).slice(0, 2048);
+  d.TtsModel = asString(raw.TtsModel, d.TtsModel).slice(0, 200);
+  d.TtsVoice = asString(raw.TtsVoice, d.TtsVoice).slice(0, 200);
+  d.TtsSpeed = Math.min(2, Math.max(0.5, typeof raw.TtsSpeed === 'number' && Number.isFinite(raw.TtsSpeed) ? raw.TtsSpeed : d.TtsSpeed));
+  d.TtsSelectionButton = asBool(raw.TtsSelectionButton, d.TtsSelectionButton);
+  d.TtsHotkeyVk = asInt(raw.TtsHotkeyVk, d.TtsHotkeyVk);
   d.CleanupPrompt = asString(raw.CleanupPrompt, d.CleanupPrompt);
   d.OverlayX = typeof raw.OverlayX === 'number' && Number.isFinite(raw.OverlayX) ? Math.trunc(raw.OverlayX) : null;
   d.OverlayY = typeof raw.OverlayY === 'number' && Number.isFinite(raw.OverlayY) ? Math.trunc(raw.OverlayY) : null;
@@ -542,6 +571,13 @@ export function toJsonObject(s: SettingsData): Record<string, unknown> {
     CleanupEndpointUrl: s.CleanupEndpointUrl,
     CleanupModel: s.CleanupModel,
     ProviderModels: s.ProviderModels,
+    TtsProvider: s.TtsProvider,
+    TtsEndpointUrl: s.TtsEndpointUrl,
+    TtsModel: s.TtsModel,
+    TtsVoice: s.TtsVoice,
+    TtsSpeed: s.TtsSpeed,
+    TtsSelectionButton: s.TtsSelectionButton,
+    TtsHotkeyVk: s.TtsHotkeyVk,
     CleanupPrompt: s.CleanupPrompt,
     OverlayX: s.OverlayX,
     OverlayY: s.OverlayY,
@@ -551,7 +587,9 @@ export function toJsonObject(s: SettingsData): Record<string, unknown> {
 }
 
 /** Provider ids whose keys may be stored (the known services and «Свой сервер»). */
-const providerIds = (s: SettingsData): string[] => [...new Set([...BRAIN_PROVIDERS.map((p) => p.id), ...Object.keys(s.ProviderKeys)])];
+// The speech service of «Голос» keeps its key here too (its id may be one the Brain does not know).
+const providerIds = (s: SettingsData): string[] =>
+  [...new Set([...BRAIN_PROVIDERS.map((p) => p.id), ...Object.keys(s.ProviderKeys), ...(s.TtsProvider ? [s.TtsProvider] : [])])];
 
 /**
  * Fills the API keys from the vault (OS credential store or secrets.json). A key found there wins over

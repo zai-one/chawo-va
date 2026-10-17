@@ -22,11 +22,11 @@ export function root(): string {
   return appRoot;
 }
 
-export const preload = (name: 'preload' | 'overlayPreload' | 'salesCardPreload' | 'decoderPreload'): string => join(root(), 'out', 'preload', `${name}.js`);
+export const preload = (name: 'preload' | 'overlayPreload' | 'salesCardPreload' | 'decoderPreload' | 'playerPreload' | 'pillPreload'): string => join(root(), 'out', 'preload', `${name}.js`);
 export const rendererDir = (): string => join(root(), 'out', 'renderer');
 export const resource = (...parts: string[]): string => join(root(), 'resources', ...parts);
 
-export type Page = 'index' | 'overlay' | 'salesCard' | 'decoder';
+export type Page = 'index' | 'overlay' | 'salesCard' | 'decoder' | 'player' | 'pill';
 
 /** `electron-vite dev` serves the pages with hot reload; the built app loads them from its own scheme. */
 export function loadPage(w: BrowserWindow, page: Page): Promise<void> {

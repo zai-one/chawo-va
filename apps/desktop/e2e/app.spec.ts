@@ -2,7 +2,7 @@
 // keyboard), and the page cannot reach Node, Electron or the network.
 import { expect, openPage, test } from './fixtures';
 
-const PAGES = ['Диктовка', 'Расшифровка файла', 'История', 'Распознавание', 'Словарь', 'Продажи', 'Мозг', 'Сеть'];
+const PAGES = ['Диктовка', 'Расшифровка файла', 'История', 'Распознавание', 'Словарь', 'Продажи', 'Мозг', 'Голос', 'Сеть'];
 
 test('starts with a dark window and the page list', async ({ app, win }) => {
   expect(await win.title()).toMatch(/Chawo/);
