@@ -8,6 +8,18 @@ describe('text for reading aloud', () => {
     expect(speechInput('а'.repeat(MAX_SPEECH_CHARS + 50))).toHaveLength(MAX_SPEECH_CHARS);
   });
 
+  it('a web selection reads as words: pictures, addresses and Markdown marks are not spelled out', () => {
+    expect(speechInput('Смотрите \uFFFC схему и релиз https://github.com/zai-one/chawo-va/releases/tag/v2.3.0.')).toBe(
+      'Смотрите схему и релиз github.com.',
+    );
+    expect(speechInput('Сайт (https://www.chawo.ai/), почта http://localhost:8080/x?a=1, конец')).toBe('Сайт (chawo.ai), почта localhost, конец');
+    expect(speechInput('## Итог\n- **Важно:** см. [руководство](https://x.org/g) и ![схема](a.png)\n* запустите `npm run build`')).toBe(
+      'Итог\nВажно: см. руководство и схема\nзапустите npm run build',
+    );
+    expect(speechInput('```\nconst a = 2 * 3;\n```')).toBe('const a = 2 * 3;');
+    expect(speechInput('\uFFFC \uFFFC')).toBe('');
+  });
+
   it('cuts long text at sentence ends, never inside a word, and loses nothing', () => {
     const sentence = 'Это предложение для проверки нарезки текста. ';
     const text = sentence.repeat(200).trim();

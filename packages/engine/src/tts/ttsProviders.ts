@@ -95,8 +95,8 @@ export const OpenRouter: TtsProvider = {
   needsKey: true,
   note: () =>
     t(
-      'Модели OpenAI и других; язык зависит от модели. Ключ тот же, что у Мозга (sk-or-…). Бесплатно и по-русски — fish-audio/s2.1-pro-free:free с пустым голосом; для бесплатных моделей OpenRouter просит разрешить в настройках приватности бесплатные эндпоинты, которые могут сохранять текст.',
-      'OpenAI and other models; the language depends on the model. Same key as the Brain (sk-or-…). Free and Russian: fish-audio/s2.1-pro-free:free with an empty voice; for free models OpenRouter asks to allow, in its privacy settings, free endpoints that may keep the text.',
+      'Модели OpenAI и других; язык зависит от модели. Ключ тот же, что у Мозга (sk-or-…). Бесплатно и по-русски — fish-audio/s2.1-pro-free:free; для бесплатных моделей OpenRouter просит разрешить в настройках приватности бесплатные эндпоинты, которые могут сохранять текст.',
+      'OpenAI and other models; the language depends on the model. Same key as the Brain (sk-or-…). Free and Russian: fish-audio/s2.1-pro-free:free; for free models OpenRouter asks to allow, in its privacy settings, free endpoints that may keep the text.',
     ),
 };
 
@@ -152,6 +152,25 @@ export const Custom: TtsProvider = {
       'Any server with an OpenAI-compatible /v1/audio/speech: openai-edge-tts (voice ru-RU-SvetlanaNeural), Piper, XTTS and others.',
     ),
 };
+
+/**
+ * Fish Audio models pick a random voice for each request that names none, so a text read in pieces
+ * changed voice from piece to piece. With the voice left empty they get this one, the voice of
+ * OpenRouter's own example request for fish-audio/s2.1-pro-free; any voice id from fish.audio works too.
+ */
+export const FISH_VOICE = 'b347db033a6549378b48d00acb0d06cd';
+
+const isFish = (model: string) => /^fish-audio\//i.test(model.trim());
+
+/** The voice sent: the chosen one; with none, a fixed one for a model that would pick anew per request; '' = the service's own. */
+export function voiceFor(model: string, voice: string): string {
+  return voice.trim() || (isFish(model) ? FISH_VOICE : '');
+}
+
+/** Voices offered under the field: a Fish model takes Fish voice ids, not the service's usual names. */
+export function voicesFor(p: TtsProvider, model: string): string[] {
+  return isFish(model) ? [FISH_VOICE] : [...p.voices];
+}
 
 export const ALL: readonly TtsProvider[] = [Xiaomi, Gemini, OpenAI, OpenRouter, OmniRoute, Groq, Custom];
 

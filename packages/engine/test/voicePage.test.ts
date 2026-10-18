@@ -3,7 +3,7 @@ import { applyLanguage } from '@chawo/core/strings';
 import { defaults, type SettingsData } from '../src/settings';
 import { pcmToWav } from '../src/tts/ttsClient';
 import { addressFor, ttsKeyChoices, voiceTarget, VoiceController } from '../src/tts/voicePage';
-import { Gemini, OmniRoute, Xiaomi } from '../src/tts/ttsProviders';
+import { FISH_VOICE, Gemini, OmniRoute, Xiaomi } from '../src/tts/ttsProviders';
 import type { Speech } from '../src/tts/ttsClient';
 
 function setup(edit: (s: SettingsData) => void = () => undefined) {
@@ -88,6 +88,24 @@ describe('«Голос» page', () => {
     ctl.setUrl('http://203.0.113.5:20128/v1');
     expect(ctl.state().warning).toMatch(/https/);
     expect(ctl.state().note).toMatch(/уходит на 203\.0\.113\.5:20128/);
+  });
+
+  it('a Fish model takes Fish voice ids: the stock voice moves along with the model, an empty voice is explained', () => {
+    const { s, ctl } = setup();
+    ctl.setProvider('openrouter');
+    expect(s.TtsVoice).toBe('alloy');
+    expect(ctl.state().voiceHint).toBe('');
+    ctl.setModel('fish-audio/s2.1-pro-free:free');
+    expect(s.TtsVoice).toBe(FISH_VOICE);
+    expect(ctl.state().voices).toEqual([FISH_VOICE]);
+    ctl.setVoice('');
+    expect(ctl.state().voiceHint).toMatch(/постоянный голос Fish/);
+    ctl.setModel('openai/gpt-4o-mini-tts-2025-12-15');
+    expect(s.TtsVoice).toBe('');
+    expect(ctl.state().voiceHint).toMatch(/без деления/);
+    ctl.setVoice('my-clone');
+    ctl.setModel('fish-audio/s2.1-pro-free:free');
+    expect(s.TtsVoice).toBe('my-clone'); // typed by hand: kept
   });
 
   it('model, voice, speed, button and key are saved; the dictation key and combos are not offered', () => {

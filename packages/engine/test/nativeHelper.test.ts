@@ -109,6 +109,19 @@ describe('NativeHelper', () => {
     expect(await c.h.readSelection()).toBeNull();
   });
 
+  it('readSelectionToSpeak: Ctrl+C after UI Automation found nothing (a browser selection across links); helper off → null', async () => {
+    const a = make({ FAKE_SEL: 'текст со ссылкой и кодом', FAKE_SEL_UIA: 'nothing' });
+    await a.h.start();
+    expect(await a.h.readSelection()).toBeNull(); // a command believes "nothing selected"
+    expect(await a.h.readSelectionToSpeak()).toBe('текст со ссылкой и кодом');
+    expect(a.logs.some((l) => l.includes('got selspeak'))).toBe(true);
+    const b = make({ FAKE_SEL: '  ' });
+    await b.h.start();
+    expect(await b.h.readSelectionToSpeak()).toBeNull();
+    const c = make({ FAKE_SEL: 'текст' });
+    expect(await c.h.readSelectionToSpeak()).toBeNull(); // not started
+  });
+
   it('readSelection: a hung app → null after the timeout, and no second read piles up behind it', async () => {
     const { h, logs } = make({ FAKE_SEL: 'HANG' });
     await h.start();

@@ -29,8 +29,12 @@ process.stdin.on('data', (c) => {
         break;
       }
       case 'copysel': out(`sel ${p[1]} ${process.env.FAKE_SEL ? b64(process.env.FAKE_SEL) : '-'}`); break;
+      case 'selspeak':
       case 'selread': {
-        const sel = process.env.FAKE_SEL;
+        // FAKE_SEL_UIA=nothing: UI Automation says "nothing selected" (a browser with the focus on a link);
+        // selread believes it, selspeak goes on to Ctrl+C and gets FAKE_SEL.
+        const blind = process.env.FAKE_SEL_UIA === 'nothing' && p[0] === 'selread';
+        const sel = blind ? '' : process.env.FAKE_SEL;
         if (sel === 'HANG') break; // a hung app: never answers
         const reply = () => out(`sel ${p[1]} ${sel ? b64(sel) : '-'}`);
         if (process.env.FAKE_SEL_DELAY) setTimeout(reply, Number(process.env.FAKE_SEL_DELAY));

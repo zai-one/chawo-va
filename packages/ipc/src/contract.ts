@@ -147,6 +147,7 @@ export interface InvokeMap {
   'dictation:insert': (mode: string) => DictationStateDto;
   'dictation:overlay': (on: boolean) => DictationStateDto;
   'dictation:cues': (on: boolean) => DictationStateDto;
+  'dictation:keepPhrase': (on: boolean) => DictationStateDto;
   'dictation:mic': (id: string) => DictationStateDto;
   'dictation:devices': (list: { id: string; label: string }[], defaultName: string) => DictationStateDto;
   'dictation:dismissStart': () => DictationStateDto;
@@ -349,7 +350,7 @@ export const INVOKE_CHANNELS: readonly InvokeChannel[] = keys<InvokeMap>({
   'sales:state': true, 'sales:setRow': true, 'sales:add': true, 'sales:remove': true, 'sales:pickFolder': true,
   'sales:clearFolder': true, 'sales:showCall': true,
   'dictation:state': true, 'dictation:mode': true, 'dictation:hotkey': true, 'dictation:insert': true, 'dictation:overlay': true,
-  'dictation:cues': true, 'dictation:mic': true, 'dictation:devices': true, 'dictation:dismissStart': true, 'dictation:start': true,
+  'dictation:cues': true, 'dictation:keepPhrase': true, 'dictation:mic': true, 'dictation:devices': true, 'dictation:dismissStart': true, 'dictation:start': true,
   'dictation:stop': true, 'dictation:cancel': true, 'dictation:micFailed': true, 'dictation:wake': true,
   'dictation:checkUpdates': true, 'wake:want': true, 'wake:micFailed': true,
   'brain:state': true, 'brain:source': true, 'brain:everyTake': true, 'brain:instruction': true, 'brain:selection': true,

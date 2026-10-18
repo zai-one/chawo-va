@@ -15,6 +15,7 @@ describe('native helper protocol', () => {
     expect(fromB64(p[5])).toBe('Привет,\nмир 👋');
     expect(encode({ kind: 'copysel', id: 2 })).toBe('copysel 2\n');
     expect(encode({ kind: 'selread', id: 9 })).toBe('selread 9\n');
+    expect(encode({ kind: 'selspeak', id: 10 })).toBe('selspeak 10\n');
     expect(encode({ kind: 'fg', id: 3 })).toBe('fg 3\n');
     expect(encode({ kind: 'quit' })).toBe('quit\n');
     expect(encode({ kind: 'ttskey', vk: 0x91 })).toBe('ttskey 145\n');

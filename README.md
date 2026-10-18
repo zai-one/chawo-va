@@ -19,10 +19,10 @@ Closing the window hides it; the app stays in the tray until **Quit**.
 
 ## Установка (2.0)
 
-С [релизов GitHub](https://github.com/zai-one/chawo-va/releases/tag/v2.3.0):
+С [релизов GitHub](https://github.com/zai-one/chawo-va/releases/tag/v2.3.1):
 
-- **Установщик** — `ChawoVoiceAssistant-2.3.0-Setup.exe` (на пользователя, папку можно сменить; удаление не трогает настройки и модели).
-- **Портативный zip** — `ChawoVoiceAssistant-2.3.0-win-x64.zip` (распаковать и запустить `ChawoVoiceAssistant.exe`).
+- **Установщик** — `ChawoVoiceAssistant-2.3.1-Setup.exe` (на пользователя, папку можно сменить; удаление не трогает настройки и модели).
+- **Портативный zip** — `ChawoVoiceAssistant-2.3.1-win-x64.zip` (распаковать и запустить `ChawoVoiceAssistant.exe`).
 
 В обоих пакетах рядом с программой лежит **`chawo-va.cmd`** — тот же CLI без отдельного Node. Веса речи и Мозга в архив не входят: приложение скачивает их при первом использовании.
 

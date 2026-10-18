@@ -80,7 +80,7 @@ export const V3_SHA256: Readonly<Record<string, string>> = {
 const MAX_FILE_BYTES = 4 * 1024 * 1024 * 1024;
 const READ_BUFFER = 1 << 16;
 const IDLE_TIMEOUT_MS = 120_000;
-const USER_AGENT = 'ChawoVoiceAssistant/2.3.0';
+const USER_AGENT = 'ChawoVoiceAssistant/2.3.1';
 
 export interface DownloadProgress {
   received: number;

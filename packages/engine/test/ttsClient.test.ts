@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { isWav, joinSounds, pcmToWav, synthesize, TtsException, ttsUrl, wavParts, type TtsTarget } from '../src/tts/ttsClient';
-import { Custom, Gemini, OpenAI, Xiaomi } from '../src/tts/ttsProviders';
+import { Custom, FISH_VOICE, Gemini, OpenAI, OpenRouter, Xiaomi } from '../src/tts/ttsProviders';
 
 interface Call {
   url: string;
@@ -88,10 +88,26 @@ describe('TTS client', () => {
 
   it('Russian and English parts are read by separate requests and joined', async () => {
     const f = fakeFetch(() => new Response(new Uint8Array([0xff, 0xfb, 1])));
-    const target: TtsTarget = { provider: OpenAI, baseUrl: OpenAI.baseUrl, key: 'sk-1', model: 'tts-1', voice: '' };
+    const target: TtsTarget = { provider: OpenAI, baseUrl: OpenAI.baseUrl, key: 'sk-1', model: 'tts-1', voice: 'alloy' };
     const speech = await synthesize(target, 'Hello team, the build is green now. Привет, всё работает.', { fetch: f.fetch });
     expect(f.calls.map((c) => c.body.input)).toEqual(['Hello team, the build is green now.', 'Привет, всё работает.']);
     expect(speech).toEqual({ audio: new Uint8Array([0xff, 0xfb, 1, 0xff, 0xfb, 1]), mime: 'audio/mpeg', pieces: 2 });
+  });
+
+  it('one voice throughout: with none chosen the text is not cut by language; a Fish model gets a fixed voice', async () => {
+    const mixed = 'Hello team, the build is green now. Привет, всё работает.';
+    const f = fakeFetch(() => new Response(new Uint8Array([0xff, 0xfb, 1])));
+    const target: TtsTarget = { provider: OpenAI, baseUrl: OpenAI.baseUrl, key: 'sk-1', model: 'tts-1', voice: '' };
+    expect((await synthesize(target, mixed, { fetch: f.fetch })).pieces).toBe(1);
+    expect(f.calls[0].body).toEqual({ model: 'tts-1', input: mixed, response_format: 'mp3' });
+
+    const fish = fakeFetch(() => new Response(new Uint8Array([0xff, 0xfb, 1])));
+    const free: TtsTarget = { provider: OpenRouter, baseUrl: OpenRouter.baseUrl, key: 'sk-or-1', model: 'fish-audio/s2.1-pro-free:free', voice: ' ' };
+    expect((await synthesize(free, mixed, { fetch: fish.fetch })).pieces).toBe(2);
+    expect(fish.calls.map((c) => c.body.voice)).toEqual([FISH_VOICE, FISH_VOICE]);
+    const own = fakeFetch(() => new Response(new Uint8Array([0xff, 0xfb, 1])));
+    await synthesize({ ...free, voice: 'abc123' }, 'Привет', { fetch: own.fetch });
+    expect(own.calls[0].body.voice).toBe('abc123');
   });
 
   it('asks for up to three pieces at once and keeps their order', async () => {
@@ -104,7 +120,7 @@ describe('TTS client', () => {
         most = Math.max(most, pending.length);
       });
     }) as unknown as typeof fetch;
-    const target: TtsTarget = { provider: OpenAI, baseUrl: OpenAI.baseUrl, key: 'sk-1', model: 'tts-1', voice: '' };
+    const target: TtsTarget = { provider: OpenAI, baseUrl: OpenAI.baseUrl, key: 'sk-1', model: 'tts-1', voice: 'alloy' };
     const run = synthesize(target, 'One two three four. Раз два три четыре. Five six seven eight. Пять шесть семь восемь.', { fetch: slow });
     for (let answered = 0; answered < 4; answered++) {
       await vi.waitFor(() => expect(pending.length).toBeGreaterThan(0));

@@ -1,13 +1,13 @@
 // Reads text aloud through a speech service (ttsProviders). Runs in main: the renderer has no network.
-// A long or mixed Russian/English text goes in pieces (splitByScript, splitForSpeech), up to PARALLEL
-// requests at a time; the pieces come back as one sound in their order: WAV pieces are merged
-// into one WAV, MP3 pieces are joined (MP3 frames play one after another). Speed is not sent: the player
-// changes it while playing, so one request serves every speed.
+// A long or mixed Russian/English text goes in pieces (splitByScript, splitForSpeech; with no voice
+// chosen only by length, see synthesize), up to PARALLEL requests at a time; the pieces come back as one
+// sound in their order: WAV pieces are merged into one WAV, MP3 pieces are joined (MP3 frames play one
+// after another). Speed is not sent: the player changes it while playing, so one request serves every speed.
 import { t } from '@chawo/core/strings';
 import * as Log from '../log';
 import { describeFailure, serverMessage, withTimeout, type FetchLike } from '../brain/speechCleanup';
 import { speechInput, splitByScript, splitForSpeech } from './speechText';
-import type { TtsProvider } from './ttsProviders';
+import { voiceFor, type TtsProvider } from './ttsProviders';
 
 export class TtsException extends Error {
   constructor(message: string) {
@@ -68,7 +68,12 @@ export async function synthesize(target: TtsTarget, text: string, options: Synth
   if (!target.baseUrl.trim()) throw new TtsException(t('не указан адрес сервера', 'the server address is not set'));
   if (!target.model.trim()) throw new TtsException(t('не выбрана модель', 'no model is chosen'));
   if (target.provider.needsKey && !target.key.trim()) throw new TtsException(t('нет ключа сервиса', 'the service key is missing'));
-  const pieces = splitByScript(input).flatMap((part) => splitForSpeech(part, target.provider.maxChars));
+  const voice = voiceFor(target.model, target.voice);
+  // With no voice the service picks one and may pick anew for each request: the text then goes in as few
+  // requests as it can (not cut where the language changes), so it is read in one voice.
+  const parts = voice ? splitByScript(input) : [input];
+  const pieces = parts.flatMap((part) => splitForSpeech(part, target.provider.maxChars));
+  const steady: TtsTarget = { ...target, voice };
   const fetchImpl = options.fetch ?? fetch;
   const timeoutMs = options.timeoutMs ?? 90_000;
   // Pieces go PARALLEL at a time and come back in order; the first failure stops the rest.
@@ -81,7 +86,7 @@ export async function synthesize(target: TtsTarget, text: string, options: Synth
     while (next < pieces.length) {
       if (signal.aborted) throw new TtsException(t('остановлено', 'stopped'));
       const i = next++;
-      sounds[i] = await requestPiece(target, pieces[i], signal, fetchImpl, timeoutMs);
+      sounds[i] = await requestPiece(steady, pieces[i], signal, fetchImpl, timeoutMs);
       options.onProgress?.(++done, pieces.length);
     }
   };

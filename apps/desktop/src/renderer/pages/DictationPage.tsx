@@ -154,6 +154,15 @@ export function DictationPage() {
             <Select options={s.insertChoices} value={s.insertMode} onChange={(v) => void invoke('dictation:insert', v).then(applyDictation)} />
           </div>
           {s.keyNote && <Hint>{s.keyNote}</Hint>}
+          {s.keepPhrase && (
+            <Check
+              data-d="keep-phrase"
+              checked={s.keepPhrase.on}
+              onChange={(on) => void invoke('dictation:keepPhrase', on).then(applyDictation)}
+              label={' ' + s.keepPhrase.label}
+              labelTitle={s.keepPhrase.tip}
+            />
+          )}
 
           <label className="block">{L('Микрофон', 'Microphone')}</label>
           <Select className="wide" options={s.micChoices} value={s.micId} onChange={(v) => void invoke('dictation:mic', v).then(applyDictation)} />

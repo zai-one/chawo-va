@@ -165,6 +165,22 @@ describe('SoundCues setting', () => {
     expect(changes).toBe(1);
     expect(ctl.state().soundCues).toBe(true);
   });
+
+  it('«Win+V» checkbox on Windows only: keeps the phrase in clipboard history, saves once', () => {
+    const s = Settings.defaults();
+    let saves = 0;
+    const take: TakeView = { phase: 'Idle', status: '', lastText: '', loading: false };
+    const hooks = { settings: () => s, save: () => void saves++, take: () => take, find: () => '/m/x' };
+    const ctl = new DictationController({ ...hooks, platform: 'win32' });
+    expect(ctl.state().keepPhrase).toMatchObject({ on: false, label: 'Сохранять фразу в журнале буфера обмена (Win+V)' });
+    expect(ctl.state().keepPhrase?.tip).toMatch(/облачный буфер.*не уходит/);
+    ctl.setKeepPhrase(true);
+    ctl.setKeepPhrase(true);
+    expect(s.CopyPhraseToClipboard).toBe(true);
+    expect(saves).toBe(1);
+    expect(ctl.state().keepPhrase?.on).toBe(true);
+    expect(new DictationController({ ...hooks, platform: 'linux' }).state().keepPhrase).toBeNull();
+  });
 });
 
 class FakeRec implements RecognizerLike {

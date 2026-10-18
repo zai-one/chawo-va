@@ -54,6 +54,8 @@ export interface DictationStateDto {
   hotkeyTitle: string;
   insertMode: InsertMode;
   insertChoices: { value: InsertMode; label: string }[];
+  /** Windows: the phrase stays in Clipboard History (Win+V); null elsewhere. */
+  keepPhrase: null | { on: boolean; label: string; tip: string };
   keyNote: string;
   showOverlay: boolean;
   overlayLabel: string;
@@ -225,6 +227,16 @@ export class DictationController {
         { value: 'Type', label: t('Печатать как с клавиатуры', 'Type like a keyboard') },
         { value: 'Paste', label: t('Через буфер обмена (Ctrl+V)', 'Through the clipboard (Ctrl+V)') },
       ],
+      keepPhrase: this.win
+        ? {
+            on: s.CopyPhraseToClipboard,
+            label: t('Сохранять фразу в журнале буфера обмена (Win+V)', 'Keep the phrase in clipboard history (Win+V)'),
+            tip: t(
+              'Надиктованное появится в Win+V, а прежнее содержимое буфера вернётся через секунду. В облачный буфер на другие устройства фраза не уходит. Если журнал буфера в Windows выключен, фраза просто остаётся в буфере.',
+              'What you dictate shows up in Win+V, and the previous clipboard comes back a second later. The phrase never goes to the cloud clipboard on other devices. With clipboard history off in Windows, the phrase just stays on the clipboard.',
+            ),
+          }
+        : null,
       keyNote: this.keyNote(gk, key),
       showOverlay: s.ShowOverlay,
       overlayLabel: t('Показывать плашку: волна и черновик текста', 'Show the pill: wave and the draft text'),
@@ -426,6 +438,14 @@ export class DictationController {
     if (client) return t('Слово «Чаво» слушается только своей моделью, а сейчас распознаёт хост из «Сети»: слово не работает.', '«Чаво» is heard only by a local model, and the host under Network does the recognition now: the word is off.');
     if (!onDisk) return t('Слово «Чаво» заработает, когда модель распознавания будет скачана.', '«Чаво» starts working once the speech model is downloaded.');
     return t('Слушаю «Чаво». Индикатор микрофона в системе будет гореть всё время.', 'Listening for «Чаво». The system microphone indicator stays on.');
+  }
+
+  setKeepPhrase(on: boolean): void {
+    const s = this.h.settings();
+    if (s.CopyPhraseToClipboard === on) return;
+    s.CopyPhraseToClipboard = on;
+    this.h.save(s);
+    this.h.changed?.();
   }
 
   setSoundCues(on: boolean): void {
