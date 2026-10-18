@@ -149,7 +149,7 @@ export function registerVoiceIpc(
   const speakSelection = () => {
     const helper = opts.helper();
     if (!helper || !Providers.byId(settings.get().TtsProvider)) return;
-    void helper.readSelection().then((text) => speak(text ?? ''));
+    void helper.readSelectionToSpeak().then((text) => speak(text ?? ''));
   };
 
   handle('voice:state', () => ctl.state());

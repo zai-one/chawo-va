@@ -5,12 +5,27 @@
 /** Longest text read at once (a selection is capped at 20 000 characters by the helper anyway). */
 export const MAX_SPEECH_CHARS = 20_000;
 
-/** Whitespace folded, invisible characters dropped; '' when nothing readable is left. */
+/** An address: its host is read, the rest is noise to the ear (a sentence end after it stays). */
+const URL_RE = /\bhttps?:\/\/(?:www\.)?([\p{L}\p{N}-]+(?:\.[\p{L}\p{N}-]+)*)(?::\d+)?(?:[/?#](?:[^\s<>"«»]*[^\s<>"«».,;:!?)\]'])?)?/giu;
+
+/**
+ * What a selection or an answer holds, as it reads aloud: invisible characters and the placeholders of
+ * pictures dropped (U+FFFC), Markdown marks dropped (a link reads as its text, a picture as its caption,
+ * no backticks, stars or heading hashes), an address as its host («github.com»), whitespace folded.
+ * '' when nothing readable is left.
+ */
 export function speechInput(text: string): string {
   return text
-    .replace(/[\u200B-\u200D\uFEFF]/g, '')
+    .replace(/[\u200B-\u200D\uFEFF\uFFFC]/g, '')
     .replace(/\r\n?/g, '\n')
+    .replace(/!\[([^\]\n]*)\]\([^)\s]*\)/g, '$1')
+    .replace(/\[([^\]\n]+)\]\([^)\s]*\)/g, '$1')
+    .replace(URL_RE, (_url, host: string) => host)
+    .replace(/`+/g, '')
+    .replace(/(\*\*|__)(?=\S)([^\n]*?\S)\1/g, '$2')
+    .replace(/^[ \t]*(?:#{1,6}|[-*•>])[ \t]+/gm, '')
     .replace(/[ \t]+/g, ' ')
+    .replace(/ ?\n ?/g, '\n')
     .replace(/\n{3,}/g, '\n\n')
     .trim()
     .slice(0, MAX_SPEECH_CHARS);

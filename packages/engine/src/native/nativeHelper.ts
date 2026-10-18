@@ -34,6 +34,8 @@ export interface SelectionReaderLike {
 
 /** WPF SelectionReader.Timeout: a hung app must not hold up the take. */
 export const SELECTION_TIMEOUT_MS = 1800;
+/** Reading aloud waits longer: UI Automation (up to 1.2 s), then Ctrl+C and the clipboard put back. */
+const SPEAK_SELECTION_TIMEOUT_MS = 3000;
 
 export type SpawnLike = (file: string, args: readonly string[]) => ChildProcess;
 
@@ -358,11 +360,24 @@ export class NativeHelper implements TextInserterLike, SelectionReaderLike {
    * that do not expose their text; terminals and spreadsheets are skipped. Null when nothing is selected,
    * the helper is gone, a previous read still hangs, or it takes longer than SELECTION_TIMEOUT_MS.
    */
-  async readSelection(timeoutMs = SELECTION_TIMEOUT_MS): Promise<string | null> {
+  readSelection(timeoutMs = SELECTION_TIMEOUT_MS): Promise<string | null> {
+    return this.selection('selread', timeoutMs);
+  }
+
+  /**
+   * The selection for the «Озвучить» key: UI Automation, then Ctrl+C (clipboard put back) whenever it
+   * gave no text — a browser selection across links, code and pictures, a spreadsheet. Terminals are
+   * skipped. Null when nothing is selected, the helper is gone, or it takes longer than timeoutMs.
+   */
+  readSelectionToSpeak(timeoutMs = SPEAK_SELECTION_TIMEOUT_MS): Promise<string | null> {
+    return this.selection('selspeak', timeoutMs);
+  }
+
+  private async selection(kind: 'selread' | 'selspeak', timeoutMs: number): Promise<string | null> {
     if (this.selectionInFlight) return null;
     let req: Promise<HelperEvent>;
     try {
-      req = this.request((id) => ({ kind: 'selread', id }), 5000);
+      req = this.request((id) => ({ kind, id }), timeoutMs + 3000);
     } catch {
       return null;
     }

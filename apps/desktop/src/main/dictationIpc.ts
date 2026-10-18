@@ -195,6 +195,10 @@ export function registerDictationIpc(
     if (typeof v === 'boolean') ctl.setSoundCues(v);
     return state();
   });
+  handle('dictation:keepPhrase', (_e, v: unknown) => {
+    if (typeof v === 'boolean') ctl.setKeepPhrase(v);
+    return state();
+  });
   handle('dictation:wake', (_e, v: unknown) => {
     if (typeof v === 'boolean') ctl.setWakeWord(v);
     // The word needs the model at hand: open it now so the first «Чаво» is answered quickly.

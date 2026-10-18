@@ -57,6 +57,7 @@ function ServiceBlock({ s }: { s: VoiceStateDto }) {
             <option key={v} value={v} />
           ))}
         </datalist>
+        {s.voiceHint && <Hint data-voice="voice-hint">{s.voiceHint}</Hint>}
       </div>
       <span>{L('Скорость', 'Speed')}</span>
       <Select

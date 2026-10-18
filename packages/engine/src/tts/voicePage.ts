@@ -24,6 +24,8 @@ export interface VoiceStateDto {
   models: string[];
   voice: string;
   voices: string[];
+  /** Under an empty voice: what the service does then ('' once a voice is chosen). */
+  voiceHint: string;
   speed: number;
   speeds: { value: number; label: string }[];
   /** Windows only: the native helper sees the selection. */
@@ -184,6 +186,13 @@ export class VoiceController {
   setModel(model: string): void {
     const s = this.s();
     s.TtsModel = model.trim().slice(0, 200);
+    // A voice offered for the other model would be refused (Fish takes voice ids, the rest names):
+    // it moves to the first one offered for this model. A voice typed by hand stays.
+    const p = this.provider;
+    if (p && (p.voices.includes(s.TtsVoice) || s.TtsVoice === Providers.FISH_VOICE)) {
+      const offered = Providers.voicesFor(p, s.TtsModel);
+      if (!offered.includes(s.TtsVoice)) s.TtsVoice = offered[0] ?? '';
+    }
     this.persist();
   }
 
@@ -280,9 +289,17 @@ export class VoiceController {
     const models = p ? [...p.models] : [];
     const model = s.TtsModel || (p?.models[0] ?? '');
     if (model && !models.includes(model)) models.unshift(model);
-    const voices = p ? [...p.voices] : [];
+    const voices = p ? Providers.voicesFor(p, model) : [];
     const voice = s.TtsVoice;
     if (voice && !voices.includes(voice)) voices.unshift(voice);
+    let voiceHint = '';
+    if (p && !voice.trim())
+      voiceHint = Providers.voiceFor(model, voice)
+        ? t('Пусто — один постоянный голос Fish. Другой голос — его id с fish.audio.', 'Empty: one fixed Fish voice. For another, paste its id from fish.audio.')
+        : t(
+            'Пусто — голос выбирает сервис, и он может меняться от запроса к запросу. Поэтому текст уходит без деления на русский и английский; выберите голос, чтобы делился.',
+            'Empty: the service picks the voice and may change it from request to request, so the text is not split into Russian and English; choose a voice to split it.',
+          );
     return {
       ru: isRussian(),
       heading: t('Голос', 'Voice'),
@@ -314,6 +331,7 @@ export class VoiceController {
       models,
       voice,
       voices,
+      voiceHint,
       speed: s.TtsSpeed,
       speeds: SPEEDS.map((v) => ({ value: v, label: `${v}×` })),
       selection: {

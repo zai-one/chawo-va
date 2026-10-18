@@ -1,9 +1,10 @@
 // Inserting text and reading a selection: port of src/App/TextInserter.cs on raw Win32.
 //
 // Default insert: put the text on the clipboard, press Ctrl+V, put the previous clipboard back. The text
-// is marked so Windows keeps it out of Clipboard History and the cloud clipboard. Alternative: Unicode
-// key events, which leave the clipboard alone; some apps (Windows 11 Notepad among them) garble fast
-// input, so characters go in small batches with a pause.
+// never goes to the cloud clipboard, and unless the user keeps phrases in Win+V (CopyPhraseToClipboard)
+// it is kept out of Clipboard History too. Alternative: Unicode key events, which leave the clipboard
+// alone; some apps (Windows 11 Notepad among them) garble fast input, so characters go in small batches
+// with a pause.
 //
 // Everything runs on one worker thread, one command at a time, which also serialises the clipboard like
 // the WPF ClipboardGate: the restore after Ctrl+V happens before the next command is taken. The thread
@@ -110,6 +111,13 @@ internal sealed class Worker
                 _emit($"sel {cmd[1]} {(sel == null ? "-" : Program.ToB64(sel))}");
                 break;
             }
+            case "selspeak" when cmd.Length >= 2:
+            {
+                // The «Озвучить» key: asked for on purpose, so Ctrl+C goes after anything UI Automation missed.
+                string? sel = SelectionReader.TryGet(CopySelection, toSpeak: true);
+                _emit($"sel {cmd[1]} {(sel == null ? "-" : Program.ToB64(sel))}");
+                break;
+            }
             case "selprobe" when cmd.Length >= 2:
             {
                 // After a mouse selection: UI Automation only. No Ctrl+C here, it would run on every drag.
@@ -138,7 +146,7 @@ internal sealed class Worker
         var result = Type(text);
         if (result != "Done" || !keep) return result;
         var saved = Snapshot();
-        if (!SetText(text, exclude: false)) return result;
+        if (!SetText(text, history: true)) return result;
         uint seq = Win32.GetClipboardSequenceNumber();
         if (restore) after = () => KeepOrRestore(saved, seq, HistorySettleMs);
         return result;
@@ -148,12 +156,12 @@ internal sealed class Worker
     {
         after = null;
         var saved = Snapshot();
-        // keep: plain text, no exclude formats, so the clipboard history service records it.
-        if (!SetText(text, exclude: !keep))
+        // keep: no history exclusion, so the clipboard history service records it.
+        if (!SetText(text, history: keep))
         {
             Program.Log("clipboard set failed, typing instead");
             var typed = Type(text);
-            if (typed == "Done" && keep && SetText(text, exclude: false) && restore)
+            if (typed == "Done" && keep && SetText(text, history: true) && restore)
             {
                 uint s = Win32.GetClipboardSequenceNumber();
                 after = () => KeepOrRestore(saved, s, HistorySettleMs);
@@ -340,20 +348,23 @@ internal sealed class Worker
         finally { Win32.CloseClipboard(); }
     }
 
-    private bool SetText(string text, bool exclude)
+    /// <summary>
+    /// The phrase as the clipboard. Windows honours these formats: it never goes to the cloud clipboard
+    /// (other devices); with <paramref name="history"/> off it is also kept out of Clipboard History (Win+V).
+    /// </summary>
+    private bool SetText(string text, bool history)
     {
         if (!Open()) return false;
         try
         {
             if (!Win32.EmptyClipboard()) return false;
             if (!Put(Win32.CF_UNICODETEXT, Encoding.Unicode.GetBytes(text + "\0"))) return false;
-            if (exclude)
+            var zero = new byte[4];
+            Put(Win32.RegisterClipboardFormat("CanUploadToCloudClipboard"), zero);
+            if (!history)
             {
-                // Windows honours these formats: no Clipboard History entry, no cloud sync.
-                var zero = new byte[4];
                 Put(Win32.RegisterClipboardFormat("ExcludeClipboardContentFromMonitorProcessing"), zero);
                 Put(Win32.RegisterClipboardFormat("CanIncludeInClipboardHistory"), zero);
-                Put(Win32.RegisterClipboardFormat("CanUploadToCloudClipboard"), zero);
             }
             return true;
         }
