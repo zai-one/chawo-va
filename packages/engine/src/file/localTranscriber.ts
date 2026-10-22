@@ -1,38 +1,95 @@
 // Local speech for files: dedicated FileJob sessions per file, so dictation keeps its own
 // recognizer. Never downloads a model. Port of App.TranscribeLocal.
+// Each file is recognized in a worker thread (fileJobWorker.ts) when the built app has one, so the
+// window stays responsive; otherwise, and when a worker cannot start here, in this thread.
 
-import { FileJob } from '@chawo/core/fileJob';
-import { progressLine } from '@chawo/core/fileParallel';
-import { Recognizer } from '@chawo/core/recognizer';
-import { t } from '@chawo/core/strings';
-import { fromRanges } from '@chawo/core/transcriptFormat';
+import { Worker } from 'node:worker_threads';
+import { isRussian, t } from '@chawo/core/strings';
+import type { TranscriptSegment } from '@chawo/core/transcriptFormat';
 import * as Log from '../log';
 import { findComplete } from '../models/speechModelStore';
 import { toCtcScript, toFileParallelism, toSpeechDeviceKind, toSpeechModelKind, type SettingsData } from '../settings';
-import { filePauses } from '../vad/vadModel';
+import { builtWorkerFile } from '../workerFile';
+import type { FileJobWorkerMessage, FileJobWorkerReply } from './fileJobWorker';
+import { runLocalJob, type LocalJobRequest } from './localJob';
 import type { FileRunnerDeps, FileTranscriber } from './fileRunner';
 
-const RATE = 16000;
+export { fileRanges, type PausesFn } from './localJob';
 
-export type PausesFn = typeof filePauses;
-
-/**
- * Pieces of a file for FileJob: Silero pauses when the file is longer than one chunk, VadEnabled is on
- * and its model is on disk, else the energy split as before. Shared by the page and `chawo-va transcribe`.
- * Never downloads the VAD model.
- */
-export async function fileRanges(
-  s: Pick<SettingsData, 'VadEnabled'>,
-  samples: Float32Array,
-  opts: { signal?: AbortSignal; onStart?: () => void; pauses?: PausesFn } = {},
-): Promise<Array<{ from: number; to: number }>> {
-  const pauses = samples.length > (Recognizer.MaxChunkSeconds + 1) * RATE
-    ? await (opts.pauses ?? filePauses)(s, samples, RATE, { signal: opts.signal, onStart: opts.onStart })
-    : undefined;
-  return Recognizer.splitRanges(samples, RATE, pauses);
+/** The worker did not start or died before its first answer: the file is recognized in this thread. */
+class WorkerUnavailable extends Error {
+  override name = 'WorkerUnavailable';
 }
 
-export function localPrepare(settings: () => SettingsData): FileRunnerDeps['prepare'] {
+/** How long a cancelled worker may take to close its sessions before it is terminated. */
+const CANCEL_GRACE_MS = 5000;
+
+/** One file in a fresh worker; it is ended when the file is done, failed or stopped. */
+export function transcribeInWorker(
+  file: string,
+  req: LocalJobRequest,
+  path: string,
+  samples: Float32Array,
+  status: (line: string, fraction?: number) => void,
+  signal: AbortSignal,
+): Promise<TranscriptSegment[]> {
+  return new Promise((resolve, reject) => {
+    if (signal.aborted) return reject(abortError());
+    let w: Worker;
+    try {
+      w = new Worker(file);
+    } catch (e) {
+      return reject(new WorkerUnavailable(e instanceof Error ? e.message : String(e)));
+    }
+    let answered = false;
+    let settled = false;
+    let grace: NodeJS.Timeout | null = null;
+    const finish = (fn: () => void) => {
+      if (settled) return;
+      settled = true;
+      signal.removeEventListener('abort', onAbort);
+      fn();
+    };
+    const end = () => {
+      if (grace) clearTimeout(grace);
+      void w.terminate().catch(() => undefined);
+    };
+    const onAbort = () => {
+      // The worker cancels its job and closes the sessions; Stop answers at once either way.
+      w.postMessage({ type: 'cancel' } satisfies FileJobWorkerMessage);
+      grace = setTimeout(end, CANCEL_GRACE_MS);
+      finish(() => reject(abortError()));
+    };
+    w.on('message', (r: FileJobWorkerReply) => {
+      answered = true;
+      if (r.type === 'status') {
+        if (!settled) status(r.line, r.fraction);
+        return;
+      }
+      end();
+      if (r.type === 'done') finish(() => resolve(r.segments));
+      else finish(() => reject(Object.assign(new Error(r.message), { name: r.name })));
+    });
+    w.on('error', (e: Error) => {
+      end();
+      finish(() => reject(answered ? e : new WorkerUnavailable(e.message)));
+    });
+    w.on('exit', (code) => {
+      if (grace) clearTimeout(grace);
+      finish(() => reject(answered ? new Error(t(`Распознавание прервалось (код ${code}).`, `Recognition stopped unexpectedly (code ${code}).`)) : new WorkerUnavailable(`exit ${code}`)));
+    });
+    signal.addEventListener('abort', onAbort, { once: true });
+    // A copy goes over (the runner keeps its samples for speakers); its buffer is moved, not cloned again.
+    const copy = samples.slice();
+    w.postMessage({ type: 'run', req, path, samples: copy, ru: isRussian() } satisfies FileJobWorkerMessage, [copy.buffer]);
+  });
+}
+
+export function localPrepare(
+  settings: () => SettingsData,
+  workerFile: () => string | null = () => builtWorkerFile('fileJobWorker.js'),
+): FileRunnerDeps['prepare'] {
+  let noWorker = false;
   return async () => {
     const s = settings();
     const kind = toSpeechModelKind(s.SpeechModel);
@@ -48,39 +105,32 @@ export function localPrepare(settings: () => SettingsData): FileRunnerDeps['prep
     }
     const transcriber: FileTranscriber = async (path, samples, status, signal) => {
       const cur = settings();
-      const job = await FileJob.open(
-        dir,
+      const req: LocalJobRequest = {
+        modelDir: dir,
         kind,
-        toSpeechDeviceKind(cur.SpeechDevice),
-        toFileParallelism(cur.FileParallelism),
-        toCtcScript(cur.CtcScript),
-      );
-      const onAbort = () => job.cancel();
-      signal.addEventListener('abort', onAbort);
-      try {
-        const plan = job.plan;
-        const planShown = t(plan.summaryRu, plan.summaryEn);
-        const ranges = await fileRanges(cur, samples, { signal, onStart: () => status(t('Ищу паузы в речи…', 'Finding pauses in speech…')) });
-        Log.write(
-          `file parallel workers=${plan.workers} batch=${plan.batchSize} intra=${plan.intraOpThreads} gpu=${plan.useGpu} device=${job.deviceActual}/${job.provider} → ${planShown}`,
-        );
-        status(progressLine(0, ranges.length, 0, 0, planShown, t));
-        const t0 = Date.now();
-        const bits = await job.run(
-          samples,
-          ranges,
-          (done, total, audioDone, wall) => status(progressLine(done, total, audioDone, wall, planShown, t)),
-          signal,
-        );
-        const wall = (Date.now() - t0) / 1000;
-        const audio = samples.length / RATE;
-        Log.write(`file local ${audio.toFixed(0)}s pieces=${ranges.length} wall=${wall.toFixed(1)}s rtf=${(wall > 0.05 ? audio / wall : 0).toFixed(2)}x <- ${path}`);
-        return fromRanges(ranges.map((r) => [r.from, r.to] as const), bits, RATE);
-      } finally {
-        signal.removeEventListener('abort', onAbort);
-        await job.dispose();
+        device: toSpeechDeviceKind(cur.SpeechDevice),
+        parallelism: toFileParallelism(cur.FileParallelism),
+        script: toCtcScript(cur.CtcScript),
+        vadEnabled: cur.VadEnabled,
+      };
+      const file = noWorker ? null : workerFile();
+      if (file) {
+        try {
+          return await transcribeInWorker(file, req, path, samples, status, signal);
+        } catch (e) {
+          if (!(e instanceof WorkerUnavailable)) throw e;
+          Log.write(`file worker unavailable, recognizing in the main thread: ${e.message}`);
+          noWorker = true;
+        }
       }
+      return runLocalJob(req, path, samples, status, signal);
     };
     return { ok: true, transcriber };
   };
+}
+
+function abortError(): Error {
+  const e = new Error('Operation canceled');
+  e.name = 'AbortError';
+  return e;
 }

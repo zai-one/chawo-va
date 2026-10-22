@@ -38,6 +38,8 @@ export interface FileEditorDto {
   sourceHint?: string;
   /** Result of the last phrase fix («Исправлено…»), empty before one. */
   note?: string;
+  /** Changes when the phrases are read again; the same number = the same phrases. */
+  rev?: number;
 }
 
 export interface FileItemDto {
@@ -51,11 +53,14 @@ export interface FileItemDto {
 export interface FileStateDto {
   items: FileItemDto[];
   status: string;
+  /** The file being transcribed: percent of the current step (null = length unknown), when it started. */
+  progress: { index: number; total: number; percent: number | null; startedAt: number } | null;
+  /** The transcription or a Brain job runs («Остановить»); downloads are not counted here. */
   busy: boolean;
   options: FileOptionsDto;
-  ffmpeg: { line: string; canDownload: boolean; installed: boolean };
-  /** «По ссылке»: yt-dlp state, where the audio is saved, whether a link is downloading. */
-  url: { line: string; canDownload: boolean; installed: boolean; managed: boolean; busy: boolean; folder: string };
+  ffmpeg: { line: string; canDownload: boolean; installed: boolean; busy: boolean };
+  /** «По ссылке»: yt-dlp state, where the audio is saved, whether a link (or yt-dlp itself) is downloading. */
+  url: { line: string; canDownload: boolean; installed: boolean; managed: boolean; busy: boolean; downloading: boolean; folder: string };
   diarization: { onDisk: boolean; ready: boolean; downloading: boolean; line: string; canDownload: boolean };
   lastOutput: string | null;
   /** «Кратко и задачи» card on the File page. */

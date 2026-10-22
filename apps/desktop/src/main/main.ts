@@ -26,6 +26,7 @@ import * as KeepAwake from './network/keepAwake';
 import { OverlayWindow } from './overlay/overlayWindow';
 import { chromiumDecode, disposeChromiumDecoder } from './chromiumDecoder';
 import { setPlatformDecoder } from '@chawo/engine/file/index';
+import { setWorkerDir } from '@chawo/engine/workerFile';
 import { filePauses, getVadRuntime } from '@chawo/engine/vad/vadModel';
 import * as Settings from '@chawo/engine/settings';
 import * as Log from '@chawo/engine/log';
@@ -37,6 +38,8 @@ import { emit } from './ipc';
 
 // Entry of the build (out/main/main.js): the only module that knows where the app root is.
 AppPaths.init(__dirname);
+// File recognition and speaker diarization run in worker threads built beside this file.
+setWorkerDir(__dirname);
 
 const APP_NAME = 'Chawo Voice Assistant';
 const BG = '#14161a';
