@@ -1,7 +1,7 @@
 {
   "name": "@chawo/desktop",
   "productName": "Chawo Voice Assistant",
-  "version": "2.3.1",
+  "version": "2.3.2",
   "description": "Chawo Voice Assistant: local dictation and file transcription (Electron).",
   "license": "LicenseRef-ZAI-ONE",
   "author": "Chawo",
