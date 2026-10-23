@@ -1,6 +1,6 @@
 {
   "name": "@chawo/engine",
-  "version": "2.3.1",
+  "version": "2.3.2",
   "private": true,
   "description": "Node services of Chawo VA shared by the app and the CLI: settings, file queue, models, Brain, network, CRM, history, MCP. No Electron.",
   "license": "LicenseRef-ZAI-ONE",

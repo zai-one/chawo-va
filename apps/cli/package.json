@@ -1,6 +1,6 @@
 {
   "name": "@chawo/cli",
-  "version": "2.3.1",
+  "version": "2.3.2",
   "private": true,
   "description": "chawo-va command line. Built into the desktop package (out/main/cli.js) and run by the same exe.",
   "license": "LicenseRef-ZAI-ONE",

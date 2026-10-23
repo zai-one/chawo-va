@@ -1,6 +1,6 @@
 {
   "name": "@chawo/ui",
-  "version": "2.3.1",
+  "version": "2.3.2",
   "private": true,
   "description": "Chawo design tokens (CSS custom properties, dark only) and the React components the app is built from.",
   "license": "LicenseRef-ZAI-ONE",
