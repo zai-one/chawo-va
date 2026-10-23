@@ -43,6 +43,8 @@ main { flex: 1; min-width: 0; padding: 24px 32px; overflow: auto; }
 .item.running .state { color: var(--accent); }
 .item.done .state { color: var(--ok); }
 .item.failed .state { color: var(--danger); }
+.run-box { margin: 0 0 var(--space-3); }
+.run-box .progress { max-width: 480px; }
 .models { display: flex; flex-direction: column; gap: 6px; margin: 6px 0 4px; }
 .model { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); }
 .model label { flex: 1; min-width: 0; }

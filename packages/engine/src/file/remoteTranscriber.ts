@@ -41,7 +41,7 @@ export function remoteTranscriber(settings: () => SettingsData, post?: RemotePos
         e.name = 'AbortError';
         throw e;
       }
-      status(t(`Кусок ${i + 1} из ${ranges.length} на хосте…`, `Piece ${i + 1} of ${ranges.length} on the host…`));
+      status(t(`Кусок ${i + 1} из ${ranges.length} на хосте…`, `Piece ${i + 1} of ${ranges.length} on the host…`), i / ranges.length);
       const { from, to } = ranges[i];
       texts.push(await send(s, wavBytes(samples.subarray(from, to), RATE), 'audio/wav', signal));
     }

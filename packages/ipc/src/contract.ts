@@ -69,6 +69,8 @@ export interface InvokeMap {
   'file:url': (url: string) => FileStateDto;
   'file:ytdlpDownload': () => FileStateDto;
   'file:diarizeDownload': () => FileStateDto;
+  /** «Отменить» in the ffmpeg / Speakers / link box. */
+  'file:cancelDownload': (kind: 'ffmpeg' | 'diarize' | 'ytdlp') => FileStateDto;
   'file:briefInstruction': (text: string) => FileStateDto;
   'file:briefTemplate': (id: string) => FileStateDto;
   'file:saveBriefTemplate': (name: string, instruction: string) => FileStateDto;
@@ -331,7 +333,7 @@ export const INVOKE_CHANNELS: readonly InvokeChannel[] = keys<InvokeMap>({
   'crm:state': true, 'crm:setConfig': true, 'crm:preview': true, 'crm:clearPreview': true, 'crm:send': true,
   'file:state': true, 'file:pick': true, 'file:add': true, 'file:remove': true, 'file:clearFinished': true, 'file:run': true,
   'file:stop': true, 'file:reveal': true, 'file:options': true, 'file:ffmpegDownload': true, 'file:url': true,
-  'file:ytdlpDownload': true, 'file:diarizeDownload': true, 'file:briefInstruction': true, 'file:briefTemplate': true,
+  'file:ytdlpDownload': true, 'file:diarizeDownload': true, 'file:cancelDownload': true, 'file:briefInstruction': true, 'file:briefTemplate': true,
   'file:saveBriefTemplate': true, 'file:deleteBriefTemplate': true, 'file:runBrief': true, 'file:scoreChecklist': true,
   'file:saveChecklist': true, 'file:deleteChecklist': true, 'file:runScore': true, 'file:callTrackers': true,
   'file:translateTarget': true, 'file:runTranslate': true, 'file:openEditor': true, 'file:editPhrase': true, 'file:mediaUrl': true,

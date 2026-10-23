@@ -112,3 +112,71 @@ describe('diarizeHook (shared by the file page and chawo-va transcribe)', () => 
     expect(said).toEqual(['Separating speakers…']);
   });
 });
+
+describe('DiarizeRuntime in a worker thread', () => {
+  const paths = { segmentation: '/m/model.onnx', embedding: '/m/e.onnx' };
+  /** A stand-in for out/main/diarizeWorker.js: answers like it, without sherpa-onnx. */
+  const fakeWorker = (body: string) => {
+    const f = join(dir, `worker-${Math.random().toString(36).slice(2)}.cjs`);
+    writeFileSync(f, `const { parentPort } = require('node:worker_threads');\nparentPort.on('message', (m) => {\n${body}\n});\n`);
+    return f;
+  };
+
+  it('diarizes in the worker; the config and samples go over, the caller keeps its samples', async () => {
+    const file = fakeWorker(
+      `parentPort.postMessage({ ok: true, spans: [{ start: 0, end: m.pcm.length / 16000, speaker: m.config.clustering.numClusters === -1 ? 3 : 0 }] });`,
+    );
+    const rt = new DiarizeRuntime(() => paths, null, undefined, () => file);
+    const pcm = new Float32Array(32000);
+    expect(await rt.run(pcm)).toEqual([{ start: 0, end: 2, speaker: 3 }]);
+    expect(pcm.length).toBe(32000);
+    // The same worker serves the next file.
+    expect(await rt.run(new Float32Array(16000))).toEqual([{ start: 0, end: 1, speaker: 3 }]);
+    rt.release();
+  });
+
+  it('a sherpa error comes back as an error (the queue notes it softly)', async () => {
+    const file = fakeWorker(`parentPort.postMessage({ ok: false, error: 'bad model' });`);
+    const rt = new DiarizeRuntime(() => paths, null, undefined, () => file);
+    await expect(rt.run(new Float32Array(1600))).rejects.toThrow('bad model');
+    rt.release();
+  });
+
+  it('Stop ends a long diarization at once: the worker is terminated, AbortError', async () => {
+    const file = fakeWorker(`/* sherpa busy for minutes */ const end = Date.now() + 60000; while (Date.now() < end) {}`);
+    const rt = new DiarizeRuntime(() => paths, null, undefined, () => file);
+    const ctrl = new AbortController();
+    const run = rt.run(new Float32Array(1600), ctrl.signal);
+    setTimeout(() => ctrl.abort(), 50);
+    const t0 = Date.now();
+    await expect(run).rejects.toMatchObject({ name: 'AbortError' });
+    expect(Date.now() - t0).toBeLessThan(5000);
+    rt.release();
+  });
+
+  it('no sherpa-onnx in the worker: falls back to this thread (no models at /m here → no spans)', async () => {
+    const file = fakeWorker(`parentPort.postMessage({ ok: false, error: 'Cannot find module', noSherpa: true });`);
+    const rt = new DiarizeRuntime(() => paths, null, undefined, () => file);
+    expect(await rt.run(new Float32Array(1600))).toEqual([]);
+    // This thread tried itself: sherpa-onnx is missing here, or it refused the made-up model paths.
+    expect(rt.error).not.toBe('');
+  });
+
+  it('a worker file that cannot start falls back the same way', async () => {
+    const rt = new DiarizeRuntime(() => paths, null, undefined, () => join(dir, 'missing-worker.js'));
+    expect(await rt.run(new Float32Array(1600))).toEqual([]);
+  });
+});
+
+describe('diarizeHook progress', () => {
+  it('shows the time spent while sherpa-onnx works (it reports no percent)', async () => {
+    const { diarizeHook } = await import('../src/diarize/diarizeRuntime');
+    const paths = { segmentation: '/m/model.onnx', embedding: '/m/e.onnx' };
+    const slow = () =>
+      new DiarizeRuntime(() => paths, () => ({ process: () => new Promise((r) => setTimeout(() => r([{ start: 0, end: 1, speaker: 0 }]), 1150)) }));
+    const said: string[] = [];
+    await diarizeHook(slow, () => 'Separating speakers…', 500)(new Float32Array(16000), (l) => said.push(l), new AbortController().signal);
+    expect(said[0]).toBe('Separating speakers…');
+    expect(said.slice(1)).toEqual(['Separating speakers… 0:00', 'Separating speakers… 0:01']);
+  });
+});

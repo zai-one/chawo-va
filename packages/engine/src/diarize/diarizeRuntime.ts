@@ -1,9 +1,13 @@
 // Runtime wrapper around sherpa-onnx OfflineSpeakerDiarization.
 // The native addon is lazy-required so unit tests run without it. The backend is injectable
 // for FakeDiarizer in fileRunner tests. Models live under userData (see diarizeModels.ts).
+// In the app the work runs in a worker thread (diarizeWorker.ts); without its file, in this thread.
 
+import { Worker } from 'node:worker_threads';
 import type { DiarSpan } from '@chawo/core/diarize';
 import * as Log from '../log';
+import { builtWorkerFile } from '../workerFile';
+import type { DiarizeWorkerReply, DiarizeWorkerRequest } from './diarizeWorker';
 import {
   DIAR_TOTAL_BYTES,
   downloadDiarizationModels,
@@ -15,7 +19,9 @@ import {
 
 export interface DiarizeBackend {
   /** Run diarization on float32 mono 16 kHz PCM in [-1, 1]. */
-  process(pcm: Float32Array): DiarSpan[];
+  process(pcm: Float32Array, signal?: AbortSignal): DiarSpan[] | Promise<DiarSpan[]>;
+  /** Frees the native object / stops the worker. */
+  dispose?(): void;
 }
 
 export type BackendFactory = (paths: DiarModelPaths) => DiarizeBackend;
@@ -46,20 +52,25 @@ export function tryLoadSherpa(): SherpaModule | null {
   }
 }
 
+/** OfflineSpeakerDiarization config, the same in this thread and in the worker. */
+function sherpaConfig(paths: DiarModelPaths): Record<string, unknown> {
+  return {
+    segmentation: {
+      pyannote: { model: paths.segmentation },
+    },
+    embedding: { model: paths.embedding },
+    clustering: {
+      numClusters: DIAR_CLUSTERING.numClusters,
+      threshold: DIAR_CLUSTERING.threshold,
+    },
+    minDurationOn: DIAR_CLUSTERING.minDurationOn,
+    minDurationOff: DIAR_CLUSTERING.minDurationOff,
+  };
+}
+
 export function sherpaBackendFactory(sherpa: SherpaModule): BackendFactory {
   return (paths) => {
-    const sd = new sherpa.OfflineSpeakerDiarization({
-      segmentation: {
-        pyannote: { model: paths.segmentation },
-      },
-      embedding: { model: paths.embedding },
-      clustering: {
-        numClusters: DIAR_CLUSTERING.numClusters,
-        threshold: DIAR_CLUSTERING.threshold,
-      },
-      minDurationOn: DIAR_CLUSTERING.minDurationOn,
-      minDurationOff: DIAR_CLUSTERING.minDurationOff,
-    });
+    const sd = new sherpa.OfflineSpeakerDiarization(sherpaConfig(paths));
     return {
       process(pcm: Float32Array): DiarSpan[] {
         const segs = sd.process(pcm);
@@ -68,6 +79,86 @@ export function sherpaBackendFactory(sherpa: SherpaModule): BackendFactory {
           end: s.end,
           speaker: s.speaker,
         }));
+      },
+    };
+  };
+}
+
+/** The worker could not start or load sherpa-onnx there: the runtime falls back to this thread. */
+class WorkerUnavailable extends Error {}
+
+/** out/main/diarizeWorker.js of the built app; null = no worker file. */
+const defaultWorkerFile = (): string | null => builtWorkerFile('diarizeWorker.js');
+
+/**
+ * Backend in a worker thread: the main thread (the window, IPC, progress) stays free while sherpa-onnx
+ * works. The worker is kept between files; Stop terminates it, the next file starts a new one.
+ */
+export function workerBackendFactory(file: string): BackendFactory {
+  return (paths) => {
+    const config = sherpaConfig(paths);
+    const key = `${paths.segmentation}|${paths.embedding}`;
+    let worker: Worker | null = null;
+    const drop = (w: Worker) => {
+      if (worker === w) worker = null;
+      void w.terminate().catch(() => undefined);
+    };
+    return {
+      process: (pcm, signal) =>
+        new Promise<DiarSpan[]>((resolve, reject) => {
+          if (signal?.aborted) return reject(abortErr());
+          let w: Worker;
+          try {
+            w = worker ?? new Worker(file);
+          } catch (e) {
+            return reject(new WorkerUnavailable(e instanceof Error ? e.message : String(e)));
+          }
+          const fresh = worker !== w;
+          worker = w;
+          // An idle worker must not keep `chawo-va transcribe` alive; a busy one must.
+          w.ref();
+          const done = () => {
+            w.off('message', onMessage);
+            w.off('error', onError);
+            w.off('exit', onExit);
+            signal?.removeEventListener('abort', onAbort);
+            w.unref();
+          };
+          const onMessage = (r: DiarizeWorkerReply) => {
+            done();
+            if (r.ok) resolve(r.spans);
+            else if (r.noSherpa) {
+              drop(w);
+              reject(new WorkerUnavailable(r.error));
+            } else reject(new Error(r.error));
+          };
+          const onError = (e: Error) => {
+            done();
+            drop(w);
+            // A worker that fails before its first answer cannot load here (path, asar): use this thread.
+            reject(fresh ? new WorkerUnavailable(e.message) : e);
+          };
+          const onExit = (code: number) => {
+            done();
+            if (worker === w) worker = null;
+            reject(fresh ? new WorkerUnavailable(`exit ${code}`) : new Error(`diarization worker exited (${code})`));
+          };
+          const onAbort = () => {
+            done();
+            drop(w);
+            reject(abortErr());
+          };
+          w.on('message', onMessage);
+          w.on('error', onError);
+          w.on('exit', onExit);
+          signal?.addEventListener('abort', onAbort, { once: true });
+          // A copy goes over (the caller keeps its samples); its buffer is moved, not cloned again.
+          const copy = pcm.slice();
+          const req: DiarizeWorkerRequest = { config, key, pcm: copy };
+          w.postMessage(req, [copy.buffer]);
+        }),
+      dispose: () => {
+        if (worker) drop(worker);
       },
     };
   };
@@ -84,10 +175,14 @@ export class DiarizeRuntime {
   private lastError = '';
   private downloadProgress = { received: 0, total: DIAR_TOTAL_BYTES, stage: '' };
 
+  /** Set when the worker cannot run here; later files diarize in this thread. */
+  private noWorker = false;
+
   constructor(
     private readonly find: () => DiarModelPaths | null = findDiarizationModels,
     private readonly create: BackendFactory | null = null,
     private readonly fetchTo?: FetchToFile,
+    private readonly workerFile: () => string | null = defaultWorkerFile,
   ) {}
 
   /** Models present on disk. */
@@ -153,12 +248,13 @@ export class DiarizeRuntime {
           signal,
           this.fetchTo,
         );
-        this.backend = null;
-        this.backendKey = '';
+        this.release();
         return paths;
       } catch (e) {
-        this.lastError = e instanceof Error ? e.message : String(e);
-        Log.write(`diarization download failed: ${this.lastError}`);
+        const msg = e instanceof Error ? e.message : String(e);
+        Log.write(`diarization download failed: ${msg}`);
+        // A cancelled download is not an error to show on the page.
+        if (!(signal?.aborted || (e instanceof Error && e.name === 'AbortError'))) this.lastError = msg;
         throw e;
       } finally {
         this.downloading = null;
@@ -176,10 +272,21 @@ export class DiarizeRuntime {
     const b = this.ensureBackend();
     if (!b) return [];
     if (signal?.aborted) throw abortErr();
-    return b.process(pcm);
+    try {
+      return await b.process(pcm, signal);
+    } catch (e) {
+      if (!(e instanceof WorkerUnavailable)) throw e;
+      Log.write(`diarization worker unavailable, running in the main thread: ${e.message}`);
+      this.noWorker = true;
+      this.release();
+      const local = this.ensureBackend();
+      if (!local) return [];
+      return local.process(pcm, signal);
+    }
   }
 
   release(): void {
+    this.backend?.dispose?.();
     this.backend = null;
     this.backendKey = '';
   }
@@ -189,7 +296,8 @@ export class DiarizeRuntime {
     if (!paths) return null;
     const key = `${paths.segmentation}|${paths.embedding}`;
     if (this.backend && this.backendKey === key) return this.backend;
-    const factory = this.create ?? defaultFactory();
+    const file = this.create || this.noWorker ? null : this.workerFile();
+    const factory = this.create ?? (file ? workerBackendFactory(file) : defaultFactory());
     if (!factory) {
       this.lastError = 'sherpa-onnx-node unavailable';
       return null;
@@ -231,17 +339,35 @@ export function getDiarizeRuntime(): DiarizeRuntime {
 /**
  * The file diarization hook (fileRunner `runDiarize`, `chawo-va transcribe`): null when the models or
  * sherpa-onnx are not there (caller notes it softly), else the spans. Never downloads.
+ * sherpa-onnx reports no progress, so the line shows the time spent: the step is alive, not hung.
  */
 export function diarizeHook(
   runtime: () => DiarizeRuntime = getDiarizeRuntime,
   statusLine: () => string = () => 'Разделяю спикеров…',
+  tickMs = 1000,
 ): (pcm: Float32Array, status: (line: string) => void, signal: AbortSignal) => Promise<DiarSpan[] | null> {
   return async (pcm, status, signal) => {
     const diar = runtime();
     if (!diar.ready) return null;
+    const t0 = Date.now();
     status(statusLine());
-    return diar.run(pcm, signal);
+    const tick = setInterval(() => status(`${statusLine()} ${elapsed(Date.now() - t0)}`), tickMs);
+    tick.unref?.();
+    try {
+      return await diar.run(pcm, signal);
+    } finally {
+      clearInterval(tick);
+    }
   };
+}
+
+/** 83_000 ms → "1:23", an hour and more → "1:02:03". */
+function elapsed(ms: number): string {
+  const s = Math.max(0, Math.floor(ms / 1000));
+  const h = Math.floor(s / 3600);
+  const mm = Math.floor((s % 3600) / 60);
+  const ss = String(s % 60).padStart(2, '0');
+  return h > 0 ? `${h}:${String(mm).padStart(2, '0')}:${ss}` : `${mm}:${ss}`;
 }
 
 /** Tests swap the app-wide runtime. */

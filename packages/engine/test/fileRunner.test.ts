@@ -1,9 +1,9 @@
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { FileQueue } from '../src/file/fileQueue';
-import { FileRunner, type FileRunnerDeps, type FileTranscriber } from '../src/file/fileRunner';
+import { FileRunner, type FileRunProgress, type FileRunnerDeps, type FileTranscriber } from '../src/file/fileRunner';
 
 let dir: string;
 beforeAll(() => {
@@ -184,6 +184,55 @@ describe('FileRunner', () => {
     await s.runner.run();
     expect(readFileSync(join(dir, 'solo.txt'), 'utf8')).toBe('first solo.wav\nsecond');
     expect(s.queue.snapshot()[0].note).toMatch(/модели не скачаны|models not downloaded/);
+  });
+
+  it('the recognized text is on disk before speakers start, so a stopped speaker step loses nothing', async () => {
+    let seen = '';
+    const s = setup({
+      options: () => ({ timestamps: false, srt: false, useBrain: false, diarize: true, brief: false }),
+      runDiarize: async (_pcm, _status, signal) => {
+        seen = readFileSync(join(dir, 'long.txt'), 'utf8');
+        // Speakers on an hour-long file: the user presses «Остановить» here.
+        return new Promise((_resolve, reject) =>
+          signal.addEventListener('abort', () => reject(Object.assign(new Error('Operation canceled'), { name: 'AbortError' }))),
+        );
+      },
+    });
+    s.queue.add([audio('long.wav')], false);
+    const run = s.runner.run();
+    await vi.waitFor(() => expect(seen).not.toBe(''));
+    s.runner.stop();
+    await run;
+    expect(seen).toBe('first long.wav\nsecond');
+    expect(readFileSync(join(dir, 'long.txt'), 'utf8')).toBe('first long.wav\nsecond');
+    expect(s.queue.snapshot()[0]).toMatchObject({ state: 'Stopped', note: expect.stringMatching(/без спикеров|without speakers/), outputPath: join(dir, 'long.txt') });
+    expect(s.queue.lastOutput).toBe(join(dir, 'long.txt'));
+  });
+
+  it('progress: percent of the current step from the transcriber, null while unknown, cleared at the end', async () => {
+    const seen: (FileRunProgress | null)[] = [];
+    let runner: FileRunner | null = null;
+    const steps: FileTranscriber = async (_p, samples, status) => {
+      status('Piece 0 of 4', 0);
+      seen.push(runner!.progress);
+      status('Piece 3 of 4', 0.75);
+      seen.push(runner!.progress);
+      status('Finding pauses');
+      seen.push(runner!.progress);
+      return [{ start: 0, end: samples.length / 16000, text: 'x' }];
+    };
+    const s = setup({ prepare: async () => ({ ok: true, transcriber: steps }), now: () => 1234 });
+    runner = s.runner;
+    s.queue.add([audio('p1.wav'), audio('p2.wav')], false);
+    expect(s.runner.progress).toBeNull();
+    await s.runner.run();
+    expect(seen.slice(0, 3)).toEqual([
+      { index: 1, total: 2, percent: 0, startedAt: 1234 },
+      { index: 1, total: 2, percent: 75, startedAt: 1234 },
+      { index: 1, total: 2, percent: null, startedAt: 1234 },
+    ]);
+    expect(seen[3]).toMatchObject({ index: 2, total: 2, percent: 0 });
+    expect(s.runner.progress).toBeNull();
   });
 
   it('diarize hook returning null notes missing models', async () => {

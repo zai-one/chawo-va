@@ -42,8 +42,12 @@ export default defineConfig({
         input: {
           main: resolve(__dirname, 'src/main/main.ts'),
           cli: resolve(repoRoot, 'apps/cli/src/cli.ts'),
+          // Worker threads, started by their built path (packages/engine/src/workerFile.ts): file
+          // recognition and speaker diarization run there, so the window's thread stays free.
+          fileJobWorker: resolve(repoRoot, 'packages/engine/src/file/fileJobWorker.ts'),
+          diarizeWorker: resolve(repoRoot, 'packages/engine/src/diarize/diarizeWorker.ts'),
         },
-        // One file per source module (out/main/<repo path>.js), entries at out/main/{main,cli}.js:
+        // One file per source module (out/main/<repo path>.js), entries at out/main/{main,cli,fileJobWorker,diarizeWorker}.js:
         // stack traces stay readable and the smoke scripts can load single modules of the built app.
         treeshake: false,
         output: { format: 'cjs', preserveModules: true, preserveModulesRoot: repoRoot, entryFileNames: '[name].js' },

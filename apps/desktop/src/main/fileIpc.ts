@@ -33,9 +33,11 @@ const PARALLELISM: readonly SettingsFileParallelism[] = ['Auto', 'Gentle1', 'Two
 export function registerFileIpc(getWindow: () => BrowserWindow | null, settings: { get: () => SettingsData }): { busy: () => boolean; enqueue: (path: string) => void } {
   const queue = new FileQueue();
   let ffmpegBusy = false;
+  /** The page's line for the link, the Brain cards and errors; the run's own line wins while it runs. */
   let ffmpegStatus = '';
+  /** ffmpeg download progress/result, shown in the ffmpeg box (downloads run alongside each other). */
+  let ffmpegLine = '';
   let diarBusy = false;
-  let diarStatus = '';
   let ffmpegAbort: AbortController | null = null;
   let diarAbort: AbortController | null = null;
   let lastBriefText = '';
@@ -92,6 +94,8 @@ export function registerFileIpc(getWindow: () => BrowserWindow | null, settings:
     return { stats: statsFor.stats, trackers: trackers.trim() ? trackers : DEFAULT_TRACKERS_TEXT, defaultTrackers: DEFAULT_TRACKERS_TEXT };
   }
 
+  /** Bumped on every rebuild: the window keeps its phrase list while the number stays the same. */
+  let editorRev = 0;
   function emptyEditor(): FileEditorDto {
     return { available: false, reason: 'missing', audioPath: null, txtPath: null, segments: [], mediaUrl: null };
   }
@@ -173,7 +177,7 @@ export function registerFileIpc(getWindow: () => BrowserWindow | null, settings:
     const focus = editorFocus || queue.lastOutput;
     if (!force && focus === editorLoadedFor) return editorCache;
     editorLoadedFor = focus;
-    editorCache = buildEditor(focus ?? null);
+    editorCache = { ...buildEditor(focus ?? null), rev: ++editorRev };
     return editorCache;
   }
 
@@ -181,18 +185,27 @@ export function registerFileIpc(getWindow: () => BrowserWindow | null, settings:
     const s = settings.get();
     const diar = getDiarizeRuntime();
     const ruLang = isRussian();
+    // Read once per state: these come from files on disk, and a long run pushes state several times a second.
+    const templates = customTemplates();
+    const checklists = customChecklists();
+    const target = MeetingBrief.target(s);
     return {
       items: queue.snapshot(),
-      status: ffmpegStatus || diarStatus || runner.status,
-      busy: runner.busy || ffmpegBusy || urlImport.busy || diarBusy || briefBusy || translateBusy || scoreBusy,
+      // While the queue runs its line (piece N of M, speakers…) is what the page shows; a download's
+      // line stays in its own box and never hides it.
+      status: runner.busy ? runner.status || ffmpegStatus : ffmpegStatus || runner.status,
+      progress: runner.progress,
+      // «Остановить» stops the transcription and the Brain jobs; downloads have their own «Отменить».
+      busy: runner.busy || urlImport.busy || briefBusy || translateBusy || scoreBusy,
       options: { timestamps: s.FileTimestamps, srt: s.FileSrt, extra: [...s.FileExtraFormats], parallelism: s.FileParallelism, diarize: s.FileDiarize, brief: s.MeetingBriefEnabled, score: s.CallScoreEnabled },
-      ffmpeg: { line: Ffmpeg.statusLine(), canDownload: Ffmpeg.canDownload(), installed: Ffmpeg.isInstalled() },
+      ffmpeg: { line: ffmpegLine || Ffmpeg.statusLine(), canDownload: Ffmpeg.canDownload(), installed: Ffmpeg.isInstalled(), busy: ffmpegBusy },
       url: {
         line: YtDlp.statusLine(),
         canDownload: YtDlp.canDownload(),
         installed: YtDlp.find() !== null,
         managed: YtDlp.isManaged(),
         busy: urlImport.busy || ytdlpBusy,
+        downloading: ytdlpBusy,
         folder: urlFolder(),
       },
       diarization: {
@@ -207,22 +220,22 @@ export function registerFileIpc(getWindow: () => BrowserWindow | null, settings:
         enabled: s.MeetingBriefEnabled,
         instruction: s.MeetingBriefInstruction,
         defaultInstruction: MeetingBrief.defaultInstruction(),
-        template: BriefTemplates.resolveInstruction(s.MeetingBriefTemplate, s.MeetingBriefInstruction, customTemplates()).id,
-        templates: BriefTemplates.allTemplates(customTemplates()).map((x) => ({ id: x.id, name: x.name, builtin: x.builtin, instruction: x.instruction })),
+        template: BriefTemplates.resolveInstruction(s.MeetingBriefTemplate, s.MeetingBriefInstruction, templates).id,
+        templates: BriefTemplates.allTemplates(templates).map((x) => ({ id: x.id, name: x.name, builtin: x.builtin, instruction: x.instruction })),
         templateNote: briefTemplateNote,
-        where: MeetingBrief.target(s) === 'None' ? '' : MeetingBrief.describe(s),
-        available: MeetingBrief.target(s) !== 'None',
+        where: target === 'None' ? '' : MeetingBrief.describe(s),
+        available: target !== 'None',
         text: lastBriefText,
         path: lastBriefPath,
         busy: briefBusy,
       },
       score: {
         enabled: s.CallScoreEnabled,
-        checklist: checklistFor(s).id,
-        checklists: CallScore.allChecklists(customChecklists()).map((x) => ({ id: x.id, name: x.name, builtin: x.builtin, items: x.items })),
+        checklist: CallScore.resolveChecklist(s.CallScoreChecklist, checklists).id,
+        checklists: CallScore.allChecklists(checklists).map((x) => ({ id: x.id, name: x.name, builtin: x.builtin, items: x.items })),
         note: scoreNote,
-        where: MeetingBrief.target(s) === 'None' ? '' : MeetingBrief.describe(s),
-        available: MeetingBrief.target(s) !== 'None',
+        where: target === 'None' ? '' : MeetingBrief.describe(s),
+        available: target !== 'None',
         result: lastScore,
         path: lastScorePath,
         busy: scoreBusy,
@@ -242,14 +255,15 @@ export function registerFileIpc(getWindow: () => BrowserWindow | null, settings:
     };
   };
 
-  // Status pushes during a long file come several times a second; coalesce them.
+  // Status pushes during a long file come many times a second; the window gets at most four a second,
+  // each one a full page state (it re-renders the page), so the run does not make the window lag.
   let pushTimer: NodeJS.Timeout | null = null;
   const push = () => {
     if (pushTimer) return;
     pushTimer = setTimeout(() => {
       pushTimer = null;
       emit(getWindow(), 'file:state', state());
-    }, 50);
+    }, 250);
   };
 
   const local = localPrepare(settings.get);
@@ -270,8 +284,8 @@ export function registerFileIpc(getWindow: () => BrowserWindow | null, settings:
       };
     },
     status: () => {
-      // The queue speaks again: its line replaces the last download/ffmpeg line.
-      if (!urlImport.busy && !ffmpegBusy && !ytdlpBusy) ffmpegStatus = '';
+      // The queue speaks again: its line replaces the last link/Brain line.
+      if (!urlImport.busy && !ytdlpBusy) ffmpegStatus = '';
       push();
     },
     notifyDone: (title, body, _ok, last) => {
@@ -447,7 +461,11 @@ export function registerFileIpc(getWindow: () => BrowserWindow | null, settings:
   });
 
   handle('file:run', () => {
-    if (ffmpegBusy) return state();
+    if (ffmpegBusy) {
+      // ffmpeg is being replaced: decoding could pick a half-written file.
+      ffmpegStatus = t('Сейчас скачивается ffmpeg — нажмите «Расшифровать», когда он будет готов.', 'ffmpeg is downloading — press Transcribe when it is ready.');
+      return state();
+    }
     ffmpegStatus = '';
     briefCloudOk = null;
     scoreCloudOk = null;
@@ -458,9 +476,6 @@ export function registerFileIpc(getWindow: () => BrowserWindow | null, settings:
   handle('file:stop', () => {
     runner.stop();
     urlImport.stop();
-    ffmpegAbort?.abort();
-    ytdlpAbort?.abort();
-    diarAbort?.abort();
     briefAbort?.abort();
     translateAbort?.abort();
     scoreAbort?.abort();
@@ -489,17 +504,20 @@ export function registerFileIpc(getWindow: () => BrowserWindow | null, settings:
     return state();
   });
 
+  // Downloads (ffmpeg, speaker models, yt-dlp) run side by side, each with its line in its own box.
   handle('file:ffmpegDownload', () => {
-    if (runner.busy || ffmpegBusy || urlImport.busy || ytdlpBusy || !Ffmpeg.canDownload()) return state();
+    // A running decode may hold the old ffmpeg open; the page disables the button meanwhile.
+    if (ffmpegBusy || runner.busy || urlImport.busy || !Ffmpeg.canDownload()) return state();
     ffmpegBusy = true;
     ffmpegAbort = new AbortController();
-    ffmpegStatus = t('Скачиваю ffmpeg…', 'Downloading ffmpeg…');
+    const signal = ffmpegAbort.signal;
+    ffmpegLine = t('Скачиваю ffmpeg…', 'Downloading ffmpeg…');
     void Ffmpeg.downloadAsync((line) => {
-      ffmpegStatus = line;
+      ffmpegLine = line;
       push();
-    }, ffmpegAbort.signal)
-      .then((p) => (ffmpegStatus = t(`ffmpeg готов: ${p}`, `ffmpeg ready: ${p}`)))
-      .catch((e) => (ffmpegStatus = t(`ffmpeg не скачался: ${(e as Error).message}`, `ffmpeg download failed: ${(e as Error).message}`)))
+    }, signal)
+      .then((p) => (ffmpegLine = t(`ffmpeg готов: ${p}`, `ffmpeg ready: ${p}`)))
+      .catch((e) => (ffmpegLine = signal.aborted ? t('Скачивание ffmpeg отменено.', 'ffmpeg download cancelled.') : t(`ffmpeg не скачался: ${(e as Error).message}`, `ffmpeg download failed: ${(e as Error).message}`)))
       .finally(() => {
         ffmpegBusy = false;
         ffmpegAbort = null;
@@ -507,27 +525,28 @@ export function registerFileIpc(getWindow: () => BrowserWindow | null, settings:
       });
     return state();
   });
+  // The models land in place only when complete (diarizeModels renames the folder), so a run going on
+  // meanwhile just does without speakers until they are there. Progress and errors: the Speakers box.
   handle('file:diarizeDownload', () => {
     const diar = getDiarizeRuntime();
-    if (runner.busy || ffmpegBusy || urlImport.busy || ytdlpBusy || diarBusy || diar.onDisk) return state();
+    if (diarBusy || diar.onDisk || diar.isDownloading) return state();
     diarBusy = true;
     diarAbort = new AbortController();
-    diarStatus = t('Скачиваю модели спикеров…', 'Downloading speaker models…');
     void diar
-      .download(diarAbort.signal, () => {
-        diarStatus = isRussian() ? diar.statusRu() : diar.statusEn();
-        push();
-      })
-      .then(() => (diarStatus = t('Модели спикеров готовы.', 'Speaker models are ready.')))
-      .catch((e) => {
-        if ((e as Error)?.name === 'AbortError') diarStatus = t('Скачивание спикеров отменено.', 'Speaker download cancelled.');
-        else diarStatus = t(`Модели спикеров не скачались: ${(e as Error).message}`, `Speaker models failed: ${(e as Error).message}`);
-      })
+      .download(diarAbort.signal, () => push())
+      .catch(() => undefined)
       .finally(() => {
         diarBusy = false;
         diarAbort = null;
         push();
       });
+    return state();
+  });
+
+  handle('file:cancelDownload', (_e, kind: unknown) => {
+    if (kind === 'ffmpeg') ffmpegAbort?.abort();
+    else if (kind === 'diarize') diarAbort?.abort();
+    else if (kind === 'ytdlp') ytdlpAbort?.abort();
     return state();
   });
 

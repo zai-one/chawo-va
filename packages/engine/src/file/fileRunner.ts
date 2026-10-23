@@ -36,13 +36,26 @@ export interface FileRunOptions {
   postScript?: string | null;
 }
 
-/** Turns 16 kHz samples into segments. status() shows a progress line for the current file. */
+/**
+ * Turns 16 kHz samples into segments. status() shows a progress line for the current file; `fraction`
+ * (0..1) drives the progress bar, absent while the step's length is unknown.
+ */
 export type FileTranscriber = (
   path: string,
   samples16k: Float32Array,
-  status: (line: string) => void,
+  status: (line: string, fraction?: number) => void,
   signal: AbortSignal,
 ) => Promise<TranscriptSegment[]>;
+
+/** The file being worked on, for the progress bar: percent of the current step, null = unknown length. */
+export interface FileRunProgress {
+  /** 1-based number of the file in this run, and how many there are (grows when files are added). */
+  index: number;
+  total: number;
+  percent: number | null;
+  /** Date.now() when this file started, so the page can show the elapsed time. */
+  startedAt: number;
+}
 
 /**
  * Optional Brain post-edit after the raw .txt is written.
@@ -116,6 +129,9 @@ const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
 export class FileRunner {
   private ctrl: AbortController | null = null;
   private lastStatus = '';
+  private cur: FileRunProgress | null = null;
+  /** The .txt written before speakers for the running file; null until then. */
+  private savedEarly: string | null = null;
 
   constructor(private readonly d: FileRunnerDeps) {}
 
@@ -127,8 +143,14 @@ export class FileRunner {
     return this.lastStatus;
   }
 
-  private say(line: string): void {
+  /** The running file's step; null between files and when idle. */
+  get progress(): FileRunProgress | null {
+    return this.cur ? { ...this.cur } : null;
+  }
+
+  private say(line: string, fraction?: number): void {
     this.lastStatus = line;
+    if (this.cur) this.cur.percent = fraction === undefined ? null : Math.min(100, Math.max(0, fraction * 100));
     this.d.status(line, this.busy);
   }
 
@@ -178,6 +200,7 @@ export class FileRunner {
       }
     } finally {
       this.ctrl = null;
+      this.cur = null;
       this.d.status(this.lastStatus, false);
     }
   }
@@ -198,6 +221,8 @@ export class FileRunner {
       const index = ok + fail + 1;
       const total = index + q.queuedCount;
       const prefix = total > 1 ? t(`Файл ${index} из ${total}: `, `File ${index} of ${total}: `) : '';
+      this.cur = { index, total, percent: null, startedAt: now() };
+      this.savedEarly = null;
       try {
         let preloaded: Promise<Float32Array> | null = null;
         if (ahead) {
@@ -217,7 +242,11 @@ export class FileRunner {
         lastOk = outputPath(item.path);
         q.finish(item.id, 'Done', note, lastOk);
       } catch (e) {
-        if (isAbort(e, signal)) throw e;
+        if (isAbort(e, signal)) {
+          // Stopped while speakers were being separated: the text is there, the row says so and opens it.
+          if (this.savedEarly) q.finish(item.id, 'Stopped', t('остановлено — текст сохранён без спикеров', 'stopped — text saved without speakers'), this.savedEarly);
+          throw e;
+        }
         const fatal = this.d.fatal?.(e) ?? null;
         if (fatal !== null) {
           q.finish(item.id, 'Failed', fatal);
@@ -228,6 +257,7 @@ export class FileRunner {
         q.finish(item.id, 'Failed', message(e));
         this.say(prefix + t(`пропуск — ${message(e)}`, `skipped — ${message(e)}`));
       }
+      this.cur = null;
     }
     if (ok + fail > 1) {
       const tail = lastOk ? t(` Последний текст: ${lastOk}`, ` Last text: ${lastOk}`) : '';
@@ -270,11 +300,15 @@ export class FileRunner {
     if (signal.aborted) throw abortError();
     if (samples.length === 0) throw new Error(t('В файле нет звука.', 'The file has no audio.'));
 
-    let segments = await tr(item.path, samples, (line) => this.say(prefix + line), signal);
+    let segments = await tr(item.path, samples, (line, fraction) => this.say(prefix + line, fraction), signal);
     if (signal.aborted) throw abortError();
 
     const notes = [clock(samples.length / 16000)];
     if (opts.diarize) {
+      // Speakers on a long file take minutes: the recognized text is on disk first, so nothing is lost
+      // if that step is stopped or the app is closed. The full .txt below replaces it.
+      writeFileSync(out, toTxt(segments, opts.timestamps), 'utf8');
+      this.savedEarly = out;
       const r = await applyDiarization(segments, samples, this.d.runDiarize, (line) => this.say(prefix + line), signal, item.path);
       segments = r.segments;
       notes.push(r.note);

@@ -36,7 +36,20 @@ export const mcpStore = createStore<McpStateDto | null>(null);
 export const crmStore = createStore<CrmStateDto | null>(null);
 export const voiceStore = createStore<VoiceStateDto | null>(null);
 
-export const applyFile = tracked(fileStore);
+/**
+ * A long run pushes the file state several times a second. The phrase list (and its stats) is kept as the
+ * same object while main says it did not change, so the page does not rebuild thousands of rows each time.
+ */
+export const applyFile = (next: FileStateDto): void => {
+  const prev = fileStore.get();
+  if (prev && next.editor.rev !== undefined && prev.editor.rev === next.editor.rev) {
+    const editor = prev.editor.note === next.editor.note ? prev.editor : { ...prev.editor, note: next.editor.note };
+    const same = prev.callStats.trackers === next.callStats.trackers && prev.callStats.defaultTrackers === next.callStats.defaultTrackers;
+    next = { ...next, editor, callStats: same ? prev.callStats : next.callStats };
+  }
+  fileStore.set(next);
+  lang.set(next.ru);
+};
 export const applyMeeting = tracked(meetingStore);
 export const applySpeech = tracked(speechStore);
 export const applyDict = tracked(dictStore);
