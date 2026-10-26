@@ -29,7 +29,7 @@
     "check:fuses": "node scripts/check-fuses.mjs"
   },
   "dependencies": {
-    "@napi-rs/keyring": "^2.1.1",
+    "@napi-rs/keyring": "^2.1.2",
     "onnxruntime-node": "^1.30.0",
     "opus-decoder": "^0.7.12",
     "sherpa-onnx-node": "^1.13.8"

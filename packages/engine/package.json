@@ -13,7 +13,7 @@
   },
   "dependencies": {
     "@chawo/core": "workspace:*",
-    "@napi-rs/keyring": "^2.1.1",
+    "@napi-rs/keyring": "^2.1.2",
     "onnxruntime-node": "^1.30.0",
     "sherpa-onnx-node": "^1.13.8"
   },
