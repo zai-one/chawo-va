@@ -12,7 +12,7 @@
     "typecheck": "tsc -p tsconfig.json"
   },
   "dependencies": {
-    "onnxruntime-node": "^1.30.0",
+    "onnxruntime-node": "^1.31.1",
     "opus-decoder": "^0.7.12"
   }
 }
